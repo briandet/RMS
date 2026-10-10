@@ -449,42 +449,59 @@ impl Server {
         player.state.lock().power = on;
         player.prefs.set("power", json!(on as i32));
         let ctrl = player.controller();
+        let resume = player.prefs.get_str("powerOnResume");
         if on {
             player.audio_outputs_enable(true);
-            let resume = player.prefs.get_str("powerOnResume");
-            let was_playing = player.prefs.get_i64("playingAtPowerOff") != 0;
             let mut c = ctrl.lock();
             c.player_active(player);
-            if !noplay
-                && was_playing
-                && (resume.contains("PlayOn")
-                    || resume.contains("ResetPlayOn")
-                    || resume.contains("PauseOn") && false)
-            {
-                if c.is_paused() {
-                    c.resume(None);
-                } else if c.is_stopped() && !c.playlist.is_empty() {
-                    let idx = c.playlist.current;
-                    c.play(Some(idx), None, None);
+            // `Player::resumeOnPower`: e.g. "PauseOff-PlayOn", "StopOff-ResetPlayOn"
+            let resume_on = resume
+                .split_once('-')
+                .map(|(_, on)| on.trim_end_matches("On").to_string())
+                .unwrap_or_default();
+            if !noplay && !c.is_playing(false) {
+                if resume_on.contains("Reset") && !c.playlist.is_empty() {
+                    c.reset_song_queue(Some(0));
+                }
+                if resume_on.contains("Play")
+                    && !c.playlist.is_empty()
+                    && player.prefs.get_i64("playingAtPowerOff") != 0
+                {
+                    if c.is_paused() {
+                        c.resume(None);
+                    } else {
+                        let idx = c.playing_song_index().min(c.playlist.len() - 1);
+                        c.play(Some(idx), None, None);
+                    }
+                    player.prefs.set("playingAtPowerOff", json!(0));
                 }
             }
         } else {
             {
                 let mut c = ctrl.lock();
-                let playing = c.is_playing(false);
-                player.prefs.set("playingAtPowerOff", json!(playing as i32));
-                let resume = player.prefs.get_str("powerOnResume");
-                if playing && resume.starts_with("PauseOff") && c.active_players().len() == 1 {
-                    c.pause();
-                } else if c.active_players().len() == 1 && c.is_active(player.id) {
-                    c.stop();
+                // `Player::power`: only leave the group running if other members stay on
+                let just_unsync = c
+                    .all_players()
+                    .iter()
+                    .any(|o| o.id != player.id && o.power() && !o.prefs.get_bool("syncPower"));
+                if just_unsync {
+                    c.player_inactive(player);
+                    player.prefs.set("playingAtPowerOff", json!(0));
+                } else {
+                    let playing = c.is_playing(true);
+                    player.prefs.set("playingAtPowerOff", json!(playing as i32));
+                    let resume_off = resume
+                        .split_once("Off")
+                        .map(|(a, _)| a.to_string())
+                        .unwrap_or_default();
+                    if playing && resume_off == "Pause" {
+                        c.pause();
+                    } else if !(c.is_paused() && resume_off == "Pause") {
+                        c.stop();
+                    }
                 }
-                c.player_inactive(player);
             }
-            {
-                let mut s = player.state.lock();
-                s.sleep_time = 0.0;
-            }
+            player.state.lock().sleep_time = 0.0;
             player.audio_outputs_enable(false);
         }
         // syncPower: power the rest of the group too

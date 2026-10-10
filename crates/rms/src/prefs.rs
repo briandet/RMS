@@ -162,7 +162,7 @@ pub fn player_defaults() -> PrefMap {
         ("screensavertimeout", json!(30)),
         ("scrollMode", json!(0)),
         ("doublesize", json!(0)),
-        ("powerOnResume", json!("PauseOff-NoneOn")),
+        ("powerOnResume", json!("PauseOff-PlayOn")),
         ("startDelay", json!(0)),
         ("lameQuality", json!(9)),
         ("mp3SilencePrelude", json!(0)),
