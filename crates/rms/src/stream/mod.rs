@@ -8,6 +8,7 @@
 //! sample-rate limits, passthrough when possible).
 
 pub mod remote;
+pub mod shared;
 pub mod source;
 
 use crate::player::song::{Song, TrackInfo};
@@ -49,6 +50,8 @@ pub struct StreamSpec {
     pub format: String,
     /// Song id this stream belongs to (for end-of-stream accounting).
     pub song_id: u64,
+    /// The sync group's single read of the source, when several players get this stream.
+    pub shared: Option<Arc<shared::SharedSource>>,
 }
 
 impl StreamSpec {
@@ -219,12 +222,16 @@ pub fn open_song(
 
     if crate::plugins::spotify::is_spotify(&track.url) {
         use crate::plugins::spotify::stream::{CHANNELS, SAMPLE_RATE, SAMPLE_SIZE};
+        // FLAC when every player of the group has it: lossless at about half the bytes
+        let flac = supported.iter().any(|f| f == "flc");
+        let format = if flac { "flc" } else { "pcm" };
+        let pcm_rate = SAMPLE_RATE * SAMPLE_SIZE * CHANNELS;
         info!(
-            "{}: streaming from Spotify as PCM (start {:.1}s)",
-            track.url, start
+            "{}: streaming from Spotify as {} (start {:.1}s)",
+            track.url, format, start
         );
         return Ok(OpenedSong {
-            stream_format: "pcm".into(),
+            stream_format: format.into(),
             spec: Some(StreamSpec {
                 source: SourceKind::Spotify {
                     url: track.url.clone(),
@@ -232,11 +239,13 @@ pub fn open_song(
                     bitrate: server.prefs.server.get_i64("spotifyBitrate").max(96) as u32,
                     normalise: server.prefs.server.get_bool("spotifyNormalisation"),
                 },
-                format: "pcm".into(),
+                format: format.into(),
                 song_id: song.id,
+                shared: None,
             }),
             direct_url: None,
-            stream_bitrate: Some(SAMPLE_RATE * SAMPLE_SIZE * CHANNELS),
+            // typical FLAC compression of music
+            stream_bitrate: Some(if flac { pcm_rate / 10 * 6 } else { pcm_rate }),
             can_seek: true,
         });
     }
@@ -291,6 +300,7 @@ pub fn open_song(
                         },
                         format: fmt,
                         song_id: song.id,
+                        shared: None,
                     }),
                     direct_url: None,
                     stream_bitrate: track.bitrate,
@@ -322,6 +332,7 @@ pub fn open_song(
                         },
                         format: fmt,
                         song_id: song.id,
+                        shared: None,
                     }),
                     direct_url: None,
                     stream_bitrate: track.bitrate,
@@ -345,6 +356,7 @@ pub fn open_song(
                     },
                     format: fmt,
                     song_id: song.id,
+                    shared: None,
                 }),
                 direct_url: None,
                 stream_bitrate: track.bitrate,
@@ -381,6 +393,7 @@ pub fn open_song(
             source: SourceKind::Ffmpeg { args },
             format: target,
             song_id: song.id,
+            shared: None,
         }),
         direct_url: None,
         stream_bitrate,
@@ -549,6 +562,7 @@ fn open_remote(
                     source: SourceKind::Remote { url },
                     format: fmt,
                     song_id: song.id,
+                    shared: None,
                 }),
                 direct_url: None,
                 stream_bitrate: song.track.bitrate,
@@ -571,6 +585,7 @@ fn open_remote(
             source: SourceKind::Ffmpeg { args },
             format: target,
             song_id: song.id,
+            shared: None,
         }),
         direct_url: None,
         stream_bitrate: song.track.bitrate,
@@ -587,6 +602,8 @@ pub struct PlayParams {
     pub buffer_threshold: Option<u8>,
     pub transition: TransitionType,
     pub transition_duration: u8,
+    /// One read of the source for the whole sync group.
+    pub shared: Option<Arc<shared::SharedSource>>,
 }
 
 /// Build and send the `strm s` frame for `song` to `player`.  Returns false if the frame
@@ -729,7 +746,9 @@ pub fn send_stream_start(
     }
     let gen = player.new_stream_generation();
     if let Some(spec) = &song.spec {
-        player.set_pending_stream(gen, spec.clone());
+        let mut spec = spec.clone();
+        spec.shared = p.shared.clone();
+        player.set_pending_stream(gen, spec);
     } else {
         player.clear_pending_stream();
     }

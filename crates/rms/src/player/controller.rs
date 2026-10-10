@@ -1529,6 +1529,13 @@ impl Controller {
             }
         }
 
+        // Several players: read a generated stream once for all of them (files are just
+        // read by each).
+        let shared = match song.spec.as_ref().map(|s| &s.source) {
+            Some(stream::SourceKind::File { .. }) | None => None,
+            Some(_) if players.len() > 1 => Some(stream::shared::SharedSource::new(players.len())),
+            Some(_) => None,
+        };
         let mut started = 0;
         for pl in &players {
             if song.is_remote() {
@@ -1547,6 +1554,7 @@ impl Controller {
                 buffer_threshold,
                 transition,
                 transition_duration: tdur.round() as u8,
+                shared: shared.clone(),
             };
             if stream::send_stream_start(&server, pl, &song, &params) {
                 started += 1;
