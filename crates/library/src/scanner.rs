@@ -242,6 +242,8 @@ pub struct Scanner<'a> {
     in_tx: bool,
     pending: usize,
     pub touched_albums: HashSet<i64>,
+    /// re-add audio files whose cue sheet was deleted (off while removing whole roots)
+    resurrect_containers: bool,
 }
 
 impl<'a> Scanner<'a> {
@@ -267,6 +269,7 @@ impl<'a> Scanner<'a> {
             in_tx: false,
             pending: 0,
             touched_albums: HashSet::new(),
+            resurrect_containers: true,
         }
     }
 
@@ -691,7 +694,7 @@ impl<'a> Scanner<'a> {
                     let cur: Option<i64> = self.conn.query_row("SELECT id FROM tracks WHERE url = ? AND content_type = 'cur'", [&b], |r| r.get(0)).optional()?;
                     if let Some(cid) = cur {
                         self.conn.execute("DELETE FROM tracks WHERE id = ?", [cid])?;
-                        if let Some(p) = path_from_file_url(&b) {
+                        if let (Some(p), true) = (path_from_file_url(&b), self.resurrect_containers) {
                             if p.is_file() {
                                 let _ = self.scan_audio_file(&b, &p, None);
                             }
@@ -736,6 +739,7 @@ impl<'a> Scanner<'a> {
                 self.merge_single_va_album(a)?;
             }
             self.rescan_album(a)?;
+            self.rebuild_contributor_album(a)?;
             self.touched_albums.insert(a);
         }
         if let Some(y) = year {
@@ -1860,15 +1864,18 @@ impl<'a> Scanner<'a> {
             return Ok(());
         }
         self.begin()?;
+        self.resurrect_containers = false;
         for u in urls {
             if self.aborted() {
                 break;
             }
+            // may already be gone (containers removed together with their cue sheet)
             self.deleted(&u)?;
             self.summary.deleted += 1;
             self.changes += 1;
             self.tick()?;
         }
+        self.resurrect_containers = true;
         self.commit()?;
         Ok(())
     }

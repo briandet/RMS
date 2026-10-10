@@ -67,6 +67,10 @@ fn scan_totals_and_albums() {
     let titles: Vec<&str> = albums.iter().map(|a| a["album"].as_str().unwrap()).collect();
     assert_eq!(titles, vec!["Album One", "Album Two", "Cue Album", "Hits", "Live Album"]);
 
+    // unknown virtual library ids are ignored (no virtual libraries)
+    let r = run(&f.lib, LibQueryName::Albums, 0, 0, &[("library_id", "abcd1234")]);
+    assert_eq!(r["count"], json!(5));
+
     // count only
     let r = run(&f.lib, LibQueryName::Albums, 0, 0, &[]);
     assert_eq!(keys(&r), vec!["count"]);
@@ -124,6 +128,27 @@ fn artists_genres_years_titles() {
     assert_eq!(lp(&r2, "artists_loop").len(), 2);
     assert_eq!(lp(&r2, "artists_loop")[0]["artist"], "The Artist B");
     assert_eq!(r2["count"], r["count"]);
+
+    // album artists (Material/Squeezer default): no composers, no compilation-only artists
+    let r = run(&f.lib, LibQueryName::Artists, 0, 100, &[("role_id", "ALBUMARTIST")]);
+    let names: Vec<&str> = lp(&r, "artists_loop").iter().map(|a| a["artist"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["Artist A", "The Artist B", "Cue Band", "Live Artist"]);
+    let r = run(&f.lib, LibQueryName::Artists, 0, 100, &[("role_id", "COMPOSER")]);
+    assert_eq!(lp(&r, "artists_loop")[0]["artist"], "Some Composer");
+    assert_eq!(r["count"], json!(1));
+    // unified artist list adds a Various Artists item on the first page
+    let mut cfg = f.lib.config();
+    cfg.use_unified_artists_list = true;
+    f.lib.set_config(cfg);
+    let r = run(&f.lib, LibQueryName::Artists, 0, 100, &[("tags", "s")]);
+    let l = lp(&r, "artists_loop");
+    assert_eq!(l[0]["artist"], "Various Artists");
+    assert_eq!(l[0]["textkey"], " ");
+    assert_eq!(r["count"].as_u64().unwrap() as usize, l.len());
+    assert!(!l.iter().any(|a| a["artist"] == "Xavier"));
+    let mut cfg = f.lib.config();
+    cfg.use_unified_artists_list = false;
+    f.lib.set_config(cfg);
 
     // genres: "Jazz; Blues" is split on the splitList
     let r = run(&f.lib, LibQueryName::Genres, 0, 100, &[("tags", "s")]);

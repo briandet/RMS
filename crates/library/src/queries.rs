@@ -73,10 +73,22 @@ fn split_ids(s: &str) -> Vec<String> {
     s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
 }
 
-pub(crate) fn run(lib: &Library, q: &LibQuery) -> anyhow::Result<Row> {
+pub(crate) fn run(lib: &Library, q_in: &LibQuery) -> anyhow::Result<Row> {
     let cfg = lib.config();
     let c = lib.conn()?;
     let scanning = lib.is_scanning();
+    // Virtual libraries are not supported: like `VirtualLibraries->getRealId` for an unknown id,
+    // `library_id` is ignored unless the library tables actually contain that library.
+    let q_owned;
+    let mut q = q_in;
+    if let Some(l) = q_in.params.get("library_id") {
+        if !known_library(&c, l) {
+            let mut o = q_in.clone();
+            o.params.shift_remove("library_id");
+            q_owned = o;
+            q = &q_owned;
+        }
+    }
     let mut out = match q.name {
         LibQueryName::Albums => albums(&c, &cfg, q, scanning)?,
         LibQueryName::Artists => artists(&c, &cfg, q, scanning)?,
@@ -102,6 +114,15 @@ pub(crate) fn run(lib: &Library, q: &LibQuery) -> anyhow::Result<Row> {
         }
     }
     Ok(out)
+}
+
+fn known_library(c: &Connection, l: &str) -> bool {
+    !l.is_empty()
+        && c.query_row("SELECT 1 FROM library_track WHERE library = ? LIMIT 1", [l], |_| Ok(true))
+            .optional()
+            .ok()
+            .flatten()
+            .unwrap_or(false)
 }
 
 fn count_sql(c: &Connection, sql: &str, p: &[SqlValue]) -> anyhow::Result<usize> {
@@ -2190,7 +2211,7 @@ pub(crate) fn tracks_for(lib: &Library, f: &TrackFilter) -> anyhow::Result<Vec<T
         w.push(format!("albums.release_type IN ({})", vec!["?"; rts.len()].join(",")));
         p.extend(rts.into_iter().map(SqlValue::Text));
     }
-    if let Some(l) = f.library_id.as_ref().filter(|s| !s.is_empty()) {
+    if let Some(l) = f.library_id.as_ref().filter(|s| !s.is_empty() && known_library(&c, s)) {
         from.push_str("JOIN library_track ON library_track.track = tracks.id ");
         w.push("library_track.library = ?".into());
         p.push(SqlValue::Text(l.clone()));
