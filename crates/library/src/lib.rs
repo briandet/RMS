@@ -5,6 +5,7 @@
 //! * LMS CLI library queries (`albums`, `artists`, `titles`, `songinfo`, `musicfolder`, ...)
 //!   producing result hashes with the exact LMS field names and emission order
 //! * artwork extraction / resizing with an on-disk cache
+//! * contributor portraits (artist pictures from the `artfolder` or the music folders)
 
 /// Lazily compiled static regex.
 #[macro_export]
@@ -21,6 +22,7 @@ pub mod config;
 pub mod cue;
 pub mod db;
 pub mod playlist_files;
+pub mod portraits;
 pub mod queries;
 pub mod scanner;
 pub mod songdata;
@@ -397,6 +399,12 @@ impl Library {
         if changes > 0 || wipe {
             sc.post_process(wipe, true)?;
         }
+        if matches!(mode, ScanMode::Full | ScanMode::Wipe)
+            && cfg.contributor_pictures
+            && !sc_aborted(&self.inner.abort)
+        {
+            sc.scan_contributor_pictures(wipe, Some(&self.artist_image_dir()))?;
+        }
         let summary = sc.summary.clone();
         drop(sc);
         if changes > 0 || wipe {
@@ -754,9 +762,57 @@ impl Library {
         artwork::resize_image(bytes, spec)
     }
 
-    /// Artist portrait (`/contributor/<portraitid>/image...`) – currently unsupported (no portraits scanned).
-    pub fn contributor_image(&self, _portraitid: &str, _spec: &str) -> Option<(Vec<u8>, String)> {
-        None
+    /// Artist portrait for `/contributor/<portraitid>/<spec>` (`spec` like `image_300x300_m`).
+    pub fn contributor_image(&self, portraitid: &str, spec: &str) -> Option<(Vec<u8>, String)> {
+        artwork::contributor_image(self, portraitid, spec)
+    }
+
+    /// Picture file behind a `portraitid`.
+    pub fn contributor_image_path(&self, portraitid: &str) -> Option<PathBuf> {
+        let c = self.conn().ok()?;
+        let u: String = c
+            .query_row(
+                "SELECT portrait FROM contributors WHERE portraitid = ? LIMIT 1",
+                [portraitid],
+                |r| songdata::get_text(r, 0),
+            )
+            .optional()
+            .ok()?
+            .flatten()?;
+        url::path_from_file_url(&u)
+    }
+
+    /// Where downloaded artist pictures are cached (`<cache>/artists`). Portraits stored there
+    /// are replaced by local pictures on the next scan.
+    pub fn artist_image_dir(&self) -> PathBuf {
+        self.inner.cache_dir.join("artists")
+    }
+
+    /// Contributors the portrait scan considered but found no picture for: `(id, name)`.
+    pub fn contributors_without_portrait(&self) -> Vec<(i64, String)> {
+        let cfg = self.config();
+        let Ok(c) = self.conn() else {
+            return Vec::new();
+        };
+        let va = cfg.various_artists_string.to_lowercase();
+        let none = cfg.no_artist_string.to_lowercase();
+        portraits::candidates(&c, &cfg)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, name, portrait, _)| {
+                portrait.is_none() && !name.is_empty() && {
+                    let n = name.to_lowercase();
+                    n != va && n != none
+                }
+            })
+            .map(|(id, name, _, _)| (id, name))
+            .collect()
+    }
+
+    /// Use the picture at `path` as the portrait of contributor `id`; returns the `portraitid`.
+    pub fn set_contributor_portrait(&self, id: i64, path: &Path) -> Option<String> {
+        let c = self.conn().ok()?;
+        portraits::set_portrait(&c, id, path).ok().flatten()
     }
 }
 

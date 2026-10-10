@@ -321,27 +321,52 @@ pub fn artwork(lib: &Library, id: &str, spec_elem: &str) -> Option<(Vec<u8>, Str
     let (track_url, cover) = found?;
     drop(c);
     let spec = extract_spec(spec_elem);
-    let parsed = parse_spec(&spec);
-    let cache_file = cache_path(lib, id, &spec);
+    cached_resize(&cache_path(lib, id, &spec), &spec, || {
+        source_image(&track_url, &cover)
+    })
+}
+
+/// Portrait for `/contributor/<portraitid>/<spec>` (`Graphics.pm`: `portrait` by `portraitid`).
+pub fn contributor_image(
+    lib: &Library,
+    portraitid: &str,
+    spec_elem: &str,
+) -> Option<(Vec<u8>, String)> {
+    if portraitid.is_empty() || !portraitid.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let path = lib.contributor_image_path(portraitid)?;
+    let spec = extract_spec(spec_elem);
+    let cache_file = cache_path(lib, &format!("contributor/{}", portraitid), &spec);
+    cached_resize(&cache_file, &spec, || std::fs::read(&path).ok())
+}
+
+/// Serve `spec` of the image `load` returns, keeping resized versions in `cache_file`.
+fn cached_resize(
+    cache_file: &Path,
+    spec: &str,
+    load: impl FnOnce() -> Option<Vec<u8>>,
+) -> Option<(Vec<u8>, String)> {
+    let parsed = parse_spec(spec);
     if parsed.width.is_some() || parsed.height.is_some() || parsed.ext.is_some() {
-        if let Ok(b) = std::fs::read(&cache_file) {
+        if let Ok(b) = std::fs::read(cache_file) {
             if !b.is_empty() {
                 let ct = crate::tags::sniff_image_type(&b).to_string();
                 return Some((b, ct));
             }
         }
     }
-    let src = source_image(&track_url, &cover)?;
+    let src = load()?;
     if spec.is_empty() {
         let ct = crate::tags::sniff_image_type(&src).to_string();
         return Some((src, ct));
     }
-    let (out, ct) = resize_image(&src, &spec)?;
+    let (out, ct) = resize_image(&src, spec)?;
     if let Some(parent) = cache_file.parent() {
         let _ = std::fs::create_dir_all(parent);
         let tmp = cache_file.with_extension("tmp");
         if std::fs::write(&tmp, &out).is_ok() {
-            let _ = std::fs::rename(&tmp, &cache_file);
+            let _ = std::fs::rename(&tmp, cache_file);
         }
     }
     Some((out, ct))

@@ -30,6 +30,7 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/cometd", any(cometd::handle))
         .route("/cometd/{*rest}", any(cometd::handle))
         .route("/music/{id}/{spec}", get(artwork::music))
+        .route("/contributor/{id}/{spec}", get(artwork::contributor))
         .route("/imageproxy/{url}/{spec}", get(artwork::imageproxy))
         .route("/html/images/{name}", get(artwork::html_image))
         .route("/html/{*path}", get(ui::html_compat))

@@ -11,7 +11,7 @@
 //   #/library/playlist/<id>?name=   saved playlist tracks
 //   #/library/favorites/<id>?name=  favorites sub-folder
 
-import { rpc, itemArt, coverUrl } from '../api.js';
+import { rpc, itemArt, coverUrl, portraitUrl } from '../api.js';
 import { store } from '../store.js';
 import { h, fmtDuration, plural, storage, toast } from '../util.js';
 import {
@@ -80,7 +80,7 @@ const ROUTES = {
     v.body.append(ul);
     let lastKey = null;
     pager(v, ul, async (start, count) => {
-      const r = await rpc(['artists', start, count, 'tags:s']);
+      const r = await rpc(['artists', start, count, 'tags:s4']);
       return { items: r.artists_loop || [], total: r.count };
     }, (a) => {
       const out = [];
@@ -90,7 +90,7 @@ const ROUTES = {
       }
       out.push(row({
         href: `#/library/artist/${enc(a.id)}?name=${enc(a.artist)}`,
-        title: a.artist, iconName: 'person',
+        title: a.artist, iconName: 'person', art: portraitUrl(a.portraitid, 80) ?? undefined, cls: 'artist',
         actions: actionButtons(v.ctx, 'artist_id', a.id, a.artist, { compact: true }),
       }));
       return out;
@@ -98,14 +98,16 @@ const ROUTES = {
   },
 
   async artist(v, id) {
-    let name = v.query.get('name');
-    if (!name) {
-      const r = await rpc(['artists', 0, 1, `artist_id:${id}`]).catch(() => ({}));
-      name = r.artists_loop?.[0]?.artist || 'Artist';
-    }
+    const r = await rpc(['artists', 0, 1, `artist_id:${id}`, 'tags:4']).catch(() => ({}));
+    if (!v.alive) return;
+    const a = r.artists_loop?.[0] || {};
+    const name = v.query.get('name') || a.artist || 'Artist';
     v.crumbs([crumbRoot('artists'), { label: name }]);
     const countEl = h('span');
-    v.body.append(pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'artist_id', id, name), art: undefined }));
+    const art = a.portraitid ? portraitUrl(a.portraitid, 400) : undefined;
+    const head = pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'artist_id', id, name), art, iconName: 'person' });
+    head.classList.add('artist');
+    v.body.append(head);
     albumsGrid(v, [`artist_id:${id}`], (total) => { countEl.textContent = plural(total, 'album'); });
   },
 

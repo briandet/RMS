@@ -320,7 +320,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn aborted(&self) -> bool {
+    pub(crate) fn aborted(&self) -> bool {
         self.abort.load(Ordering::Relaxed)
     }
 
@@ -342,7 +342,7 @@ impl<'a> Scanner<'a> {
     }
 
     /// commit every CHUNK items
-    fn tick(&mut self) -> rusqlite::Result<()> {
+    pub(crate) fn tick(&mut self) -> rusqlite::Result<()> {
         self.pending += 1;
         if self.pending >= CHUNK {
             self.commit()?;
@@ -351,7 +351,7 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn set_step(&self, name: &str, total: usize) {
+    pub(crate) fn set_step(&self, name: &str, total: usize) {
         let mut p = self.progress.lock();
         p.step = name.to_string();
         p.total = total;
@@ -364,7 +364,7 @@ impl<'a> Scanner<'a> {
         );
     }
 
-    fn step_done(&self, done: usize, info: Option<&str>) {
+    pub(crate) fn step_done(&self, done: usize, info: Option<&str>) {
         let mut p = self.progress.lock();
         p.done = done;
         if let Some(i) = info {
@@ -372,7 +372,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn finish_step(&self, name: &str) {
+    pub(crate) fn finish_step(&self, name: &str) {
         let p = self.progress.lock();
         let (total, done) = (p.total, p.done);
         drop(p);

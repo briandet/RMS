@@ -47,6 +47,10 @@ pub struct LibraryConfig {
     pub disabled_extensions_playlist: Vec<String>,
     /// pref `coverArt` (literal basename, `%FORMAT` patterns are not supported)
     pub cover_art: String,
+    /// pref `artfolder`: folder with artist pictures named after the artist
+    pub art_folder: Option<PathBuf>,
+    /// `!noContributorPictures`: run the contributor portrait scan
+    pub contributor_pictures: bool,
     /// pref `guessFileFormats`
     pub guess_file_formats: Vec<String>,
     /// pref `worksScan`: 0 never, 1 always, 2 classical genres only
@@ -94,6 +98,8 @@ impl Default for LibraryConfig {
             disabled_extensions_audio: Vec::new(),
             disabled_extensions_playlist: Vec::new(),
             cover_art: String::new(),
+            art_folder: None,
+            contributor_pictures: true,
             guess_file_formats: crate::tags::default_guess_formats(),
             works_scan: 2,
             my_classical_genres: "Classical, Klassik, Classique, Klassiek".into(),
