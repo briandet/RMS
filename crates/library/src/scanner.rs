@@ -824,7 +824,9 @@ impl<'a> Scanner<'a> {
         if let Some(lines) = rt.cuesheet.clone() {
             if rt.content_type == "flc" {
                 let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
-                let sheet = cue::parse(&lines, &dir, Some(path), |_| None);
+                let file_secs = rt.info.secs;
+                let file_attrs = rt.attrs.clone();
+                let sheet = cue::parse(&lines, &dir, Some(path), |_| Some((file_secs, file_attrs.clone())));
                 if let Some(mut sheet) = sheet {
                     if let Some(id) = existing {
                         self.delete_track_id(id)?;
