@@ -59,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(control::subscribe::pump(server.clone()));
     tokio::spawn(web::cometd::run(server.clone()));
     tokio::spawn(plugins::alarm::run(server.clone()));
+    tokio::spawn(control::jive::run(server.clone()));
 
     let shutdown = server.shutdown.clone();
     tokio::select! {
