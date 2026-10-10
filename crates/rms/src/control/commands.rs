@@ -498,7 +498,7 @@ pub fn rating(server: &Arc<Server>, r: &mut Request) {
     else {
         return r.bad_params();
     };
-    server.library.set_rating(&item, rating.clamp(0, 100));
+    server.library.set_rating(&item, rating.clamp(0, 100) as u8);
     r.set_done();
 }
 
@@ -1145,9 +1145,9 @@ pub async fn playlist_xtracks(server: Arc<Server>, mut r: Request) -> Request {
             };
             let v = crate::util::cli_unescape(v);
             match k {
-                "album.id" | "album" | "me.album" => f.album_id = v.parse().ok(),
+                "album.id" | "album" | "me.album" => f.album_id = Some(v),
                 "contributor.id" | "contributor" => f.artist_id = v.parse().ok(),
-                "genre.id" | "genre" => f.genre_id = v.parse().ok(),
+                "genre.id" | "genre" => f.genre_id = Some(v),
                 "year.id" | "year" => f.year = v.parse().ok(),
                 "playlist.id" | "playlist" => f.playlist_id = v.parse().ok(),
                 "track.id" | "me.id" => {
@@ -1233,7 +1233,7 @@ pub async fn playlist_xalbum(server: Arc<Server>, mut r: Request) -> Request {
             matches(&genre, &t.genre)
                 && matches(&artist, &t.artist)
                 && matches(&album, &t.album)
-                && matches(&title, &t.title)
+                && matches(&title, &Some(t.title.clone()))
         })
         .map(|t| server.entry_for_track(t))
         .collect();
@@ -1338,9 +1338,9 @@ pub async fn playlistcontrol(server: Arc<Server>, mut r: Request) -> Request {
         }
         f.track_ids = local;
     }
-    f.album_id = r.param_i64("album_id");
+    f.album_id = r.param("album_id").map(str::to_string);
     f.artist_id = r.param_i64("artist_id");
-    f.genre_id = r.param_i64("genre_id");
+    f.genre_id = r.param("genre_id").map(str::to_string);
     f.year = r.param_i64("year").or(r.param_i64("year_id"));
     f.role_id = r.param("role_id").map(str::to_string);
     f.library_id = r.param("library_id").map(str::to_string);

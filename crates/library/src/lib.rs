@@ -1,49 +1,99 @@
-//! TEMPORARY API stub of `rms-library` used by the server while the real crate is developed.
-//! The real implementation replaces this file wholesale.
+//! `rms-library`: the music library of RMS (Rust port of Lyrion Music Server).
+//!
+//! * SQLite schema compatible with LMS schema version 26 (`tracks`, `albums`, `contributors`, ...)
+//! * scanner (media dirs + playlist dir, incremental by mtime/size, cue sheets, playlists)
+//! * LMS CLI library queries (`albums`, `artists`, `titles`, `songinfo`, `musicfolder`, ...)
+//!   producing result hashes with the exact LMS field names and emission order
+//! * artwork extraction / resizing with an on-disk cache
 
-use std::path::{Path, PathBuf};
-
-pub type Row = serde_json::Map<String, serde_json::Value>;
-
-#[derive(Debug, Clone, Default)]
-pub struct LibraryConfig {
-    pub media_dirs: Vec<PathBuf>,
-    pub playlist_dir: Option<PathBuf>,
-    pub ignored_articles: String,
-    pub split_list: String,
-    pub various_artists_string: String,
-    pub no_genre_string: String,
-    pub group_discs: bool,
+/// Lazily compiled static regex.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! re {
+    ($s:expr) => {{
+        static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        RE.get_or_init(|| regex::Regex::new($s).unwrap())
+    }};
 }
 
-#[derive(Debug, Clone)]
+pub mod artwork;
+pub mod config;
+pub mod cue;
+pub mod db;
+pub mod playlist_files;
+pub mod queries;
+pub mod scanner;
+pub mod songdata;
+pub mod tags;
+pub mod text;
+pub mod track;
+pub mod types;
+pub mod url;
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use indexmap::IndexMap;
+use parking_lot::{Mutex, RwLock};
+use rusqlite::{params, OptionalExtension};
+
+pub use config::LibraryConfig;
+pub use track::Track;
+
+/// Ordered result hash (serde_json with `preserve_order`).
+pub type Row = serde_json::Map<String, serde_json::Value>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScanMode {
+    /// incremental: new + changed + deleted (LMS "rescan")
     Full,
+    /// clear the library and rescan everything (LMS "wipecache")
     Wipe,
+    /// only the playlist folder (LMS "rescan playlists")
     Playlists,
+    /// a single directory (LMS "rescan full <dir>")
     Dir(PathBuf),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ScanSummary {}
-
-#[derive(Debug, Clone, Default)]
-pub struct ScanProgress {
-    pub running: bool,
-    pub step: String,
-    pub done: u64,
-    pub total: u64,
-    pub last_scan: Option<i64>,
-    pub total_time: f64,
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ScanSummary {
+    pub files_found: usize,
+    pub new: usize,
+    pub changed: usize,
+    pub deleted: usize,
+    pub errors: usize,
+    pub aborted: bool,
+    pub duration_secs: f64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct ScanProgress {
+    pub running: bool,
+    /// current step name, LMS style (`<path>|directory_new`, `post_processing`, ...)
+    pub step: String,
+    pub done: usize,
+    pub total: usize,
+    /// last item processed
+    pub info: Option<String>,
+    pub steps: Vec<String>,
+    /// epoch of the last scan that completed (`lastRescanTime`)
+    pub last_scan: Option<i64>,
+    /// seconds the current/last scan took
+    pub total_time: f64,
+    pub start_time: Option<i64>,
+    /// set when the last scan was aborted
+    pub last_scan_failed: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Totals {
     pub albums: u64,
     pub artists: u64,
     pub genres: u64,
     pub songs: u64,
     pub duration: f64,
+    pub playlists: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,10 +102,13 @@ pub enum LibQueryName {
     Artists,
     Genres,
     Years,
+    /// `titles`, `songs`, `tracks`
     Titles,
     Search,
+    /// `musicfolder` / `mediafolder`
     MusicFolder,
     Playlists,
+    /// `playlists tracks` / `playlisttracks`
     PlaylistTracks,
     SongInfo,
     Roles,
@@ -63,20 +116,58 @@ pub enum LibQueryName {
     Libraries,
 }
 
+impl LibQueryName {
+    /// Map an LMS verb (`albums`, `songs`, `playlists tracks`, ...) to a query name.
+    pub fn from_verbs(verbs: &[&str]) -> Option<Self> {
+        Some(match verbs {
+            ["albums", ..] => Self::Albums,
+            ["artists", ..] => Self::Artists,
+            ["genres", ..] => Self::Genres,
+            ["years", ..] => Self::Years,
+            ["titles", ..] | ["songs", ..] | ["tracks", ..] => Self::Titles,
+            ["search", ..] => Self::Search,
+            ["musicfolder", ..] | ["mediafolder", ..] => Self::MusicFolder,
+            ["playlists", "tracks", ..] | ["playlisttracks", ..] => Self::PlaylistTracks,
+            ["playlists", ..] => Self::Playlists,
+            ["songinfo", ..] => Self::SongInfo,
+            ["roles", ..] => Self::Roles,
+            ["works", ..] => Self::Works,
+            ["libraries", ..] => Self::Libraries,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LibQuery {
     pub name: LibQueryName,
     pub start: Option<usize>,
     pub quantity: Option<usize>,
-    pub params: indexmap::IndexMap<String, String>,
+    pub params: IndexMap<String, String>,
+}
+
+impl LibQuery {
+    pub fn new(name: LibQueryName, start: usize, quantity: usize) -> Self {
+        LibQuery {
+            name,
+            start: Some(start),
+            quantity: Some(quantity),
+            params: IndexMap::new(),
+        }
+    }
+
+    pub fn param(mut self, k: &str, v: &str) -> Self {
+        self.params.insert(k.to_string(), v.to_string());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct TrackFilter {
     pub track_ids: Vec<i64>,
-    pub album_id: Option<i64>,
+    pub album_id: Option<String>,
     pub artist_id: Option<i64>,
-    pub genre_id: Option<i64>,
+    pub genre_id: Option<String>,
     pub year: Option<i64>,
     pub playlist_id: Option<i64>,
     pub folder_id: Option<i64>,
@@ -84,100 +175,606 @@ pub struct TrackFilter {
     pub role_id: Option<String>,
     pub library_id: Option<String>,
     pub sort: Option<String>,
+    pub work_id: Option<i64>,
+    pub release_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Track {
-    pub id: i64,
-    pub url: String,
-    pub title: Option<String>,
-    pub album_id: Option<i64>,
-    pub album: Option<String>,
-    pub artist: Option<String>,
-    pub artist_id: Option<i64>,
-    pub albumartist: Option<String>,
-    pub genre: Option<String>,
-    pub genre_id: Option<i64>,
-    pub year: Option<i64>,
-    pub tracknum: Option<i64>,
-    pub disc: Option<i64>,
-    pub content_type: String,
-    pub secs: Option<f64>,
-    pub bitrate: Option<u32>,
-    pub samplerate: Option<u32>,
-    pub samplesize: Option<u32>,
-    pub channels: Option<u32>,
-    pub lossless: bool,
-    pub vbr: bool,
-    pub endian: Option<i64>,
-    pub audio_offset: Option<u64>,
-    pub audio_size: Option<u64>,
-    pub filesize: Option<u64>,
-    pub replay_gain: Option<f64>,
-    pub replay_peak: Option<f64>,
-    pub album_replay_gain: Option<f64>,
-    pub coverid: Option<String>,
-    pub remote: bool,
-    pub virtual_cue: bool,
-    pub cue_start: Option<f64>,
-    pub cue_end: Option<f64>,
-    pub compilation: bool,
+/// `playlists edit` operations.
+#[derive(Debug, Clone)]
+pub enum PlaylistEditOp {
+    /// move the item at `index` one up
+    Up(usize),
+    Down(usize),
+    Delete(usize),
+    /// append a URL (or insert at `index` when given)
+    Add {
+        url: String,
+        index: Option<usize>,
+    },
+    Move {
+        from: usize,
+        to: usize,
+    },
 }
 
-#[derive(Clone, Default)]
-pub struct Library {}
+pub(crate) struct Inner {
+    pub pool: db::DbPool,
+    pub cfg: RwLock<LibraryConfig>,
+    pub cache_dir: PathBuf,
+    pub scan_lock: Mutex<()>,
+    pub abort: AtomicBool,
+    pub scanning: AtomicBool,
+    pub progress: Arc<Mutex<ScanProgress>>,
+}
+
+#[derive(Clone)]
+pub struct Library {
+    pub(crate) inner: Arc<Inner>,
+}
 
 impl Library {
-    pub fn open(_db_path: &Path, _cache_dir: &Path) -> anyhow::Result<Library> {
-        Ok(Library {})
+    /// Open (and create if needed) the library database.
+    pub fn open(db_path: &Path, cache_dir: &Path) -> anyhow::Result<Library> {
+        let pool = db::open_pool(db_path)?;
+        std::fs::create_dir_all(cache_dir)?;
+        let lib = Library {
+            inner: Arc::new(Inner {
+                pool,
+                cfg: RwLock::new(LibraryConfig::default()),
+                cache_dir: cache_dir.to_path_buf(),
+                scan_lock: Mutex::new(()),
+                abort: AtomicBool::new(false),
+                scanning: AtomicBool::new(false),
+                progress: Arc::new(Mutex::new(ScanProgress::default())),
+            }),
+        };
+        {
+            let c = lib.conn()?;
+            let last = db::get_meta(&c, "lastRescanTime")
+                .and_then(|v| v.parse::<i64>().ok())
+                .filter(|v| *v > 0);
+            lib.inner.progress.lock().last_scan = last;
+            // a scan that was interrupted by a crash
+            if db::get_meta(&c, "isScanning")
+                .map(|v| v != "0")
+                .unwrap_or(false)
+            {
+                let _ = db::set_meta(&c, "isScanning", "0");
+            }
+        }
+        Ok(lib)
     }
-    pub fn set_config(&self, _cfg: LibraryConfig) {}
-    pub fn scan(&self, _mode: ScanMode) -> anyhow::Result<ScanSummary> {
-        Ok(ScanSummary {})
+
+    pub(crate) fn conn(&self) -> anyhow::Result<db::PooledConn> {
+        Ok(self.inner.pool.get()?)
     }
-    pub fn abort_scan(&self) {}
+
+    pub fn config(&self) -> LibraryConfig {
+        self.inner.cfg.read().clone()
+    }
+
+    pub fn set_config(&self, cfg: LibraryConfig) {
+        // keep the Various Artists contributor name in sync
+        let rules = text::TextRules::new(&cfg.ignored_articles, &cfg.split_list);
+        if let Ok(c) = self.conn() {
+            let _ = scanner::various_artists_id(&c, &cfg, &rules);
+        }
+        *self.inner.cfg.write() = cfg;
+    }
+
+    pub fn cache_dir(&self) -> &Path {
+        &self.inner.cache_dir
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // scanning
+    // ---------------------------------------------------------------------------------------
+
+    /// Run a scan (blocking). Only one scan runs at a time; a concurrent call waits.
+    pub fn scan(&self, mode: ScanMode) -> anyhow::Result<ScanSummary> {
+        let _guard = self.inner.scan_lock.lock();
+        self.inner.abort.store(false, Ordering::SeqCst);
+        self.inner.scanning.store(true, Ordering::SeqCst);
+        let started = std::time::Instant::now();
+        {
+            let mut p = self.inner.progress.lock();
+            let last = p.last_scan;
+            *p = ScanProgress {
+                running: true,
+                last_scan: last,
+                start_time: Some(scanner::now()),
+                ..Default::default()
+            };
+        }
+        let res = self.scan_inner(&mode);
+        let elapsed = started.elapsed().as_secs_f64();
+        self.inner.scanning.store(false, Ordering::SeqCst);
+        let aborted = self.inner.abort.load(Ordering::SeqCst);
+        {
+            let mut p = self.inner.progress.lock();
+            p.running = false;
+            p.total_time = elapsed;
+            if aborted {
+                p.last_scan_failed = Some("SCAN_ABORTED".into());
+            }
+        }
+        if let Ok(c) = self.conn() {
+            let _ = db::set_meta(&c, "isScanning", "0");
+            if aborted {
+                let _ = c.execute(
+                    "INSERT INTO progress (type, name, active, info) VALUES ('importer', 'failure', 0, 'SCAN_ABORTED')",
+                    [],
+                );
+            }
+        }
+        let mut summary = res?;
+        summary.aborted = aborted;
+        summary.duration_secs = elapsed;
+        Ok(summary)
+    }
+
+    fn scan_inner(&self, mode: &ScanMode) -> anyhow::Result<ScanSummary> {
+        let cfg = self.config();
+        let mut conn = self.conn()?;
+        // a dedicated non-pooled-like usage: we hold this connection for the whole scan
+        let c: &mut rusqlite::Connection = &mut conn;
+        db::set_meta(
+            c,
+            "isScanning",
+            match mode {
+                ScanMode::Wipe => "SETUP_WIPEDB",
+                ScanMode::Playlists => "SETUP_PLAYLISTRESCAN",
+                _ => "SETUP_STANDARDRESCAN",
+            },
+        )?;
+        c.execute("DELETE FROM progress", [])?;
+        if *mode == ScanMode::Wipe {
+            c.execute_batch(db::CLEAR)?;
+            let _ = std::fs::remove_dir_all(self.inner.cache_dir.join("artwork"));
+        }
+        let progress = self.inner.progress.clone();
+        let mut sc = scanner::Scanner::new(c, &cfg, &self.inner.abort, progress);
+        sc.va_id()?;
+        let wipe = *mode == ScanMode::Wipe;
+        match mode {
+            ScanMode::Full | ScanMode::Wipe => {
+                for d in &cfg.media_dirs {
+                    if sc_aborted(&self.inner.abort) {
+                        break;
+                    }
+                    if d.is_dir() {
+                        sc.scan_audio_root(d, wipe, true)?;
+                    }
+                }
+                if let Some(pd) = &cfg.playlist_dir {
+                    if pd.is_dir() && !sc_aborted(&self.inner.abort) {
+                        sc.scan_playlist_dir(pd)?;
+                    }
+                }
+            }
+            ScanMode::Playlists => {
+                if let Some(pd) = &cfg.playlist_dir {
+                    if pd.is_dir() {
+                        sc.scan_playlist_dir(pd)?;
+                    }
+                }
+            }
+            ScanMode::Dir(d) => {
+                let d = d.clone();
+                if d.is_dir() {
+                    sc.scan_audio_root(&d, false, true)?;
+                } else if d.is_file() {
+                    // a single file
+                    let u = url::file_url_from_path(&d);
+                    sc.begin()?;
+                    let exists: Option<i64> = sc
+                        .conn
+                        .query_row("SELECT id FROM tracks WHERE url = ?", [&u], |r| r.get(0))
+                        .optional()?;
+                    match exists {
+                        Some(_) => sc.changed(&u)?,
+                        None => {
+                            sc.new_url(&u, false)?;
+                        }
+                    }
+                    sc.commit()?;
+                }
+            }
+        }
+        if matches!(mode, ScanMode::Full) && !sc_aborted(&self.inner.abort) {
+            let roots: Vec<PathBuf> = cfg
+                .media_dirs
+                .iter()
+                .filter(|d| d.is_dir())
+                .cloned()
+                .collect();
+            // only clean up when every configured media dir is reachable (avoid wiping offline volumes)
+            if roots.len() == cfg.media_dirs.len() {
+                sc.remove_outside_roots(&roots, cfg.playlist_dir.as_deref())?;
+            }
+        }
+        let changes = sc.changes;
+        if changes > 0 || wipe {
+            sc.post_process(wipe, true)?;
+        }
+        let summary = sc.summary.clone();
+        drop(sc);
+        if changes > 0 || wipe {
+            let t = scanner::now();
+            db::set_meta(c, "lastRescanTime", &t.to_string())?;
+            self.inner.progress.lock().last_scan = Some(t);
+        } else if self.inner.progress.lock().last_scan.is_none() {
+            let t = scanner::now();
+            db::set_meta(c, "lastRescanTime", &t.to_string())?;
+            self.inner.progress.lock().last_scan = Some(t);
+        }
+        Ok(summary)
+    }
+
+    pub fn abort_scan(&self) {
+        self.inner.abort.store(true, Ordering::SeqCst);
+    }
+
     pub fn progress(&self) -> ScanProgress {
-        ScanProgress::default()
+        self.inner.progress.lock().clone()
     }
+
     pub fn is_scanning(&self) -> bool {
-        false
+        self.inner.scanning.load(Ordering::SeqCst)
     }
+
+    /// `lastRescanTime`
+    pub fn last_scan_time(&self) -> Option<i64> {
+        self.inner.progress.lock().last_scan
+    }
+
     pub fn totals(&self) -> Totals {
-        Totals::default()
+        queries::totals(self).unwrap_or_default()
     }
-    pub fn query(&self, _q: &LibQuery) -> anyhow::Result<Row> {
-        Ok(Row::new())
+
+    // ---------------------------------------------------------------------------------------
+    // queries
+    // ---------------------------------------------------------------------------------------
+
+    pub fn query(&self, q: &LibQuery) -> anyhow::Result<Row> {
+        queries::run(self, q)
     }
-    pub fn track(&self, _id: i64) -> Option<Track> {
-        None
+
+    pub fn track(&self, id: i64) -> Option<Track> {
+        let c = self.conn().ok()?;
+        track::load_by_id(&c, id)
     }
-    pub fn track_by_url(&self, _url: &str) -> Option<Track> {
-        None
+
+    pub fn track_by_url(&self, u: &str) -> Option<Track> {
+        let c = self.conn().ok()?;
+        track::load_by_url(&c, u)
     }
-    pub fn track_row(&self, _track: &Track, _tags: &str) -> Row {
-        Row::new()
+
+    /// Render one track for the given tag letters (LMS `_getTagDataForTracks` + `_songDataFromHash`,
+    /// i.e. the representation used by `status` and `titles`).
+    pub fn track_row(&self, t: &Track, tags: &str) -> Row {
+        let cfg = self.config();
+        match self.conn() {
+            Ok(c) => songdata::sql_rows(&c, &cfg, &[t.id], tags)
+                .ok()
+                .and_then(|mut v| v.pop())
+                .unwrap_or_else(|| songdata::minimal_row(t)),
+            Err(_) => songdata::minimal_row(t),
+        }
     }
-    pub fn tracks_for(&self, _f: &TrackFilter) -> anyhow::Result<Vec<Track>> {
-        Ok(vec![])
+
+    /// Like [`track_row`] but using the object-path semantics of `_songData` (used by `songinfo`
+    /// and `playlists tracks`).
+    pub fn track_row_object(&self, t: &Track, tags: &str) -> Row {
+        let cfg = self.config();
+        match self.conn() {
+            Ok(c) => songdata::object_row(&c, &cfg, t, tags),
+            Err(_) => songdata::minimal_row(t),
+        }
     }
-    pub fn save_playlist(&self, _name: &str, _urls: &[String]) -> anyhow::Result<i64> {
-        Ok(0)
+
+    /// Batch version of [`track_row`] preserving the order of `ids`.
+    pub fn track_rows(&self, ids: &[i64], tags: &str) -> Vec<Row> {
+        let cfg = self.config();
+        match self.conn() {
+            Ok(c) => songdata::sql_rows(&c, &cfg, ids, tags).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
     }
-    pub fn delete_playlist(&self, _id: i64) -> anyhow::Result<()> {
+
+    pub fn tracks_for(&self, f: &TrackFilter) -> anyhow::Result<Vec<Track>> {
+        queries::tracks_for(self, f)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // saved playlists
+    // ---------------------------------------------------------------------------------------
+
+    fn playlist_path(&self, name: &str) -> anyhow::Result<PathBuf> {
+        let cfg = self.config();
+        let dir = cfg
+            .playlist_dir
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("no playlist directory configured"))?;
+        Ok(dir.join(format!("{}.m3u", playlist_files::cleanup_filename(name))))
+    }
+
+    fn write_playlist_file(
+        &self,
+        c: &rusqlite::Connection,
+        path: &Path,
+        urls: &[String],
+    ) -> anyhow::Result<()> {
+        let mut entries = Vec::new();
+        for u in urls {
+            let t = track::load_by_url(c, u);
+            entries.push((
+                u.clone(),
+                t.as_ref().map(|t| t.title.clone()),
+                t.and_then(|t| t.secs),
+            ));
+        }
+        playlist_files::write_m3u(path, &entries, true)?;
         Ok(())
     }
-    pub fn rename_playlist(&self, _id: i64, _name: &str) -> anyhow::Result<()> {
+
+    /// Save (create or replace) a playlist; written as `<playlistdir>/<name>.m3u`.
+    pub fn save_playlist(&self, name: &str, urls: &[String]) -> anyhow::Result<i64> {
+        let cfg = self.config();
+        let rules = text::TextRules::new(&cfg.ignored_articles, &cfg.split_list);
+        let path = self.playlist_path(name)?;
+        let c = self.conn()?;
+        self.write_playlist_file(&c, &path, urls)?;
+        let u = url::file_url_from_path(&path);
+        let (mt, sz, _) = scanner::file_stat(&path).unwrap_or((0, 0, false));
+        let t = scanner::now();
+        let sort = rules.sort_key(name);
+        let existing: Option<i64> = c
+            .query_row("SELECT id FROM tracks WHERE url = ?", [&u], |r| r.get(0))
+            .optional()?;
+        let id = match existing {
+            Some(id) => {
+                c.execute(
+                    "UPDATE tracks SET title = ?, titlesort = ?, titlesearch = ?, content_type = 'ssp', timestamp = ?, filesize = ?, updated_time = ? WHERE id = ?",
+                    params![name, sort, sort, mt, sz, t, id],
+                )?;
+                id
+            }
+            None => {
+                c.execute(
+                    "INSERT INTO tracks (url, urlmd5, title, titlesort, titlesearch, content_type, timestamp, filesize, remote, musicmagic_mixable, added_time, updated_time)
+                     VALUES (?, ?, ?, ?, ?, 'ssp', ?, ?, 0, 1, ?, ?)",
+                    params![u, url::md5_hex(&u), name, sort, sort, mt, sz, t, t],
+                )?;
+                c.last_insert_rowid()
+            }
+        };
+        set_playlist_tracks(&c, id, urls)?;
+        Ok(id)
+    }
+
+    pub fn delete_playlist(&self, id: i64) -> anyhow::Result<()> {
+        let c = self.conn()?;
+        let u: Option<String> = c
+            .query_row("SELECT url FROM tracks WHERE id = ? AND content_type IN ('ssp', 'm3u', 'pls', 'cue')", [id], |r| r.get(0))
+            .optional()?;
+        let Some(u) = u else {
+            anyhow::bail!("playlist {} not found", id)
+        };
+        if let Some(p) = url::path_from_file_url(&u) {
+            let cfg = self.config();
+            if cfg
+                .playlist_dir
+                .as_ref()
+                .map(|d| p.starts_with(d))
+                .unwrap_or(false)
+            {
+                let _ = std::fs::remove_file(&p);
+            }
+        }
+        c.execute("DELETE FROM tracks WHERE id = ?", [id])?;
         Ok(())
     }
-    pub fn playlist_by_id(&self, _id: i64) -> Option<(String, String, Vec<String>)> {
+
+    pub fn rename_playlist(&self, id: i64, name: &str) -> anyhow::Result<()> {
+        let (_, old_url, urls) = self
+            .playlist_by_id(id)
+            .ok_or_else(|| anyhow::anyhow!("playlist {} not found", id))?;
+        let cfg = self.config();
+        let rules = text::TextRules::new(&cfg.ignored_articles, &cfg.split_list);
+        let new_path = self.playlist_path(name)?;
+        let c = self.conn()?;
+        if let Some(old) = url::path_from_file_url(&old_url) {
+            if old != new_path {
+                let _ = std::fs::remove_file(&old);
+            }
+        }
+        self.write_playlist_file(&c, &new_path, &urls)?;
+        let nu = url::file_url_from_path(&new_path);
+        let sort = rules.sort_key(name);
+        // replace an existing playlist with the same file name
+        c.execute(
+            "DELETE FROM tracks WHERE url = ? AND id != ?",
+            params![nu, id],
+        )?;
+        let (mt, sz, _) = scanner::file_stat(&new_path).unwrap_or((0, 0, false));
+        c.execute(
+            "UPDATE tracks SET url = ?, urlmd5 = ?, title = ?, titlesort = ?, titlesearch = ?, timestamp = ?, filesize = ? WHERE id = ?",
+            params![nu, url::md5_hex(&nu), name, sort, sort, mt, sz, id],
+        )?;
+        Ok(())
+    }
+
+    /// (name, url, track urls) of a saved playlist.
+    pub fn playlist_by_id(&self, id: i64) -> Option<(String, String, Vec<String>)> {
+        let c = self.conn().ok()?;
+        let (title, u, ct): (Option<String>, String, Option<String>) = c
+            .query_row(
+                "SELECT title, url, content_type FROM tracks WHERE id = ?",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .ok()?;
+        let ct = ct.unwrap_or_default();
+        if !types::is_playlist_type(&ct) {
+            return None;
+        }
+        let mut st = c
+            .prepare("SELECT track FROM playlist_track WHERE playlist = ? ORDER BY position")
+            .ok()?;
+        let urls: Vec<String> = st
+            .query_map([id], |r| r.get::<_, String>(0))
+            .ok()?
+            .filter_map(|r| r.ok())
+            .collect();
+        Some((title.unwrap_or_default(), u, urls))
+    }
+
+    pub fn playlist_by_name(&self, name: &str) -> Option<i64> {
+        let c = self.conn().ok()?;
+        c.query_row(
+            "SELECT id FROM tracks WHERE title = ? AND content_type = 'ssp' LIMIT 1",
+            [name],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
+    /// `playlists edit cmd:up|down|delete|add|move`
+    pub fn playlist_edit(&self, id: i64, op: PlaylistEditOp) -> anyhow::Result<()> {
+        let (name, _, mut urls) = self
+            .playlist_by_id(id)
+            .ok_or_else(|| anyhow::anyhow!("playlist {} not found", id))?;
+        match op {
+            PlaylistEditOp::Up(i) => {
+                if i > 0 && i < urls.len() {
+                    urls.swap(i, i - 1);
+                }
+            }
+            PlaylistEditOp::Down(i) => {
+                if i + 1 < urls.len() {
+                    urls.swap(i, i + 1);
+                }
+            }
+            PlaylistEditOp::Delete(i) => {
+                if i < urls.len() {
+                    urls.remove(i);
+                }
+            }
+            PlaylistEditOp::Add { url, index } => match index {
+                Some(i) if i <= urls.len() => urls.insert(i, url),
+                _ => urls.push(url),
+            },
+            PlaylistEditOp::Move { from, to } => {
+                if from < urls.len() {
+                    let u = urls.remove(from);
+                    let to = to.min(urls.len());
+                    urls.insert(to, u);
+                }
+            }
+        }
+        let c = self.conn()?;
+        set_playlist_tracks(&c, id, &urls)?;
+        let path = self.playlist_path(&name)?;
+        self.write_playlist_file(&c, &path, &urls)?;
+        let (mt, sz, _) = scanner::file_stat(&path).unwrap_or((0, 0, false));
+        c.execute(
+            "UPDATE tracks SET timestamp = ?, filesize = ? WHERE id = ?",
+            params![mt, sz, id],
+        )?;
+        Ok(())
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // persistent statistics
+    // ---------------------------------------------------------------------------------------
+
+    pub fn mark_played(&self, u: &str) {
+        let Ok(c) = self.conn() else { return };
+        let md5 = url::md5_hex(u);
+        let now = scanner::now();
+        let n = c
+            .execute(
+                "UPDATE tracks_persistent SET playCount = COALESCE(playCount, 0) + 1, lastPlayed = ? WHERE urlmd5 = ?",
+                params![now, md5],
+            )
+            .unwrap_or(0);
+        if n == 0 && track::load_by_url(&c, u).is_some() {
+            let _ = c.execute(
+                "INSERT INTO tracks_persistent (url, urlmd5, added, playCount, lastPlayed) VALUES (?, ?, ?, 1, ?)",
+                params![u, md5, now, now],
+            );
+        }
+    }
+
+    /// Set a rating (0..100) for a track given by URL or numeric id.
+    pub fn set_rating(&self, url_or_id: &str, rating: u8) {
+        let Ok(c) = self.conn() else { return };
+        let u = match url_or_id.parse::<i64>() {
+            Ok(id) => match track::load_by_id(&c, id) {
+                Some(t) => t.url,
+                None => return,
+            },
+            Err(_) => url_or_id.to_string(),
+        };
+        let md5 = url::md5_hex(&u);
+        let n = c
+            .execute(
+                "UPDATE tracks_persistent SET rating = ? WHERE urlmd5 = ?",
+                params![rating as i64, md5],
+            )
+            .unwrap_or(0);
+        if n == 0 {
+            let _ = c.execute(
+                "INSERT INTO tracks_persistent (url, urlmd5, added, rating) VALUES (?, ?, ?, ?)",
+                params![u, md5, scanner::now(), rating as i64],
+            );
+        }
+    }
+
+    /// Rating of a track (url or id), 0 when unknown.
+    pub fn rating(&self, url_or_id: &str) -> u8 {
+        let Ok(c) = self.conn() else { return 0 };
+        let t = match url_or_id.parse::<i64>() {
+            Ok(id) => track::load_by_id(&c, id),
+            Err(_) => track::load_by_url(&c, url_or_id),
+        };
+        t.and_then(|t| t.rating).unwrap_or(0)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // artwork
+    // ---------------------------------------------------------------------------------------
+
+    pub fn artwork(&self, id: &str, spec: &str) -> Option<(Vec<u8>, String)> {
+        artwork::artwork(self, id, spec)
+    }
+
+    pub fn resize_image(bytes: &[u8], spec: &str) -> Option<(Vec<u8>, String)> {
+        artwork::resize_image(bytes, spec)
+    }
+
+    /// Artist portrait (`/contributor/<portraitid>/image...`) – currently unsupported (no portraits scanned).
+    pub fn contributor_image(&self, _portraitid: &str, _spec: &str) -> Option<(Vec<u8>, String)> {
         None
     }
-    pub fn mark_played(&self, _url: &str) {}
-    pub fn set_rating(&self, _url_or_id: &str, _rating: i64) {}
-    pub fn artwork(&self, _id: &str, _spec: &str) -> Option<(Vec<u8>, String)> {
-        None
+}
+
+fn sc_aborted(a: &AtomicBool) -> bool {
+    a.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_playlist_tracks(
+    c: &rusqlite::Connection,
+    playlist: i64,
+    urls: &[String],
+) -> rusqlite::Result<()> {
+    c.execute("DELETE FROM playlist_track WHERE playlist = ?", [playlist])?;
+    let mut st = c.prepare_cached(
+        "INSERT INTO playlist_track (position, playlist, track) VALUES (?, ?, ?)",
+    )?;
+    for (i, u) in urls.iter().enumerate() {
+        st.execute(params![i as i64, playlist, u])?;
     }
-    pub fn resize_image(_bytes: &[u8], _spec: &str) -> Option<(Vec<u8>, String)> {
-        None
-    }
+    Ok(())
 }

@@ -154,21 +154,40 @@ impl Server {
 
     pub fn apply_library_config(&self) {
         let p = &self.prefs.server;
-        let cfg = rms_library::LibraryConfig {
+        let opt = |k: &str| Some(p.get_str(k)).filter(|s| !s.is_empty());
+        let mut cfg = rms_library::LibraryConfig {
             media_dirs: p
                 .get_string_list("mediadirs")
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            playlist_dir: Some(p.get_str("playlistdir"))
-                .filter(|s| !s.is_empty())
-                .map(Into::into),
-            ignored_articles: p.get_str("ignoredarticles"),
-            split_list: p.get_str("splitList"),
-            various_artists_string: p.get_str("variousArtistsString"),
-            no_genre_string: p.get_str("noGenreString"),
-            group_discs: p.get_bool("groupdiscs"),
+            playlist_dir: opt("playlistdir").map(Into::into),
+            ..Default::default()
         };
+        if let Some(v) = opt("ignoredarticles") {
+            cfg.ignored_articles = v;
+        }
+        if let Some(v) = opt("splitList") {
+            cfg.split_list = v;
+        }
+        if let Some(v) = opt("variousArtistsString") {
+            cfg.various_artists_string = v;
+        }
+        if let Some(v) = opt("noGenreString") {
+            cfg.no_genre_string = v;
+        }
+        cfg.ignore_dir_re = opt("ignoreDirRE");
+        cfg.cover_art = p.get_str("coverArt");
+        cfg.group_discs = p.get_bool("groupdiscs");
+        cfg.composer_in_artists = p.get_bool("composerInArtists");
+        cfg.conductor_in_artists = p.get_bool("conductorInArtists");
+        cfg.band_in_artists = p.get_bool("bandInArtists");
+        cfg.trackartist_in_artists = p.get_bool("trackartistInArtists");
+        cfg.use_unified_artists_list = p.get_bool("useUnifiedArtistsList");
+        cfg.various_artist_auto_identification = p.get_bool("variousArtistAutoIdentification");
+        cfg.use_tpe2_as_album_artist = p.get_bool("useTPE2AsAlbumArtist");
+        cfg.search_substring = p.get_bool("searchSubString");
+        cfg.browse_age_limit = p.get_i64("browseagelimit").max(1) as usize;
         self.library.set_config(cfg);
     }
 
@@ -785,7 +804,7 @@ pub fn track_info_from_library(t: &rms_library::Track) -> TrackInfo {
     TrackInfo {
         url: t.url.clone(),
         id: Some(t.id),
-        title: t.title.clone(),
+        title: Some(t.title.clone()).filter(|t| !t.is_empty()),
         artist: t.artist.clone(),
         album: t.album.clone(),
         album_id: t.album_id,
