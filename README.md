@@ -76,6 +76,11 @@ with the `pref` / `playerpref` commands or the web UI.
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
   WavPack, DSF), cue sheets, compilations, multi-artist/genre splitting, artwork
   extraction and resizing, saved playlists.
+* **Artist pictures** (Lyrion's contributor portraits): `artist.jpg` / `<Artist Name>.jpg`
+  next to or above an artist's albums, or in the *artist pictures folder* (`artfolder`),
+  served at `/contributor/<id>/image` and shown in Squeezer, Jive clients and the web UI.
+  Optionally (`onlineArtistImages`, off by default) missing pictures are downloaded from
+  Deezer, which sends artist names to Deezer.
 * **Jive menus** for Squeezer/SqueezePlay: home menu, My Music browsing, context menus,
   favorites, settings (including player display brightness and text size).
 * **Player displays** (Squeezebox2/3/Classic, Transporter, Boom): Lyrion's bitmap fonts in
