@@ -64,7 +64,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     spawn("slimproto", player::connection::listen(server.clone()));
-    spawn("discovery", discovery::run(server.clone()));
+    if !config.no_discovery {
+        spawn("discovery", discovery::run(server.clone()));
+    }
     spawn("cli", control::cli::listen(server.clone()));
     spawn("http", web::serve(server.clone()));
     tokio::spawn(control::subscribe::pump(server.clone()));

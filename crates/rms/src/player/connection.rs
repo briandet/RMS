@@ -20,7 +20,10 @@ const CHECK_INTERVAL: u64 = 5;
 const DEAD_AFTER: f64 = 15.0;
 
 pub async fn listen(server: Arc<Server>) -> anyhow::Result<()> {
-    let addr = format!("{}:3483", server.config.bind_addr);
+    let addr = format!(
+        "{}:{}",
+        server.config.bind_addr, server.config.slimproto_port
+    );
     let listener = TcpListener::bind(&addr).await?;
     info!("slimproto listening on {}", addr);
     tokio::spawn(heartbeat(server.clone()));

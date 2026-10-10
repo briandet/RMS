@@ -58,6 +58,14 @@ pub struct Config {
     #[arg(long, env = "RMS_CONVERT_CONF")]
     pub convert_conf: Option<PathBuf>,
 
+    /// Slimproto (player control) TCP port.  Players always use 3483; change only for testing.
+    #[arg(long, env = "RMS_SLIMPROTO_PORT", default_value_t = 3483)]
+    pub slimproto_port: u16,
+
+    /// Disable the UDP discovery responder.
+    #[arg(long)]
+    pub no_discovery: bool,
+
     /// Log filter (tracing EnvFilter syntax).
     #[arg(long, env = "RMS_LOG", default_value = "info,rms=info")]
     pub log: String,
