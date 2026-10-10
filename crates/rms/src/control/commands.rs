@@ -859,6 +859,19 @@ const PLAYLIST_EXTS: &[&str] = &["m3u", "m3u8", "pls", "cue", "xspf", "asx", "wp
 /// Expand a `playlist play|add|insert` item into entries (`scanPathOrURL`).
 pub async fn expand_item(server: &Arc<Server>, item: &str) -> Vec<Entry> {
     let url = to_url(item);
+    // Spotify albums, playlists, artists and liked songs become their tracks
+    if crate::plugins::spotify::is_spotify(&url) {
+        return match crate::plugins::spotify::get().map(|sp| sp.expand(&url)) {
+            Some(f) => match f.await {
+                Ok(urls) => urls.into_iter().map(Entry::new).collect(),
+                Err(e) => {
+                    tracing::warn!("{url}: {e}");
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
+    }
     if crate::util::is_remote_url(&url) {
         return vec![Entry::new(url)];
     }

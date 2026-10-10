@@ -125,6 +125,7 @@ impl Server {
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()?;
         let favorites = crate::plugins::favorites::Favorites::load(&config.prefs_dir());
+        crate::plugins::spotify::init(&config.data_dir, http.clone());
         let server = Arc::new(Server {
             prefs,
             notifier: Notifier::new(),
@@ -659,6 +660,9 @@ impl Server {
 
     /// Metadata for a playlist entry (`Slim::Schema::objectForUrl`).
     pub fn track_info_for(&self, e: &Entry) -> TrackInfo {
+        if crate::plugins::spotify::is_spotify(&e.url) {
+            return spotify_track_info(&e.url);
+        }
         if crate::util::is_remote_url(&e.url) {
             let info = self.remote_info.get(&e.url).map(|r| r.clone());
             return TrackInfo {
@@ -848,6 +852,33 @@ pub fn track_info_from_library(t: &rms_library::Track) -> TrackInfo {
 }
 
 /// Read audio properties and basic tags of a file that is not in the library.
+/// A Spotify track: what browsing told us, as 16-bit PCM at 44.1 kHz (what librespot gives).
+pub fn spotify_track_info(url: &str) -> TrackInfo {
+    use crate::plugins::spotify::stream::{CHANNELS, SAMPLE_RATE, SAMPLE_SIZE};
+    let meta = crate::plugins::spotify::get().and_then(|sp| sp.meta.get(url).map(|m| m.clone()));
+    TrackInfo {
+        url: url.to_string(),
+        title: meta.as_ref().map(|m| m.title.clone()),
+        artist: meta
+            .as_ref()
+            .map(|m| m.artist.clone())
+            .filter(|a| !a.is_empty()),
+        album: meta
+            .as_ref()
+            .map(|m| m.album.clone())
+            .filter(|a| !a.is_empty()),
+        secs: meta.as_ref().map(|m| m.secs).filter(|s| *s > 0.0),
+        artwork_url: meta.and_then(|m| m.image),
+        content_type: "spt".into(),
+        samplerate: Some(SAMPLE_RATE),
+        samplesize: Some(SAMPLE_SIZE),
+        channels: Some(CHANNELS),
+        little_endian: true,
+        remote: true,
+        ..Default::default()
+    }
+}
+
 fn probe_file(path: &std::path::Path, info: &mut TrackInfo) {
     use lofty::file::{AudioFile, TaggedFileExt};
     use lofty::tag::Accessor;

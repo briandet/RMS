@@ -62,6 +62,14 @@ fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Ro
         None => (None, None),
     };
     let _ = track_title;
+    // tracks of a service (Spotify) carry their own artist and album
+    let artist = song
+        .and_then(|s| s.remote_meta.artist.clone())
+        .or(info.artist.clone())
+        .or(artist);
+    let album = song
+        .and_then(|s| s.remote_meta.album.clone())
+        .or(info.album.clone());
     for c in tags.chars() {
         if !seen.insert(c) {
             continue;
@@ -89,11 +97,16 @@ fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Ro
                     r.insert("artist".into(), json!(a));
                 }
             }
+            'l' => {
+                if let Some(a) = &album {
+                    r.insert("album".into(), json!(a));
+                }
+            }
             'x' => {
                 r.insert("remote".into(), json!(1));
             }
             'd' => {
-                let d = song.and_then(|s| s.duration()).unwrap_or(0.0);
+                let d = song.and_then(|s| s.duration()).or(info.secs).unwrap_or(0.0);
                 r.insert("duration".into(), json!(d));
             }
             'r' => {
@@ -102,7 +115,10 @@ fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Ro
                 }
             }
             'K' => {
-                if let Some(c) = song.and_then(|s| s.remote_meta.cover.clone()) {
+                if let Some(c) = song
+                    .and_then(|s| s.remote_meta.cover.clone())
+                    .or(info.artwork_url.clone())
+                {
                     r.insert("artwork_url".into(), json!(proxied_image(&c)));
                 }
             }

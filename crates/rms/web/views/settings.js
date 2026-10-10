@@ -34,13 +34,14 @@ export function render(node, { ctx }) {
   const playerSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-player' });
   const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
+  const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
   const aboutSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-about' });
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // ---------------------------------------------------------------- player
   let renderedName = null;
@@ -156,6 +157,69 @@ export function render(node, { ctx }) {
       radioSelect('Text size when off', ok(idle)?.item_loop),
       ...brightness, ...sliders,
     ].filter(Boolean));
+  }
+
+  // ---------------------------------------------------------------- spotify
+  let spotifyPoll = null;
+  async function renderSpotify() {
+    const head = h('h2', { id: 'set-spotify' }, 'Spotify');
+    const st = await rpc(['spotify', 'status']).catch(() => null);
+    if (!alive) return;
+    if (!st) { spotifySection.replaceChildren(head, h('p', { class: 'muted' }, 'Spotify is not available.')); return; }
+    if (+st.signed_in) {
+      clearInterval(spotifyPoll);
+      const [br, norm] = await Promise.allSettled([rpc(['pref', 'spotifyBitrate', '?']), rpc(['pref', 'spotifyNormalisation', '?'])]);
+      if (!alive) return;
+      const normId = fieldId();
+      spotifySection.replaceChildren(head,
+        h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
+        st.error && h('p', { class: 'muted small' }, st.error),
+        st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
+        selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
+          br.status === 'fulfilled' ? br.value._p2 : 320,
+          async (v) => { if (await ctx.serverCmd('pref', 'spotifyBitrate', v)) toast('Setting saved'); }),
+        h('div', { class: 'field check' },
+          h('input', { id: normId, type: 'checkbox', checked: norm.status === 'fulfilled' && +norm.value._p2 === 1,
+            onchange: async (e) => { if (await ctx.serverCmd('pref', 'spotifyNormalisation', e.target.checked ? 1 : 0)) toast('Setting saved'); } }),
+          h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
+        h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
+        h('div', { class: 'button-row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+          if (!confirm('Sign out of Spotify on this server?')) return;
+          await ctx.serverCmd('spotify', 'logout');
+          renderSpotify();
+        } }, 'Sign out')));
+      return;
+    }
+    const pasteId = fieldId();
+    const paste = h('input', { id: pasteId, type: 'url', placeholder: 'http://127.0.0.1:5588/login?code=…', spellcheck: 'false' });
+    const msg = h('p', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
+    const finish = h('form', { class: 'field', hidden: true, onsubmit: async (e) => {
+      e.preventDefault();
+      if (!paste.value.trim()) return;
+      msg.textContent = 'Signing in…';
+      const r = await rpc(['spotify', 'login', `code:${paste.value.trim()}`]).catch((err) => ({ error: err.message }));
+      if (r.user) { toast(`Signed in to Spotify as ${r.user}`); renderSpotify(); } else msg.textContent = r.error || 'Sign-in failed.';
+    } },
+    h('label', { for: pasteId }, 'Address of the page Spotify sent you to'),
+    h('p', { class: 'muted small' }, 'After you agree, Spotify sends your browser to an address starting with http://127.0.0.1:5588/login. If this server runs on another computer that page won’t load — copy its full address from the address bar and paste it here.'),
+    h('div', { class: 'inline-row' }, paste, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Finish')),
+    msg);
+    spotifySection.replaceChildren(head,
+      h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
+      h('div', { class: 'button-row' }, h('button', { class: 'btn btn-primary', type: 'button', onclick: async () => {
+        const r = await rpc(['spotify', 'login']).catch(() => null);
+        if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
+        window.open(r.url, '_blank', 'noopener');
+        finish.hidden = false;
+        paste.focus();
+        // signed in by the redirect itself when the browser runs on the server
+        clearInterval(spotifyPoll);
+        spotifyPoll = setInterval(async () => {
+          const s2 = await rpc(['spotify', 'status']).catch(() => null);
+          if (s2 && +s2.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
+        }, 3000);
+      } }, 'Sign in with Spotify')),
+      finish);
   }
 
   // ---------------------------------------------------------------- sync
@@ -308,6 +372,7 @@ export function render(node, { ctx }) {
   renderDisplay();
   renderSync(true);
   renderLibrary();
+  renderSpotify();
   renderScan();
   offs.push(
     on('player', () => { renderPlayer(); renderDisplay(); renderSync(true); }),
@@ -317,7 +382,7 @@ export function render(node, { ctx }) {
   );
   ctx.refreshServer();
 
-  return () => { alive = false; offs.forEach((f) => f()); };
+  return () => { alive = false; clearInterval(spotifyPoll); offs.forEach((f) => f()); };
 }
 
 function appearance(ctx) {

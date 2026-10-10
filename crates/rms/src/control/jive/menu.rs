@@ -52,6 +52,7 @@ pub fn main_menu(server: &Arc<Server>, p: Option<&Arc<Player>>) -> Vec<Value> {
         }),
     ];
     menu.extend(super::radio::plugin_menus(server));
+    menu.push(crate::plugins::spotify::menu::home_menu());
     if let Some(p) = p {
         menu.extend(player_power(p));
     }

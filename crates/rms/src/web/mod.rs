@@ -103,6 +103,7 @@ async fn stream_handler(
             crate::stream::SourceKind::File { path, .. } => path.display().to_string(),
             crate::stream::SourceKind::Ffmpeg { .. } => "ffmpeg".into(),
             crate::stream::SourceKind::Remote { url } => url.clone(),
+            crate::stream::SourceKind::Spotify { url, .. } => url.clone(),
         }
     );
 

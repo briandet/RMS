@@ -100,7 +100,24 @@ with the `pref` / `playerpref` commands or the web UI.
   player (time entry, days, sound, shuffle, repeat, volume) like Lyrion's player screens.  The menus are the
   same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
-  a small internet radio directory.
+  a small internet radio directory, Spotify (below).
+
+### Spotify
+
+Spotify Premium is required (Spotify streams only to Premium accounts).  Sign in under web UI
+→ Settings → Spotify: Spotify's login page opens, and after you agree it sends your browser
+to `http://127.0.0.1:5588/login`, which RMS answers when the browser runs on the server's
+machine.  Otherwise that page won't load; paste its address from the address bar into the
+form in the settings card.  The login is saved under `<data-dir>/spotify/`.
+
+Liked Songs, your playlists, saved albums and followed artists, recently played, top tracks
+and artists, new releases and search are then in the web UI's Library → Spotify tab, in the
+Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, albums and
+playlists can be played, added and saved as favorites.  RMS plays the audio itself with
+[librespot](https://github.com/librespot-org/librespot): it decodes each track (Ogg Vorbis,
+96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
+it to the player as 16-bit 44.1 kHz PCM, so any player works (including WiiM), seeking
+included.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
 
 ### WiiM notes
 
@@ -115,8 +132,9 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 
 * One transcoder (ffmpeg) replaces Lyrion's `convert.conf` helper chain (flac, sox, lame,
   faad…); per-format enable/disable is not configurable yet.
-* Only a few plugins exist (Favorites, alarms, radio directory).  Streaming-service
-  plugins (Spotty, Qobuz, TIDAL…) and the TuneIn directory are not ported.
+* Only a few plugins exist (Favorites, alarms, radio directory, Spotify).  Other
+  streaming services (Qobuz, TIDAL…) and the TuneIn directory are not ported; Spotify is
+  built in rather than through Spotty, and without Spotify Connect.
 * The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
   than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.
   Squeezebox 1 and SliMP3 (text displays) are not supported.

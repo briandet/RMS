@@ -91,6 +91,8 @@ pub fn server_defaults() -> PrefMap {
         ("scannerPriority", json!(0)),
         ("transcoding", json!(1)),
         ("webproxy", json!("")),
+        ("spotifyBitrate", json!(320)),
+        ("spotifyNormalisation", json!(0)),
     ];
     for (k, v) in defaults {
         m.insert(k.to_string(), v);
