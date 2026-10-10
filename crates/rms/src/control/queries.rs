@@ -816,11 +816,23 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         );
     }
     if menu_mode {
-        r.add_result("preset_loop", json!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
-        r.add_result(
-            "preset_data",
-            json!([{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]),
-        );
+        // presets saved via `jivefavorites set_preset` (10 slots; `{}` = empty)
+        let mut presets: Vec<Value> = p
+            .prefs
+            .get("presets")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        presets.resize(10, json!({}));
+        let presets: Vec<Value> = presets
+            .into_iter()
+            .map(|v| if v.is_object() { v } else { json!({}) })
+            .collect();
+        let defined: Vec<i32> = presets
+            .iter()
+            .map(|v| v.as_object().map(|o| !o.is_empty() as i32).unwrap_or(0))
+            .collect();
+        r.add_result("preset_loop", json!(defined));
+        r.add_result("preset_data", Value::Array(presets));
         r.add_result("count", if count > 0 { count + 2 } else { 0 });
         let base = if use_context_menu {
             json!({"actions": {"more": {"player": 0, "cmd": ["contextmenu"], "params": {"menu": "track", "context": "playlist"}, "itemsParams": "params", "window": {"isContextMenu": 1}}}})
