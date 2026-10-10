@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)">
+  <title>RMS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230a7c66'/%3E%3Cpath fill='%23fff' d='M12 5v8.55A3.5 3.5 0 1 0 13.5 16.5V8.5H17V5h-5z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { var t = localStorage.getItem('rms.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body data-section="main">
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="app-header">
+    <a class="brand" href="#/library/albums" aria-label="RMS – go to library">
+      <span class="brand-mark" data-icon="note"></span><span class="brand-name">RMS</span>
+    </a>
+
+    <div class="player-picker">
+      <label class="sr-only" for="player-select">Player</label>
+      <select id="player-select" aria-label="Select player" disabled>
+        <option>Loading players…</option>
+      </select>
+      <button id="power-btn" class="icon-btn" type="button" aria-label="Player power" aria-pressed="false" disabled>
+        <span data-icon="power"></span>
+      </button>
+    </div>
+
+    <form id="search-form" class="search" role="search" autocomplete="off">
+      <span class="search-icon" data-icon="search"></span>
+      <input id="search-input" type="search" placeholder="Search artists, albums, tracks" aria-label="Search library" enterkeyhint="search">
+    </form>
+
+    <div class="header-actions">
+      <button id="theme-btn" class="icon-btn" type="button" aria-label="Toggle dark mode"><span data-icon="moon"></span></button>
+      <a id="settings-link" class="icon-btn" href="#/settings" aria-label="Settings"><span data-icon="settings"></span></a>
+    </div>
+  </header>
+
+  <div id="offline-banner" class="offline-banner" role="alert" hidden>
+    Can’t reach the server – retrying…
+  </div>
+
+  <div class="layout">
+    <main id="main" tabindex="-1"></main>
+    <aside id="side" aria-label="Player">
+      <section id="nowplaying" class="np" aria-label="Now playing"></section>
+      <section id="queue" class="queue" aria-label="Queue"></section>
+    </aside>
+  </div>
+
+  <div id="mini" class="mini-player" hidden></div>
+
+  <nav class="bottom-nav" aria-label="Sections">
+    <a href="#/now" data-nav="now"><span data-icon="note"></span><span>Playing</span></a>
+    <a href="#/queue" data-nav="queue"><span data-icon="queue"></span><span>Queue</span></a>
+    <a href="#/library/albums" data-nav="library"><span data-icon="library"></span><span>Library</span></a>
+    <a href="#/settings" data-nav="settings"><span data-icon="settings"></span><span>Settings</span></a>
+  </nav>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <noscript><p class="noscript">This interface needs JavaScript.</p></noscript>
+</body>
+</html>
