@@ -4,6 +4,7 @@
 mod config;
 mod control;
 mod discovery;
+mod display;
 mod notify;
 mod player;
 mod plugins;
@@ -72,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(control::subscribe::pump(server.clone()));
     tokio::spawn(web::cometd::run(server.clone()));
     tokio::spawn(plugins::alarm::run(server.clone()));
+    tokio::spawn(display::run(server.clone()));
 
     let shutdown = server.shutdown.clone();
     tokio::select! {
