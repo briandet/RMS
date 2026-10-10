@@ -2,6 +2,7 @@
 //! (`Slim::Web::HTTP`).
 
 pub mod artwork;
+pub mod auth;
 pub mod cometd;
 pub mod jsonrpc;
 pub mod ui;
@@ -36,6 +37,10 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/html/{*path}", get(ui::html_compat))
         .route("/", get(ui::index))
         .route("/{*path}", get(ui::static_file))
+        .layer(axum::middleware::from_fn_with_state(
+            server.clone(),
+            auth::require,
+        ))
         .with_state(server)
 }
 
