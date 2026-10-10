@@ -11,6 +11,7 @@
 //!   which goes to the player like any other stream (`spotify://track:<id>` URLs).
 
 pub mod menu;
+pub mod session_api;
 pub mod stream;
 
 use base64::Engine;
@@ -27,8 +28,26 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
-/// Spotify's desktop client id, which librespot uses for its OAuth flow.
-const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
+/// Spotify's desktop client id, which librespot uses for its OAuth flow.  Shared by every
+/// librespot-based app, so Spotify rate-limits its Web API traffic hard (HTTP 429 even on
+/// the first request); the `spotifyClientId` pref replaces it with the user's own app.
+const DEFAULT_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
+/// Rate-limit waits longer than this fail the request instead of blocking the caller.
+const MAX_RATE_LIMIT_WAIT: u64 = 3;
+
+/// The client id to sign in with: the user's own (`spotifyClientId` pref) or the default.
+pub fn client_id_or_default(pref: &str) -> String {
+    let id = pref.trim();
+    if id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+        id.to_ascii_lowercase()
+    } else {
+        DEFAULT_CLIENT_ID.to_string()
+    }
+}
+
+fn default_client_id() -> String {
+    DEFAULT_CLIENT_ID.to_string()
+}
 const REDIRECT_PORT: u16 = 5588;
 const API: &str = "https://api.spotify.com/v1";
 
@@ -63,6 +82,10 @@ pub struct TrackMeta {
 #[derive(Serialize, Deserialize, Default)]
 struct OAuthState {
     refresh_token: String,
+    /// The client id the refresh token belongs to (files from before it was stored used
+    /// the default one).
+    #[serde(default = "default_client_id")]
+    client_id: String,
     #[serde(skip)]
     access_token: Option<(String, Instant)>,
 }
@@ -70,6 +93,7 @@ struct OAuthState {
 struct PendingLogin {
     verifier: String,
     state: String,
+    client_id: String,
 }
 
 pub struct Spotify {
@@ -83,6 +107,8 @@ pub struct Spotify {
     /// Web API list responses (`ref` → items), briefly.
     lists: Mutex<std::collections::HashMap<String, (Instant, Vec<Value>)>>,
     user: Mutex<Option<String>>,
+    /// The Web API failed (rate limit, no usable token): use the session until then.
+    web_api_down_until: Mutex<Option<Instant>>,
 }
 
 static INSTANCE: OnceLock<Arc<Spotify>> = OnceLock::new();
@@ -108,6 +134,7 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
                 meta: DashMap::new(),
                 lists: Mutex::new(Default::default()),
                 user: Mutex::new(None),
+                web_api_down_until: Mutex::new(None),
             })
         })
         .clone()
@@ -232,19 +259,23 @@ impl Spotify {
 
     /// Start signing in: the Spotify authorization URL to open.  Also listens on the
     /// redirect port to finish by itself when the browser runs on this machine.
-    pub fn start_login(self: &Arc<Self>) -> String {
+    pub fn start_login(self: &Arc<Self>, client_id: &str) -> String {
         let verifier = random_string(96);
         let state = random_string(16);
         let mut url = url::Url::parse("https://accounts.spotify.com/authorize").expect("url");
         url.query_pairs_mut()
-            .append_pair("client_id", CLIENT_ID)
+            .append_pair("client_id", client_id)
             .append_pair("response_type", "code")
             .append_pair("redirect_uri", &redirect_uri())
             .append_pair("code_challenge_method", "S256")
             .append_pair("code_challenge", &challenge(&verifier))
             .append_pair("scope", &SCOPES.join(" "))
             .append_pair("state", &state);
-        *self.pending.lock() = Some(PendingLogin { verifier, state });
+        *self.pending.lock() = Some(PendingLogin {
+            verifier,
+            state,
+            client_id: client_id.to_string(),
+        });
         let me = self.clone();
         tokio::spawn(async move { me.listen_for_redirect().await });
         url.to_string()
@@ -304,11 +335,11 @@ impl Spotify {
                 return Err("this sign-in link is outdated; start again".into());
             }
         }
-        let verifier = self
+        let (verifier, client_id) = self
             .pending
             .lock()
             .as_ref()
-            .map(|p| p.verifier.clone())
+            .map(|p| (p.verifier.clone(), p.client_id.clone()))
             .ok_or("no sign-in in progress; start again")?;
         let resp: Value = self
             .http
@@ -317,7 +348,7 @@ impl Spotify {
                 ("grant_type", "authorization_code"),
                 ("code", code.as_str()),
                 ("redirect_uri", redirect_uri().as_str()),
-                ("client_id", CLIENT_ID),
+                ("client_id", client_id.as_str()),
                 ("code_verifier", verifier.as_str()),
             ])
             .send()
@@ -339,19 +370,43 @@ impl Spotify {
         *self.pending.lock() = None;
         *self.oauth.lock() = Some(OAuthState {
             refresh_token: resp["refresh_token"].as_str().unwrap_or("").to_string(),
+            client_id: client_id.clone(),
             access_token: Some((
                 access.clone(),
                 Instant::now() + Duration::from_secs(expires.saturating_sub(60)),
             )),
         });
         self.save_oauth();
-        // log a session in once; librespot stores reusable credentials
-        let _ = std::fs::remove_file(self.dir.join("credentials.json"));
+        self.lists.lock().clear();
+        // Log a playback session in with the new token; librespot stores reusable
+        // credentials.  A token of the user's own app may not be accepted for playback:
+        // then keep the session credentials of an earlier sign-in, if there are any.
+        let cached = self.dir.join("credentials.json");
+        let backup = self.dir.join("credentials.json.prev");
+        let had_cached = std::fs::rename(&cached, &backup).is_ok();
         *self.session.lock().await = None;
-        let session = self.connect(Credentials::with_access_token(access)).await?;
-        let user = session.username();
-        info!("Spotify: signed in as {user}");
-        Ok(user)
+        match self.connect(Credentials::with_access_token(access)).await {
+            Ok(session) => {
+                let _ = std::fs::remove_file(&backup);
+                let user = session.username();
+                info!("Spotify: signed in as {user} (client id {client_id})");
+                Ok(user)
+            }
+            Err(e) if had_cached => {
+                let _ = std::fs::rename(&backup, &cached);
+                warn!("{e} with client id {client_id}; keeping the earlier playback sign-in");
+                let session = self.session().await?;
+                Ok(session.username())
+            }
+            Err(e) => Err(if client_id == DEFAULT_CLIENT_ID {
+                e
+            } else {
+                format!(
+                    "{e}. Spotify accepted your app for browsing but not for playback: \
+                     clear the client id, sign in once, then set it again and sign in."
+                )
+            }),
+        }
     }
 
     /// Forget the account.
@@ -403,7 +458,7 @@ impl Spotify {
 
     /// A Web API access token from the stored refresh token.
     async fn oauth_token(&self) -> Result<String, String> {
-        let refresh = {
+        let (refresh, client_id) = {
             let g = self.oauth.lock();
             let o = g.as_ref().ok_or("not signed in to Spotify")?;
             if let Some((t, until)) = &o.access_token {
@@ -411,7 +466,7 @@ impl Spotify {
                     return Ok(t.clone());
                 }
             }
-            o.refresh_token.clone()
+            (o.refresh_token.clone(), o.client_id.clone())
         };
         if refresh.is_empty() {
             return Err("no Spotify refresh token".into());
@@ -422,7 +477,7 @@ impl Spotify {
             .form(&[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh.as_str()),
-                ("client_id", CLIENT_ID),
+                ("client_id", client_id.as_str()),
             ])
             .send()
             .await
@@ -466,8 +521,49 @@ impl Spotify {
 
     // ---- Web API ------------------------------------------------------------------------------
 
-    /// GET a Web API path (`/me/playlists?limit=50`).
+    fn rate_limited_message(&self, wait: u64) -> String {
+        let own = self
+            .oauth
+            .lock()
+            .as_ref()
+            .is_some_and(|o| o.client_id != DEFAULT_CLIENT_ID);
+        if own {
+            format!("Spotify is rate-limiting your app; try again in {wait}s")
+        } else {
+            format!(
+                "Spotify is rate-limiting the shared client id (retry in {wait}s): \
+                 set your own Spotify app's client id in Settings, then sign in again"
+            )
+        }
+    }
+
+    /// GET a Web API path (`/me/playlists?limit=50`): from the Web API, or through the
+    /// session ([`session_api`]) when the Web API is unavailable.
     pub async fn api(&self, path: &str) -> Result<Value, String> {
+        let down = self
+            .web_api_down_until
+            .lock()
+            .is_some_and(|t| t > Instant::now());
+        let web_err = if down {
+            "Spotify Web API unavailable".to_string()
+        } else {
+            match self.web_api(path).await {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    let wait = if e.contains("rate-limiting") { 60 } else { 600 };
+                    *self.web_api_down_until.lock() =
+                        Some(Instant::now() + Duration::from_secs(wait));
+                    e
+                }
+            }
+        };
+        let session = self.session().await?;
+        session_api::session_get(&session, path)
+            .await
+            .map_err(|e| format!("{e} ({web_err})"))
+    }
+
+    async fn web_api(&self, path: &str) -> Result<Value, String> {
         let url = if path.starts_with("https://") {
             path.to_string()
         } else {
@@ -482,7 +578,16 @@ impl Spotify {
                 .send()
                 .await
                 .map_err(|e| e.to_string())?;
-            match resp.status().as_u16() {
+            let status = resp.status().as_u16();
+            if status != 200 {
+                warn!(
+                    "Spotify Web API {} -> {} (retry-after {:?})",
+                    path,
+                    status,
+                    resp.headers().get("retry-after")
+                );
+            }
+            match status {
                 200 => return resp.json().await.map_err(|e| e.to_string()),
                 401 => {
                     // token expired early
@@ -496,8 +601,11 @@ impl Spotify {
                         .get("retry-after")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(1)
-                        .min(10);
+                        .unwrap_or(1);
+                    if wait > MAX_RATE_LIMIT_WAIT {
+                        // don't hold the caller (a menu, a track about to play) for it
+                        return Err(self.rate_limited_message(wait));
+                    }
                     tokio::time::sleep(Duration::from_secs(wait)).await;
                 }
                 s => {
@@ -631,6 +739,32 @@ impl Spotify {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn own_client_id_or_default() {
+        let own = "0123456789ABCDEF0123456789abcdef";
+        assert_eq!(client_id_or_default(own), own.to_ascii_lowercase());
+        assert_eq!(
+            client_id_or_default(&format!("  {own} ")),
+            own.to_ascii_lowercase()
+        );
+        for bad in ["", "abc", "not a client id at all, no no no", &own[1..]] {
+            assert_eq!(client_id_or_default(bad), DEFAULT_CLIENT_ID, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn oauth_files_without_client_id_use_the_default() {
+        let old: OAuthState = serde_json::from_str(r#"{"refresh_token":"r"}"#).unwrap();
+        assert_eq!(old.client_id, DEFAULT_CLIENT_ID);
+        let own = OAuthState {
+            refresh_token: "r".into(),
+            client_id: "0123456789abcdef0123456789abcdef".into(),
+            access_token: None,
+        };
+        let back: OAuthState = serde_json::from_str(&serde_json::to_string(&own).unwrap()).unwrap();
+        assert_eq!(back.client_id, own.client_id);
+    }
     use super::*;
 
     #[test]
