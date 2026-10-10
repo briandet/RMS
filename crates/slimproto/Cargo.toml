@@ -1,0 +1,12 @@
+[package]
+name = "slimproto"
+description = "Wire codec for the Squeezebox 'slimproto' player protocol (port 3483) and UDP discovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { version = "0.7", features = ["codec"] }

@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+/data/
+*.sqlite
+*.sqlite-*
+.DS_Store
