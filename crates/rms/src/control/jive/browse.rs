@@ -1261,6 +1261,7 @@ async fn resolve(
     base_crumbs: Vec<String>,
 ) -> Level {
     let mut crumbs = base_crumbs;
+    let mut last_name: Option<String> = None;
     for (depth, comp) in path.iter().enumerate() {
         let Some(i) = component_index(comp) else {
             break;
@@ -1299,9 +1300,11 @@ async fn resolve(
             nbp.order_by = bp.order_by.clone();
             bp = nbp;
             crumbs.push(comp);
+            last_name = item.name.clone();
             continue;
         }
         crumbs.push(comp);
+        last_name = item.name.clone();
         let leaf = item.kind.as_deref() == Some("audio") || item.kind.as_deref() == Some("text");
         if last && (leaf || (is_item_query && item.fields.get("_next").is_none())) {
             ctx.crumbs = crumbs;
@@ -1321,6 +1324,9 @@ async fn resolve(
     }
     ctx.crumbs = crumbs;
     let mut feed = run_mode(server, r, &bp, final_range.0, final_range.1).await;
+    if feed.title.is_none() {
+        feed.title = last_name;
+    }
     if bp.search.is_some() && bp.mode != "search" {
         feed.kind = Some("search".into());
     }

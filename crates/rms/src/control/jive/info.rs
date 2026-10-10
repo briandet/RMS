@@ -681,10 +681,29 @@ fn more_info_items(row: &Obj, url: &str, remote: bool) -> Vec<Item> {
         ("tagversion", "TAGVERSION"),
     ] {
         if let Some(x) = get(row, field) {
+            let x = if label == "TAGVERSION" {
+                x
+            } else {
+                pretty_date(&x)
+            };
             v.push(label_item(label, x));
         }
     }
     v
+}
+
+/// Raw epoch values (the library's SQL path) as LMS `longdateFormat, timeFormat`
+/// (`Monday, January 5, 2026, 3:04 PM`); anything else is returned unchanged.
+fn pretty_date(v: &str) -> String {
+    use chrono::TimeZone;
+    match v
+        .parse::<i64>()
+        .ok()
+        .and_then(|e| chrono::Local.timestamp_opt(e, 0).single())
+    {
+        Some(t) => t.format("%A, %B %-d, %Y, %-I:%M %p").to_string(),
+        None => v.to_string(),
+    }
 }
 
 // ---- albuminfo ------------------------------------------------------------------------------
