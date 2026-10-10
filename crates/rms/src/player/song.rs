@@ -79,6 +79,13 @@ pub struct RemoteMeta {
     pub station: Option<String>,
 }
 
+/// `Song::retryData`: retries done so far and when retrying started.
+#[derive(Debug, Clone, Copy)]
+pub struct RetryData {
+    pub count: usize,
+    pub start: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Song {
     pub id: u64,
@@ -97,7 +104,8 @@ pub struct Song {
     pub stream_bitrate: Option<u32>,
     pub remote_meta: RemoteMeta,
     pub spec: Option<StreamSpec>,
-    pub retry_count: u32,
+    /// Set while a remote stream that already played is being retried (`retryData`).
+    pub retry: Option<RetryData>,
     pub can_seek: bool,
     /// Replay gain applied when streaming (dB); 0 = none.
     pub replay_gain_db: f64,
@@ -123,7 +131,7 @@ impl Song {
             stream_bitrate: None,
             remote_meta: RemoteMeta::default(),
             spec: None,
-            retry_count: 0,
+            retry: None,
             can_seek: true,
             replay_gain_db: 0.0,
             started_at: None,

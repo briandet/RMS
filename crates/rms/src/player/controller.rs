@@ -6,7 +6,7 @@
 //! reference server in [`action_for`].
 
 use super::playlist::{Entry, Playlist};
-use super::song::{Song, SongStatus, TrackInfo};
+use super::song::{RetryData, Song, SongStatus, TrackInfo};
 use super::Player;
 use crate::server::Server;
 use crate::stream::{self, PlayParams};
@@ -570,8 +570,11 @@ impl Controller {
                 if self.players.len() > 1 {
                     self.a_stop(false);
                 } else if p.error_disconnect {
+                    // already playing: treat like end of stream, but give a retry a chance
                     self.set_streaming_state(StreamingState::Streamout);
-                    return;
+                    if self.streaming_song().is_some_and(|s| s.retry.is_none()) {
+                        return;
+                    }
                 } else {
                     self.set_streaming_state(StreamingState::Idle);
                 }
@@ -699,7 +702,8 @@ impl Controller {
         if let Some(song) = self.queue.back_mut() {
             song.status = SongStatus::Playing;
             song.start_reported = player_reported;
-            song.retry_count = 0;
+            // we are playing so we must be done retrying
+            song.retry = None;
             song.started_at = Some(now);
             newsong = Some((standard_title(song), song.index, song.track.url.clone()));
         }
@@ -900,6 +904,12 @@ impl Controller {
                         elapsed
                     );
                     let id = song.id;
+                    if let Some(s) = self.queue.front_mut() {
+                        s.retry = Some(RetryData {
+                            count: 0,
+                            start: crate::util::now(),
+                        });
+                    }
                     self.a_stream(EvParams {
                         song_id: Some(id),
                         ..Default::default()
@@ -1155,34 +1165,75 @@ impl Controller {
         }
     }
 
+    /// `_willRetry`: only a remote stream that already played (it has [`RetryData`]) is
+    /// retried.  The retry goes through TRACKWAIT and the next-track callback id, so the
+    /// state table decides what the timer may do (a user `stop` in between cancels it).
     fn will_retry(&mut self) -> bool {
-        // Retry remote live streams a few times (bug 3161 in LMS); local files never retry.
-        let Some(song) = self.queue.front_mut() else {
+        const RETRY_INTERVALS: [f64; 4] = [5.0, 10.0, 15.0, 30.0];
+        const RETRY_LIMIT: f64 = 5.0 * 60.0;
+        const RETRY_LIMIT_PLAYLIST: f64 = 30.0;
+
+        let Some((song_id, index, url, retry)) = self
+            .streaming_song()
+            .map(|s| (s.id, s.index, s.url().to_string(), s.retry))
+        else {
             return false;
         };
-        if !song.is_remote() || !song.is_live() || song.retry_count >= 4 {
+        let Some(retry) = retry else {
+            info!("{}: no retry data", self.master_id);
+            return false;
+        };
+        let limit = match self.next_index(None) {
+            Some(next) if next != index => RETRY_LIMIT_PLAYLIST,
+            _ => RETRY_LIMIT,
+        };
+        let interval = RETRY_INTERVALS[retry.count.min(RETRY_INTERVALS.len() - 1)];
+        let retry_time = crate::util::now() + interval;
+        if retry.start + limit < retry_time {
+            // too late, give up
+            if let Some(s) = self.queue.front_mut() {
+                s.retry = None;
+            }
+            warn!(
+                "{}: cannot open {}: RETRY_LIMIT_EXCEEDED",
+                self.master_id, url
+            );
+            if let Some(server) = self.server() {
+                server.notifier.notify_owned(
+                    Some(self.master_id),
+                    vec![
+                        "playlist".into(),
+                        "cant_open".into(),
+                        url,
+                        "RETRY_LIMIT_EXCEEDED".into(),
+                    ],
+                );
+            }
+            self.a_stop(false);
+            // the failed retry counts as one error
+            self.consecutive_errors = 1;
             return false;
         }
-        song.retry_count += 1;
-        let delay = [5u64, 10, 15, 30][(song.retry_count as usize - 1).min(3)];
-        let id = song.id;
-        let me = self.me.clone();
-        info!(
-            "{}: will retry {} in {}s",
-            self.master_id,
-            song.url(),
-            delay
-        );
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-            if let Some(c) = me.upgrade() {
-                let mut c = c.lock();
-                if c.is_stopped() && c.queue.front().map(|s| s.id) == Some(id) {
-                    c.next_track = Some(id);
-                    c.set_streaming_state(StreamingState::TrackWait);
-                    c.event(Event::NextTrackReady, EvParams::default());
-                }
+        if let Some(s) = self.queue.front_mut() {
+            if let Some(r) = s.retry.as_mut() {
+                r.count += 1;
             }
+        }
+        self.next_track_cb_id += 1;
+        let cb_id = self.next_track_cb_id;
+        self.next_track = None;
+        self.set_streaming_state(StreamingState::TrackWait);
+        info!("{}: will retry {} in {}s", self.master_id, url, interval);
+        let me = self.me.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs_f64(interval)).await;
+            let Some(c) = me.upgrade() else { return };
+            let mut c = c.lock();
+            if let Some(s) = c.queue.iter_mut().find(|s| s.id == song_id) {
+                s.status = SongStatus::Ready;
+            }
+            c.consecutive_errors = 0;
+            c.next_track_ready(cb_id, song_id);
         });
         true
     }
