@@ -221,7 +221,7 @@ pub fn parse(
                         }
                     }
                     "REPLAYGAIN_ALBUM_GAIN" | "REPLAYGAIN_TRACK_GAIN" => {
-                        let re = regex::Regex::new(r#"(?i)^"?(.*)dB"#).unwrap();
+                        let re = crate::re!(r#"(?i)^"?(.*)dB"#);
                         if let Some(c) = re.captures(&rv) {
                             add_cmd(&mut album, &mut tracks, in_album, cur, &rc, c[1].trim().to_string());
                         }

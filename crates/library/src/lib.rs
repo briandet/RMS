@@ -6,6 +6,16 @@
 //!   producing result hashes with the exact LMS field names and emission order
 //! * artwork extraction / resizing with an on-disk cache
 
+/// Lazily compiled static regex.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! re {
+    ($s:expr) => {{
+        static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        RE.get_or_init(|| regex::Regex::new($s).unwrap())
+    }};
+}
+
 pub mod artwork;
 pub mod config;
 pub mod cue;

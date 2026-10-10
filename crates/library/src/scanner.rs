@@ -1125,7 +1125,7 @@ impl<'a> Scanner<'a> {
         let titlesort = self.rules.sort_key(&titlesort_src);
         let titlesearch = self.rules.search_key(&title);
         if let Some(d) = first(&attrs, "DISC").map(|s| s.to_string()) {
-            let re = regex::Regex::new(r"^(\d+)[-/](\d+)$").unwrap();
+            let re = crate::re!(r"^(\d+)[-/](\d+)$");
             if let Some(c) = re.captures(d.trim()) {
                 attrs.insert("DISC".into(), vec![c[1].to_string()]);
                 if first(&attrs, "DISCC").is_none() {
@@ -1158,7 +1158,7 @@ impl<'a> Scanner<'a> {
                 comments.extend(v.iter().cloned());
             }
         }
-        let comment_black = regex::Regex::new(r"SoundJam_CDDB_|iTunes_CDDB_|^iTun[A-Z]{4}|^\s*[0-9A-Fa-f]{8}(\+|\s)|^\s*[0-9A-Fa-f]{2}\+[0-9A-Fa-f]{32}").unwrap();
+        let comment_black = crate::re!(r"SoundJam_CDDB_|iTunes_CDDB_|^iTun[A-Z]{4}|^\s*[0-9A-Fa-f]{8}(\+|\s)|^\s*[0-9A-Fa-f]{2}\+[0-9A-Fa-f]{32}");
         comments.retain(|c| !c.trim().is_empty() && !comment_black.is_match(c));
         let lyrics = attrs.get("LYRICS").map(|v| v.join("\n")).filter(|s| !s.is_empty());
         let trimmed = |k: &str| first(&attrs, k).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
@@ -1372,7 +1372,7 @@ impl<'a> Scanner<'a> {
             Some(s) if !s.is_empty() => self.rules.sort_key(s),
             _ => {
                 let s = self.rules.sort_key(title);
-                let re = regex::Regex::new(r"(\d+)").unwrap();
+                let re = crate::re!(r"(\d+)");
                 re.replace_all(&s, |c: &regex::Captures| format!("{:04}", c[1].parse::<u64>().unwrap_or(0))).into_owned()
             }
         };

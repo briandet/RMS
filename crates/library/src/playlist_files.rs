@@ -46,8 +46,8 @@ pub fn parse_m3u(bytes: &[u8], base: &Path, media_dirs: &[PathBuf], self_url: &s
     let mut out = Vec::new();
     let mut cur = PlaylistEntry::default();
     let mut ext_url: Option<String> = None;
-    let extinf_legacy = regex::Regex::new(r"^#EXTINF:\s*(-?\d+),<(.*)> - <(.*)> - <(.*)>").unwrap();
-    let extinf_secs = regex::Regex::new(r"^#EXTINF:\s*(-?[\d\.]+)\s*,\s*(.*)$").unwrap();
+    let extinf_legacy = crate::re!(r"^#EXTINF:\s*(-?\d+),<(.*)> - <(.*)> - <(.*)>");
+    let extinf_secs = crate::re!(r"^#EXTINF:\s*(-?[\d\.]+)\s*,\s*(.*)$");
     for raw in text.lines() {
         let line = raw.trim_end_matches('\r').trim();
         if line.is_empty() {
@@ -100,8 +100,8 @@ pub fn parse_pls(bytes: &[u8], base: &Path, media_dirs: &[PathBuf], self_url: &s
     let text = decode_text(bytes).replace("\r\n", "\n").replace('\r', "\n");
     let mut files: std::collections::BTreeMap<u32, String> = Default::default();
     let mut titles: std::collections::BTreeMap<u32, String> = Default::default();
-    let re_file = regex::Regex::new(r"(?i)^File(\d+)=(.*)$").unwrap();
-    let re_title = regex::Regex::new(r"(?i)^Title(\d+)=(.*)$").unwrap();
+    let re_file = crate::re!(r"(?i)^File(\d+)=(.*)$");
+    let re_title = crate::re!(r"(?i)^Title(\d+)=(.*)$");
     for line in text.lines() {
         let line = line.trim();
         if let Some(c) = re_file.captures(line) {

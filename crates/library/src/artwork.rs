@@ -21,14 +21,14 @@ pub struct Spec {
 
 /// Extract the resize spec from the trailing path element (e.g. `cover_300x300_o.jpg` → `300x300_o.jpg`).
 pub fn extract_spec(basename: &str) -> String {
-    let re = regex::Regex::new(r"_?((?:[0-9X]+x[0-9X]+)?(?:_\w)?(?:_[\da-fA-F]+)?(?:\.\w+)?)$").unwrap();
+    let re = crate::re!(r"_?((?:[0-9X]+x[0-9X]+)?(?:_\w)?(?:_[\da-fA-F]+)?(?:\.\w+)?)$");
     re.captures(basename).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default()
 }
 
 /// `Slim::Web::Graphics::parseSpec`
 pub fn parse_spec(spec: &str) -> Spec {
     let spec = spec.split(',').next().unwrap_or("");
-    let re = regex::Regex::new(r"^(?:([0-9X]+)x([0-9X]+))?(?:_(\w))?(?:_([\da-fA-F]+))?(?:\.(\w+))?$").unwrap();
+    let re = crate::re!(r"^(?:([0-9X]+)x([0-9X]+))?(?:_(\w))?(?:_([\da-fA-F]+))?(?:\.(\w+))?$");
     let mut s = Spec { raw: spec.to_string(), ..Default::default() };
     if let Some(c) = re.captures(spec) {
         s.width = c.get(1).and_then(|m| m.as_str().parse().ok());
@@ -124,7 +124,7 @@ pub fn resize_image(src: &[u8], spec: &str) -> Option<(Vec<u8>, String)> {
         "gif" => "gif",
         _ => "jpg",
     });
-    let wh_raw = regex::Regex::new(r"^([0-9X]+)x([0-9X]+)").unwrap().captures(&s.raw).map(|c| (c[1].to_string(), c[2].to_string()));
+    let wh_raw = crate::re!(r"^([0-9X]+)x([0-9X]+)").captures(&s.raw).map(|c| (c[1].to_string(), c[2].to_string()));
     let mut width = s.width.filter(|w| *w > 0);
     let mut height = s.height.filter(|h| *h > 0);
     if width.is_none() && height.is_none() {

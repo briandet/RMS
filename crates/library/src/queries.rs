@@ -1643,7 +1643,7 @@ fn playlists(c: &Connection, cfg: &LibraryConfig, q: &LibQuery, scanning: bool) 
         p.extend(params.into_iter().map(SqlValue::Text));
     } else if !folder.is_empty() {
         let mut f = folder.to_string();
-        if !f.starts_with("file:/") && regex::Regex::new(r"%[0-9A-Fa-f]{2}").unwrap().is_match(&f) {
+        if !f.starts_with("file:/") && crate::re!(r"%[0-9A-Fa-f]{2}").is_match(&f) {
             f = String::from_utf8_lossy(&crate::url::percent_decode_bytes(&f)).into_owned();
         }
         if f.starts_with("file:/") {

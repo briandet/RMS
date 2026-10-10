@@ -72,10 +72,10 @@ pub fn format_time(epoch: i64, cfg: &LibraryConfig) -> String {
     use chrono::{Local, TimeZone};
     let Some(dt) = Local.timestamp_opt(epoch, 0).single() else { return String::new() };
     let date = dt.format(&cfg.long_date_format).to_string();
-    let re = regex::Regex::new(r"\|0*").unwrap();
+    let re = crate::re!(r"\|0*");
     let date = re.replacen(&date, 1, "").to_string();
     let time = dt.format(&cfg.time_format).to_string();
-    let re2 = regex::Regex::new(r"\|0?(\d+)").unwrap();
+    let re2 = crate::re!(r"\|0?(\d+)");
     let time = re2.replacen(&time, 1, "$1").to_string();
     format!("{}, {}", date, time)
 }

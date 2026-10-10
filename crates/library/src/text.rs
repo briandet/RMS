@@ -19,7 +19,24 @@ impl TextRules {
         let articles = if words.is_empty() {
             None
         } else {
-            Regex::new(&format!(r"(?i)^({})\s+", words.join("|"))).ok()
+            // compiled regexes are cached per article list (TextRules is built per query)
+            use std::collections::HashMap;
+            use std::sync::{Mutex, OnceLock};
+            static CACHE: OnceLock<Mutex<HashMap<String, Regex>>> = OnceLock::new();
+            let key = words.join("|");
+            let mut cache = CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(re) = cache.get(&key) {
+                Some(re.clone())
+            } else {
+                let re = Regex::new(&format!(r"(?i)^({})\s+", key)).ok();
+                if let Some(r) = &re {
+                    if cache.len() > 16 {
+                        cache.clear();
+                    }
+                    cache.insert(key, r.clone());
+                }
+                re
+            }
         };
         TextRules {
             articles,
@@ -131,15 +148,8 @@ pub fn split_tag_with(tag: &str, separators: &[String]) -> Vec<String> {
     vec![tag.trim().to_string()]
 }
 
-fn regex_rb() -> &'static (Regex, Regex) {
-    use std::sync::OnceLock;
-    static RE: OnceLock<(Regex, Regex)> = OnceLock::new();
-    RE.get_or_init(|| {
-        (
-            Regex::new(r"(?i)^\s*R\s*&\s*B\s*$").unwrap(),
-            Regex::new(r"(?i)^\s*Rock\s*&\s*Roll\s*$").unwrap(),
-        )
-    })
+fn regex_rb() -> (&'static Regex, &'static Regex) {
+    (crate::re!(r"(?i)^\s*R\s*&\s*B\s*$"), crate::re!(r"(?i)^\s*Rock\s*&\s*Roll\s*$"))
 }
 
 /// Perl `[[:punct:]]` on a Unicode string: Unicode punctuation (\p{P}) plus the ASCII
@@ -270,7 +280,7 @@ pub fn uri_escape_utf8(s: &str) -> String {
 
 /// Clean a replay gain value the LMS way: strip " dB", whitespace, ',' -> '.', must be numeric.
 pub fn clean_gain(v: &str) -> Option<f64> {
-    let re = Regex::new(r"(?i)\s*dB").unwrap();
+    let re = crate::re!(r"(?i)\s*dB");
     let mut s = re.replace_all(v, "").to_string();
     s.retain(|c| !c.is_whitespace());
     let s = s.replace(',', ".");
@@ -295,7 +305,7 @@ pub fn clean_track_number(v: &str) -> Option<i64> {
 
 /// `sanitizeYearTag`: first 4-digit run.
 pub fn sanitize_year(v: &str) -> Option<String> {
-    let re = Regex::new(r"(\d\d\d\d)").unwrap();
+    let re = crate::re!(r"(\d\d\d\d)");
     // Perl: s/.*(\d\d\d\d).*/$1/ is greedy: the *last* 4-digit run wins
     let mut last = None;
     for c in re.captures_iter(v) {

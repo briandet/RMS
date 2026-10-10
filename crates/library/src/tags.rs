@@ -1361,7 +1361,7 @@ pub fn post_process(rt: &mut ReadTags, path: &Path, url: &str, guess_formats: &[
     // URLTAG (FLAC URL) is appended as comment later
     // SET → DISC/DISCC
     if let Some(set) = first(attrs, "SET").map(|s| s.to_string()) {
-        let re = regex::Regex::new(r"(\d+)(?:/(\d+))?").unwrap();
+        let re = crate::re!(r"(\d+)(?:/(\d+))?");
         if let Some(c) = re.captures(&set) {
             attrs.insert("DISC".into(), vec![c[1].parse::<i64>().unwrap_or(0).to_string()]);
             if let Some(dc) = c.get(2) {
@@ -1379,7 +1379,7 @@ pub fn post_process(rt: &mut ReadTags, path: &Path, url: &str, guess_formats: &[
     }
     // MusicBrainz ids validation
     let keys: Vec<String> = attrs.keys().filter(|k| k.starts_with("MUSICBRAINZ") && k.ends_with("ID")).cloned().collect();
-    let uuid = regex::Regex::new(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$").unwrap();
+    let uuid = crate::re!(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
     for k in keys {
         let vals = attrs.get(&k).cloned().unwrap_or_default();
         let mut out = Vec::new();
@@ -1424,7 +1424,7 @@ pub fn guess_tags(attrs: &mut Attrs, path: &Path, formats: &[String]) {
             file.truncate(i);
         }
     }
-    let elem = regex::Regex::new(r"\b(TRACKNUM|DISCC|DISC|ARTIST|ALBUMARTIST|ALBUM|TITLE|YEAR|GENRE|COMPOSER|CONDUCTOR|BAND)\b").unwrap();
+    let elem = crate::re!(r"\b(TRACKNUM|DISCC|DISC|ARTIST|ALBUMARTIST|ALBUM|TITLE|YEAR|GENRE|COMPOSER|CONDUCTOR|BAND)\b");
     for guess in formats {
         let mut pat = String::new();
         let mut names = Vec::new();
