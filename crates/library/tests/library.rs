@@ -498,3 +498,32 @@ fn artwork_and_stats() {
     let r = run(&f.lib, LibQueryName::Albums, 0, 10, &[("tags", "l"), ("sort", "new")]);
     assert_eq!(r["count"], json!(5));
 }
+
+#[test]
+fn library_is_send_sync_and_handles_removed_media_dirs() {
+    fn assert_send_sync<T: Send + Sync + Clone + 'static>() {}
+    assert_send_sync::<Library>();
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    // scan from another thread, query concurrently
+    let lib2 = f.lib.clone();
+    let h = std::thread::spawn(move || lib2.scan(ScanMode::Full).unwrap());
+    let _ = run(&f.lib, LibQueryName::Albums, 0, 10, &[]);
+    h.join().unwrap();
+    // narrow the media dirs: tracks outside are removed on the next full scan
+    let mut cfg = f.lib.config();
+    cfg.media_dirs = vec![f.media.join("Artist A")];
+    f.lib.set_config(cfg);
+    let s = f.lib.scan(ScanMode::Full).unwrap();
+    assert!(s.deleted > 0);
+    let t = f.lib.totals();
+    assert_eq!(t.songs, 2);
+    assert_eq!(t.albums, 1);
+    // single directory rescan
+    let mut cfg = f.lib.config();
+    cfg.media_dirs = vec![f.media.clone()];
+    f.lib.set_config(cfg);
+    f.lib.scan(ScanMode::Dir(f.media.join("Artist B"))).unwrap();
+    assert_eq!(f.lib.totals().songs, 3);
+}

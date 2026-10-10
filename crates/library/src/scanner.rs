@@ -1773,7 +1773,8 @@ impl<'a> Scanner<'a> {
     // -----------------------------------------------------------------------------------------
 
     /// Album artwork (embedded first, then disc/tracknum), customsearch, orphans, years.
-    pub fn post_process(&mut self, all: bool) -> anyhow::Result<()> {
+    /// `all`: process every album (wipe/full rebuild) instead of only the touched ones.
+    pub fn post_process(&mut self, all: bool, analyze: bool) -> anyhow::Result<()> {
         self.set_step("post_processing", 4);
         self.begin()?;
         let albums: Vec<i64> = if all {
@@ -1810,18 +1811,65 @@ impl<'a> Scanner<'a> {
         )?;
         self.step_done(2, None);
         // customsearch: words used by the multi-word search (title + album + contributors)
-        self.conn.execute_batch(
-            "UPDATE albums SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT GROUP_CONCAT(c.namesearch, ' ')
-                FROM contributor_album ca JOIN contributors c ON c.id = ca.contributor WHERE ca.album = albums.id), '');
-             UPDATE tracks SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT titlesearch FROM albums WHERE albums.id = tracks.album), '')
+        const ALBUM_CS: &str = "UPDATE albums SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT GROUP_CONCAT(c.namesearch, ' ')
+                FROM contributor_album ca JOIN contributors c ON c.id = ca.contributor WHERE ca.album = albums.id), '')";
+        const TRACK_CS: &str = "UPDATE tracks SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT titlesearch FROM albums WHERE albums.id = tracks.album), '')
                 || ' ' || COALESCE((SELECT GROUP_CONCAT(c.namesearch, ' ') FROM contributor_track ct JOIN contributors c ON c.id = ct.contributor
-                WHERE ct.track = tracks.id), '') WHERE audio = 1;",
-        )?;
+                WHERE ct.track = tracks.id), '') WHERE audio = 1";
+        if all {
+            self.conn.execute(ALBUM_CS, [])?;
+            self.conn.execute(TRACK_CS, [])?;
+        } else {
+            let mut sa = self.conn.prepare_cached(&format!("{} WHERE id = ?", ALBUM_CS))?;
+            let mut stt = self.conn.prepare_cached(&format!("{} AND album = ?", TRACK_CS))?;
+            for a in &albums {
+                sa.execute([a])?;
+                stt.execute([a])?;
+            }
+            // tracks without album (should not happen for audio) / NULL customsearch leftovers
+            self.conn.execute(&format!("{} AND customsearch IS NULL", TRACK_CS), [])?;
+        }
+        self.touched_albums.clear();
         self.step_done(3, None);
         self.commit()?;
-        self.conn.execute_batch("ANALYZE;")?;
+        if analyze {
+            self.conn.execute_batch("ANALYZE;")?;
+        }
         self.step_done(4, None);
         self.finish_step("post_processing");
+        Ok(())
+    }
+
+    /// Remove local tracks that are no longer below a configured media dir (or the playlist dir).
+    /// LMS triggers a wipe when a media dir is removed; we clean up incrementally instead.
+    pub fn remove_outside_roots(&mut self, roots: &[PathBuf], playlist_dir: Option<&Path>) -> anyhow::Result<()> {
+        let mut prefixes: Vec<String> = roots.iter().map(|r| format!("{}/", file_url_from_path(r))).collect();
+        if let Some(p) = playlist_dir {
+            prefixes.push(format!("{}/", file_url_from_path(p)));
+        }
+        let urls: Vec<String> = {
+            let mut st = self.conn.prepare(
+                "SELECT url FROM tracks WHERE url LIKE 'file:%' AND virtual IS NULL AND content_type NOT IN ('dir')",
+            )?;
+            let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+            rows.filter_map(|r| r.ok())
+                .filter(|u| !prefixes.iter().any(|p| u.len() >= p.len() && u[..p.len()].eq_ignore_ascii_case(p)))
+                .collect()
+        };
+        if urls.is_empty() {
+            return Ok(());
+        }
+        self.begin()?;
+        for u in urls {
+            if self.aborted() {
+                break;
+            }
+            self.deleted(&u)?;
+            self.summary.deleted += 1;
+            self.changes += 1;
+            self.tick()?;
+        }
+        self.commit()?;
         Ok(())
     }
 }

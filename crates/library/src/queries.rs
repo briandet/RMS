@@ -2052,7 +2052,7 @@ impl Library {
             sc.scan_audio_file(&u, &path, None).map(|_| ())
         };
         if res.is_ok() {
-            let _ = sc.post_process(false);
+            let _ = sc.post_process(false, false);
         }
         let _ = sc.commit();
         drop(sc);
@@ -2073,7 +2073,7 @@ impl Library {
         let progress = std::sync::Arc::new(parking_lot::Mutex::new(crate::ScanProgress::default()));
         let mut sc = crate::scanner::Scanner::new(&c, &cfg, &abort, progress);
         if sc.scan_audio_root(path, false, false).is_ok() && sc.changes > 0 {
-            let _ = sc.post_process(false);
+            let _ = sc.post_process(false, false);
         }
         let _ = sc.commit();
     }

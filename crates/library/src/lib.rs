@@ -347,10 +347,16 @@ impl Library {
                 }
             }
         }
+        if matches!(mode, ScanMode::Full) && !sc_aborted(&self.inner.abort) {
+            let roots: Vec<PathBuf> = cfg.media_dirs.iter().filter(|d| d.is_dir()).cloned().collect();
+            // only clean up when every configured media dir is reachable (avoid wiping offline volumes)
+            if roots.len() == cfg.media_dirs.len() {
+                sc.remove_outside_roots(&roots, cfg.playlist_dir.as_deref())?;
+            }
+        }
         let changes = sc.changes;
-        let all = wipe || changes > 0;
         if changes > 0 || wipe {
-            sc.post_process(all)?;
+            sc.post_process(wipe, true)?;
         }
         let summary = sc.summary.clone();
         drop(sc);
