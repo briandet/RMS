@@ -7,7 +7,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Client | Protocol | Status |
 |---|---|---|
 | squeezelite, piCorePlayer, **WiiM** (Pro, Pro Plus, Amp, Ultra…) | slimproto (TCP 3483) + HTTP streaming, UDP discovery | ✔ tested with squeezelite 2.0 |
-| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback (no display rendering for SB2/3/Transporter screens) |
+| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, remote's display buttons |
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
@@ -77,7 +77,14 @@ with the `pref` / `playerpref` commands or the web UI.
   WavPack, DSF), cue sheets, compilations, multi-artist/genre splitting, artwork
   extraction and resizing, saved playlists.
 * **Jive menus** for Squeezer/SqueezePlay: home menu, My Music browsing, context menus,
-  favorites, settings.
+  favorites, settings (including player display brightness and text size).
+* **Player displays** (Squeezebox2/3/Classic, Transporter, Boom): Lyrion's bitmap fonts in
+  all three text sizes, the Now Playing screen with each model's playing display modes
+  (progress bar, elapsed/remaining time, buffer fullness, clock, VU meter and spectrum
+  visualizers), server-side scrolling of long titles, the volume bar, the date/time
+  screensaver while off, Transporter's second screen and brightness while on / off / idle
+  (Boom's automatic brightness included).  The remote's Now Playing, Size and Brightness
+  buttons cycle the display mode, text size and brightness.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
   a small internet radio directory.
 
@@ -96,9 +103,10 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
   faad…); per-format enable/disable is not configurable yet.
 * Only a few plugins exist (Favorites, alarms, radio directory).  Streaming-service
   plugins (Spotty, Qobuz, TIDAL…) and the TuneIn directory are not ported.
-* Players with graphical displays (SB2/3, Transporter, Boom) are not sent screen
-  updates; Squeezebox 1 and SliMP3 are not supported.  IR remotes control playback
-  (play/pause/skip/volume/power) but not on-screen menus.
+* Players with graphical displays show the Now Playing, volume and clock screens but have
+  no on-screen menus: the IR remote controls playback (play/pause/skip/volume/power) and
+  the display buttons, while browsing is done from Squeezer or the web UI.  Squeezebox 1
+  and SliMP3 (text displays) are not supported.
 * No firmware updates for hardware players.
 
 ## Development

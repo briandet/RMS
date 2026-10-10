@@ -564,6 +564,65 @@ pub fn tone_settings(server: &Arc<Server>, r: &mut Request) {
     slice_and_ship(r, menu);
 }
 
+// ---- player display --------------------------------------------------------------------------
+
+/// A slider setting a player pref (`minAutoBrightness` / `sensAutoBrightness`).
+fn pref_slider(text: &str, pref: &str, current: i64, min: i64, max: i64) -> Value {
+    json!({ "text": text, "count": 1, "offset": 0, "item_loop": [{
+        "slider": 1, "min": min, "max": max, "initial": current,
+        "actions": { "do": { "player": 0, "cmd": ["playerpref", pref], "params": { "valtag": "value" } } },
+    }] })
+}
+
+/// `playerBrightnessMenu` (`jiveplayerbrightnesssettings`): radio lists for the brightness
+/// while on, off and idle; Boom adds its automatic brightness sliders.
+pub fn player_brightness_settings(server: &Arc<Server>, r: &mut Request) {
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
+    let options = crate::display::brightness_options(&p);
+    let mut menu = Vec::new();
+    for (token, pref) in [
+        ("SETUP_POWERONBRIGHTNESS_ABBR", "powerOnBrightness"),
+        ("SETUP_POWEROFFBRIGHTNESS_ABBR", "powerOffBrightness"),
+        ("SETUP_IDLEBRIGHTNESS_ABBR", "idleBrightness"),
+    ] {
+        let current = p.prefs.get_i64(pref);
+        let radios: Vec<Value> = options
+            .iter()
+            .map(|(v, label)| json!({ "text": label, "radio": (current == *v) as i32,
+                "actions": { "do": { "cmd": ["playerpref", pref, v], "player": 0 } } }))
+            .collect();
+        menu.push(json!({ "text": s(token), "count": radios.len(), "offset": 0, "item_loop": radios }));
+    }
+    if p.state.lock().caps.model == "boom" {
+        menu.push(pref_slider(&s("SETUP_MINAUTOBRIGHTNESS"), "minAutoBrightness", p.prefs.get_i64("minAutoBrightness"), 1, 5));
+        menu.push(pref_slider(&s("SETUP_SENSAUTOBRIGHTNESS"), "sensAutoBrightness", p.prefs.get_i64("sensAutoBrightness"), 1, 20));
+    }
+    slice_and_ship(r, menu);
+}
+
+/// `playerTextMenu` (`jiveplayertextsettings activeFont|idleFont`): one radio per font size.
+pub fn player_text_settings(server: &Arc<Server>, r: &mut Request) {
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
+    let what = r.param("_whatFont").unwrap_or("activeFont").to_string();
+    if what != "activeFont" && what != "idleFont" {
+        return r.bad_params();
+    }
+    let current = p.prefs.get_i64(&format!("{what}_curr"));
+    let menu: Vec<Value> = p
+        .prefs
+        .get_string_list(&what)
+        .iter()
+        .enumerate()
+        .map(|(i, font)| json!({ "text": s(&font.to_uppercase()), "radio": (current == i as i64) as i32,
+            "actions": { "do": { "cmd": ["playerpref", format!("{what}_curr"), i], "player": 0 } } }))
+        .collect();
+    slice_and_ship(r, menu);
+}
+
 // ---- album sort ------------------------------------------------------------------------------
 
 /// The `jivealbumsort` server pref (LMS default `album`).

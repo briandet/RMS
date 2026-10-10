@@ -164,7 +164,7 @@ fn go(cmd: &[&str]) -> Value {
 }
 
 /// `playerSettingsMenu`: the player's entries under `settings` / `settingsAudio` /
-/// `advancedSettings`.  (Player display settings are not offered.)
+/// `advancedSettings` / `squeezeboxDisplaySettings`.
 pub fn player_settings_menu(_server: &Arc<Server>, p: Option<&Arc<Player>>) -> Vec<Value> {
     let (repeat, shuffle) = playlist_modes(p);
     let mut m = vec![
@@ -204,6 +204,17 @@ pub fn player_settings_menu(_server: &Arc<Server>, p: Option<&Arc<Player>>) -> V
             m.push(json!({ "text": s("STEREOXL"), "id": "settingsStereoXL", "node": "settingsAudio", "iconStyle": "hm_settingsAudio", "weight": 90, "actions": go(&["jivestereoxl"]) }));
             m.push(json!({ "text": s("SETUP_ANALOGOUTMODE"), "id": "settingsLineOut", "node": "settingsAudio", "iconStyle": "hm_settingsAudio", "weight": 80, "actions": go(&["jivelineout"]) }));
         }
+    }
+    // brightness and text size for players with graphic displays
+    if p.is_some_and(|p| crate::display::display_width(&p.state.lock().caps.model).is_some()) {
+        m.push(json!({ "stringToken": "JIVE_PLAYER_DISPLAY_SETTINGS", "text": s("JIVE_PLAYER_DISPLAY_SETTINGS"), "id": "squeezeboxDisplaySettings",
+            "iconStyle": "hm_advancedSettings", "isANode": 1, "node": "advancedSettings" }));
+        m.push(json!({ "text": s("PLAYER_BRIGHTNESS"), "id": "settingsPlayerBrightness", "iconStyle": "hm_settingsBrightness",
+            "node": "squeezeboxDisplaySettings", "actions": go(&["jiveplayerbrightnesssettings"]) }));
+        m.push(json!({ "text": s("TEXTSIZE"), "id": "settingsPlayerTextsize", "node": "squeezeboxDisplaySettings",
+            "iconStyle": "hm_advancedSettings", "actions": go(&["jiveplayertextsettings", "activeFont"]) }));
+        m.push(json!({ "text": s("OFFDISPLAYSIZE"), "id": "settingsPlayerOffTextsize", "node": "squeezeboxDisplaySettings",
+            "iconStyle": "hm_advancedSettings", "actions": go(&["jiveplayertextsettings", "idleFont"]) }));
     }
     m.push(json!({ "text": s("SLEEP"), "id": "settingsSleep", "node": "settings", "weight": 65, "actions": go(&["sleepsettings"]) }));
     m.push(json!({ "text": s("SYNCHRONIZE"), "id": "settingsSync", "node": "settings", "weight": 70, "actions": go(&["syncsettings"]) }));

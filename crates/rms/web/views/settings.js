@@ -9,6 +9,18 @@ export const cacheable = false;
 
 const TRANSITIONS = [[0, 'None'], [1, 'Crossfade'], [2, 'Fade in'], [3, 'Fade out'], [4, 'Fade in and out']];
 const REPLAY_GAIN = [[0, 'Off'], [1, 'Track gain'], [2, 'Album gain'], [3, 'Smart gain (album when playing whole album)']];
+// Playing display modes of each display type (`Slim::Display::*` `@modes`), indexed by mode number.
+const VU = 'Small VU meter', SPEC_S = 'Small spectrum', SPEC = 'Spectrum analyzer';
+const DISPLAY_MODES = {
+  squeezebox2: ['Text only', 'Elapsed time', 'Remaining time', VU, `${VU} and elapsed time`, `${VU} and remaining time`,
+    SPEC_S, `${SPEC_S} and elapsed time`, `${SPEC_S} and remaining time`, SPEC, `${SPEC} and elapsed time`,
+    `${SPEC} and remaining time`, 'Buffer fullness', 'Clock'],
+  transporter: ['Text only', 'Progress bar', 'Progress bar and elapsed time', 'Progress bar and remaining time',
+    'Elapsed time', 'Remaining time', 'Buffer fullness', 'Clock'],
+  boom: ['Text only', 'Progress bar', 'Elapsed time', 'Remaining time', VU, SPEC_S, SPEC, `${SPEC} and progress bar`,
+    `${SPEC} and elapsed time`, `${SPEC} and remaining time`, 'Clock', 'Buffer fullness'],
+};
+DISPLAY_MODES.squeezebox3 = DISPLAY_MODES.squeezebox2;
 const BITRATES = [[0, 'No limit'], [320, '320 kbps'], [256, '256 kbps'], [192, '192 kbps'], [160, '160 kbps'], [128, '128 kbps'], [96, '96 kbps'], [64, '64 kbps']];
 
 let uid = 0;
@@ -20,6 +32,7 @@ export function render(node, { ctx }) {
   let alive = true;
 
   const playerSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-player' });
+  const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
@@ -27,7 +40,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, syncSection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // ---------------------------------------------------------------- player
   let renderedName = null;
@@ -86,6 +99,63 @@ export function render(node, { ctx }) {
           onchange: (e) => setPref('digitalVolumeControl', e.target.checked ? 1 : 0) }),
         h('label', { for: digitalId }, 'Digital volume control', h('span', { class: 'muted small block' }, 'Turn off to output fixed (100%) volume to an external amplifier.'))),
     );
+  }
+
+  // ---------------------------------------------------------------- display (Squeezebox screens)
+  async function renderDisplay() {
+    const pid = store.playerId;
+    const p = currentPlayer();
+    const modes = p && DISPLAY_MODES[p.model];
+    displaySection.hidden = !modes;
+    if (!modes) { displaySection.replaceChildren(); return; }
+    const [bright, active, idle, pdm, pdms] = await Promise.allSettled([
+      rpc(['jiveplayerbrightnesssettings', 0, 10], pid),
+      rpc(['jiveplayertextsettings', 'activeFont', 0, 10], pid),
+      rpc(['jiveplayertextsettings', 'idleFont', 0, 10], pid),
+      rpc(['playerpref', 'playingDisplayMode', '?'], pid),
+      rpc(['playerpref', 'playingDisplayModes', '?'], pid),
+    ]);
+    if (!alive || pid !== store.playerId) return;
+    const ok = (r) => (r.status === 'fulfilled' ? r.value : null);
+    const setPref = async (name, value) => {
+      if (await ctx.cmd('playerpref', name, value)) toast('Setting saved');
+    };
+    // radio lists from the Jive menus: [{text, radio, actions.do.cmd}] → select
+    const radioSelect = (label, items) => {
+      if (!items?.length) return null;
+      const opts = items.map((it, i) => [i, it.text]);
+      const cur = items.findIndex((it) => +it.radio === 1);
+      return selectField(label, opts, cur < 0 ? undefined : cur, (i) => {
+        const c = items[i]?.actions?.do?.cmd;
+        if (c) setPref(c[1], c[2]);
+      });
+    };
+    const sliders = [];
+    const brightness = (ok(bright)?.item_loop || []).map((group) => {
+      const slider = group.item_loop?.[0];
+      if (slider?.slider) {
+        const id = fieldId();
+        const pref = slider.actions.do.cmd[1];
+        const out = h('output', { for: id }, String(slider.initial));
+        sliders.push(h('div', { class: 'field' }, h('label', { for: id }, group.text),
+          h('div', { class: 'inline-row' },
+            h('input', { id, type: 'range', class: 'range', min: slider.min, max: slider.max, step: 1, value: slider.initial,
+              oninput: (e) => { out.textContent = e.target.value; }, onchange: (e) => setPref(pref, +e.target.value) }), out)));
+        return null;
+      }
+      const when = group.text.toLowerCase();
+      return radioSelect(when.startsWith('while') ? `Brightness ${when}` : `Brightness when ${when}`, group.item_loop);
+    });
+    const list = (ok(pdms)?._p2 ?? []).map(Number);
+    const modeOpts = list.map((m, i) => [i, modes[m] ?? `Mode ${m}`]);
+    displaySection.replaceChildren(...[
+      h('h2', { id: 'set-display' }, 'Player display'),
+      h('p', { class: 'muted small' }, 'The Now Playing button on the remote cycles the playing display; Size and Brightness change the text size and brightness.'),
+      selectField('Now Playing information', modeOpts, ok(pdm)?._p2, (v) => setPref('playingDisplayMode', v)),
+      radioSelect('Text size', ok(active)?.item_loop),
+      radioSelect('Text size when off', ok(idle)?.item_loop),
+      ...brightness, ...sliders,
+    ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- sync
@@ -214,11 +284,12 @@ export function render(node, { ctx }) {
 
   // ---------------------------------------------------------------- wire up
   renderPlayer();
+  renderDisplay();
   renderSync(true);
   renderLibrary();
   renderScan();
   offs.push(
-    on('player', () => { renderPlayer(); renderSync(true); }),
+    on('player', () => { renderPlayer(); renderDisplay(); renderSync(true); }),
     on('players', () => { renderSync(); if (currentPlayer()?.name !== renderedName) renderPlayer(); }),
     on('status', () => renderSync()),
     on('server', renderScan),

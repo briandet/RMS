@@ -277,6 +277,18 @@ impl PrefStore {
         self.values.read().contains_key(key) || self.defaults.contains_key(key)
     }
 
+    /// Set a value unless one is stored already (`Slim::Utils::Prefs::Namespace::init`).
+    pub fn init(&self, key: &str, value: Value) {
+        {
+            let mut values = self.values.write();
+            if values.contains_key(key) {
+                return;
+            }
+            values.insert(key.to_string(), value);
+        }
+        self.save();
+    }
+
     /// Set a value and persist.  Returns the previous value.
     pub fn set(&self, key: &str, value: Value) -> Option<Value> {
         let old = self.values.write().insert(key.to_string(), value);

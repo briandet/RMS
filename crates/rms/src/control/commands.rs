@@ -178,8 +178,10 @@ pub fn mixer(server: &Arc<Server>, r: &mut Request) {
             }
             let new = if relative { old as f64 + n } else { n }.round() as i32;
             let new = p.set_volume(new, false);
+            crate::display::show_volume(&p);
             for o in group {
                 o.set_volume(new, false);
+                crate::display::show_volume(&o);
             }
             server.notifier.notify(
                 Some(p.id),
@@ -193,6 +195,7 @@ pub fn mixer(server: &Arc<Server>, r: &mut Request) {
                 _ => !p.is_muted(),
             };
             p.set_muted(muted);
+            crate::display::show_volume(&p);
             for o in group {
                 o.set_muted(muted);
             }

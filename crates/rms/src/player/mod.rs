@@ -270,6 +270,10 @@ pub struct PlayerState {
     pub show_briefly: Option<(Vec<String>, f64)>,
     /// Timestamp of the last user interaction (IR/button/command) for screensaver logic.
     pub last_activity: f64,
+    /// Time of the last IR / front panel button (`Slim::Hardware::IR::lastIRTime`), 0 = none.
+    pub last_ir: f64,
+    /// The volume bar is shown on the display until this time (`mixerDisplay`).
+    pub mixer_display_until: f64,
     /// Last `strm t` sent, so we can detect dead connections.
     pub last_status_request: f64,
 }
@@ -350,6 +354,8 @@ impl Player {
             remote_stream_start: None,
             show_briefly: None,
             last_activity: now,
+            last_ir: 0.0,
+            mixer_display_until: 0.0,
             last_status_request: 0.0,
         };
         let player = Arc::new(Player {

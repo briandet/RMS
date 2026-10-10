@@ -1,8 +1,8 @@
 //! IR remote and hardware buttons (`Slim::Hardware::IR`, default IR map subset).
 //!
-//! Only the playback-relevant buttons of the standard Slim Devices remote are mapped; menu
-//! navigation needs a player display, which the supported players (squeezelite, WiiM,
-//! SqueezePlay) do not have.
+//! The playback-relevant buttons of the standard Slim Devices remote are mapped, plus the
+//! display buttons (Now Playing cycles the playing display mode, Size the text size,
+//! Brightness the brightness).  On-screen menu navigation is not implemented.
 
 use crate::player::Player;
 use crate::server::Server;
@@ -23,11 +23,17 @@ fn button_for_code(code: u32) -> Option<&'static str> {
         0x7689d827 => "shuffle",
         0x768938c7 => "repeat",
         0x7689b847 => "sleep",
+        0x76897887 | 0x7689a25d => "now_playing",
+        0x7689f807 => "size",
+        0x768904fb => "brightness",
+        0x76898f70 => "power_on",
+        0x76898778 => "power_off",
         _ => return None,
     })
 }
 
 pub fn handle_ir(server: &Arc<Server>, player: &Arc<Player>, code: u32, time: u32) {
+    player.state.lock().last_ir = crate::util::now();
     match button_for_code(code) {
         Some(b) => execute_button(server, player, b),
         None => {
@@ -46,6 +52,7 @@ pub fn handle_ir(server: &Arc<Server>, player: &Arc<Player>, code: u32, time: u3
 
 /// Hardware buttons (`BUTN`, Transporter/Boom front panel).
 pub fn handle_button(server: &Arc<Server>, player: &Arc<Player>, button: u32, _time: u32) {
+    player.state.lock().last_ir = crate::util::now();
     // `IR/Front_Panel.ir` (`.down` codes)
     let name = match button {
         0x00010012 => "play",
@@ -55,6 +62,8 @@ pub fn handle_button(server: &Arc<Server>, player: &Arc<Player>, button: u32, _t
         0x0001000a => "power",
         0x00010019 => "volup",
         0x0001001a => "voldown",
+        0x00010014 => "brightness",
+        0x0001001b => "size",
         _ => return debug!("{}: unknown button {:08x}", player.id, button),
     };
     execute_button(server, player, name);
@@ -63,6 +72,13 @@ pub fn handle_button(server: &Arc<Server>, player: &Arc<Player>, button: u32, _t
 /// Execute a named button as the default IR map would.
 pub fn execute_button(server: &Arc<Server>, player: &Arc<Player>, name: &str) {
     let base = name.split('.').next().unwrap_or(name);
+    // display functions (`playdisp_toggle`, `textsize_toggle`, `brightness_toggle`)
+    match base {
+        "now_playing" => return crate::display::cycle_playing_display_mode(player),
+        "size" => return crate::display::toggle_text_size(player),
+        "brightness" => return crate::display::toggle_brightness(player),
+        _ => {}
+    }
     let cmd: Option<Vec<&str>> = match base {
         "play" => Some(vec!["play"]),
         "pause" => Some(vec!["pause"]),
