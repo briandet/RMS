@@ -1,6 +1,7 @@
 //! Spotify audio for `/stream.mp3`: a librespot player decodes the track (from `start_ms`)
-//! into 16-bit little-endian stereo PCM at 44.1 kHz.  Its output goes through a bounded
-//! channel, so decoding runs only as fast as the Squeezebox player takes the stream.
+//! into 16-bit stereo at 44.1 kHz, which is sent to the player as FLAC (about half the size
+//! of PCM, still lossless) or, for players without FLAC, as little-endian PCM.  Its output
+//! goes through a bounded channel, so decoding runs only as fast as the player takes it.
 
 use super::Spotify;
 use bytes::Bytes;
@@ -23,9 +24,12 @@ pub const CHANNELS: u32 = 2;
 /// Chunks of PCM between the player thread and the HTTP stream.
 const QUEUE: usize = 8;
 
-/// librespot output: PCM bytes into a channel (blocking when the player is ahead).
+/// FLAC block size (samples per channel), the reference encoder's default.
+const FLAC_BLOCK: usize = 4096;
+
+/// librespot output: interleaved samples into a channel (blocking when the player is ahead).
 struct ChannelSink {
-    tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    tx: std::sync::mpsc::SyncSender<Vec<i16>>,
 }
 
 impl Sink for ChannelSink {
@@ -33,15 +37,121 @@ impl Sink for ChannelSink {
         let AudioPacket::Samples(samples) = packet else {
             return Ok(());
         };
-        let pcm = converter.f64_to_s16(&samples);
-        let mut bytes = Vec::with_capacity(pcm.len() * 2);
-        for s in pcm {
-            bytes.extend_from_slice(&s.to_le_bytes());
-        }
         self.tx
-            .send(bytes)
+            .send(converter.f64_to_s16(&samples))
             .map_err(|_| SinkError::OnWrite("stream closed".into()))
     }
+}
+
+/// Streaming FLAC encoder: the stream header, then one frame per `FLAC_BLOCK` samples.
+/// The header leaves the length and checksum unknown, as any streamed FLAC does.
+pub struct FlacEncoder {
+    config: flacenc::error::Verified<flacenc::config::Encoder>,
+    info: flacenc::component::StreamInfo,
+    /// Interleaved samples not yet encoded.
+    pending: Vec<i32>,
+    frame: usize,
+}
+
+impl FlacEncoder {
+    pub fn new() -> FlacEncoder {
+        use flacenc::error::Verify;
+        let config = flacenc::config::Encoder::default()
+            .into_verified()
+            .unwrap_or_else(|_| unreachable!("the default encoder config is valid"));
+        let mut stream = flacenc::component::Stream::new(
+            SAMPLE_RATE as usize,
+            CHANNELS as usize,
+            SAMPLE_SIZE as usize,
+        )
+        .expect("CD audio is valid FLAC");
+        let _ = stream
+            .stream_info_mut()
+            .set_block_sizes(FLAC_BLOCK, FLAC_BLOCK);
+        FlacEncoder {
+            config,
+            info: stream.stream_info().clone(),
+            pending: Vec::with_capacity(FLAC_BLOCK * CHANNELS as usize * 2),
+            frame: 0,
+        }
+    }
+
+    /// `fLaC` and the STREAMINFO block.
+    pub fn header(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_bits(
+            &flacenc::component::Stream::with_stream_info(self.info.clone()),
+            &mut out,
+        );
+        out
+    }
+
+    fn encode(&mut self, samples: &[i32], out: &mut Vec<u8>) {
+        use flacenc::source::Fill;
+        let len = samples.len() / CHANNELS as usize;
+        let Ok(mut fb) = flacenc::source::FrameBuf::with_size(CHANNELS as usize, len) else {
+            return;
+        };
+        if fb.fill_interleaved(samples).is_err() {
+            return;
+        }
+        match flacenc::encode_fixed_size_frame(&self.config, &fb, self.frame, &self.info) {
+            Ok(frame) => {
+                write_bits(&frame, out);
+                self.frame += 1;
+            }
+            Err(e) => warn!("Spotify: FLAC encoding failed: {e:?}"),
+        }
+    }
+
+    /// Encode every complete block of `samples` (interleaved); keep the rest for later.
+    pub fn push(&mut self, samples: &[i16], out: &mut Vec<u8>) {
+        self.pending.extend(samples.iter().map(|&s| s as i32));
+        let block = FLAC_BLOCK * CHANNELS as usize;
+        let mut done = 0;
+        while self.pending.len() - done >= block {
+            let chunk: Vec<i32> = self.pending[done..done + block].to_vec();
+            self.encode(&chunk, out);
+            done += block;
+        }
+        self.pending.drain(..done);
+    }
+
+    /// The last, shorter block (padded with silence to the encoder's minimum block size).
+    pub fn finish(&mut self, out: &mut Vec<u8>) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let mut last = std::mem::take(&mut self.pending);
+        let min = flacenc::constant::MIN_BLOCK_SIZE * CHANNELS as usize;
+        if last.len() < min {
+            last.resize(min, 0);
+        }
+        self.encode(&last, out);
+    }
+}
+
+/// Serialise a FLAC component (always whole bytes: headers and frames are byte-aligned).
+fn write_bits<T: flacenc::component::BitRepr>(c: &T, out: &mut Vec<u8>) {
+    let mut sink = flacenc::bitsink::ByteSink::new();
+    match c.write(&mut sink) {
+        Ok(()) => out.extend_from_slice(sink.as_slice()),
+        Err(e) => warn!("Spotify: FLAC encoding failed: {e:?}"),
+    }
+}
+
+impl Default for FlacEncoder {
+    fn default() -> Self {
+        FlacEncoder::new()
+    }
+}
+
+fn pcm_bytes(samples: &[i16]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(samples.len() * 2);
+    for s in samples {
+        bytes.extend_from_slice(&s.to_le_bytes());
+    }
+    bytes
 }
 
 /// Decoder settings from the server prefs.
@@ -59,12 +169,13 @@ pub fn player_config(bitrate: u32, normalise: bool) -> PlayerConfig {
     }
 }
 
-/// Open the PCM stream of a track.
+/// Open the audio stream of a track: FLAC when `flac`, else PCM.
 pub async fn open(
     spotify: &Arc<Spotify>,
     url: &str,
     start_ms: u32,
     config: PlayerConfig,
+    flac: bool,
 ) -> std::io::Result<crate::stream::source::ByteStream> {
     let (kind, id) =
         super::parse_url(url).ok_or_else(|| std::io::Error::other("bad Spotify URL"))?;
@@ -75,22 +186,43 @@ pub async fn open(
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     let session = spotify.session().await.map_err(std::io::Error::other)?;
 
-    let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(QUEUE);
+    let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(QUEUE);
     let player = Player::new(config, session, Box::new(NoOpVolume), move || {
         Box::new(ChannelSink { tx: sync_tx })
     });
     let mut events = player.get_player_event_channel();
     player.load(uri, true, start_ms);
 
-    // Bridge the player thread's blocking channel to async (outside any runtime context).
+    // Encode on a thread of its own, bridging the player thread's blocking channel to async.
+    // The channel closes when the player is released after the end of the track; the last
+    // FLAC block goes out then.
     let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(QUEUE);
     std::thread::Builder::new()
-        .name("spotify-pcm".into())
+        .name("spotify-audio".into())
         .spawn(move || {
-            while let Ok(chunk) = sync_rx.recv() {
-                if tx.blocking_send(chunk).is_err() {
-                    break;
+            let mut flac = flac.then(FlacEncoder::new);
+            if let Some(enc) = &flac {
+                if tx.blocking_send(enc.header()).is_err() {
+                    return;
                 }
+            }
+            while let Ok(samples) = sync_rx.recv() {
+                let bytes = match &mut flac {
+                    Some(enc) => {
+                        let mut out = Vec::new();
+                        enc.push(&samples, &mut out);
+                        out
+                    }
+                    None => pcm_bytes(&samples),
+                };
+                if !bytes.is_empty() && tx.blocking_send(bytes).is_err() {
+                    return;
+                }
+            }
+            if let Some(enc) = &mut flac {
+                let mut out = Vec::new();
+                enc.finish(&mut out);
+                let _ = tx.blocking_send(out);
             }
         })
         .map_err(std::io::Error::other)?;
@@ -160,4 +292,57 @@ pub async fn open(
         }
     })
     .boxed())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A second of a 440 Hz tone (left) and 660 Hz (right), plus a short tail.
+    fn tone() -> Vec<i16> {
+        let n = SAMPLE_RATE as usize + 1234;
+        let mut v = Vec::with_capacity(n * 2);
+        for i in 0..n {
+            let t = i as f64 / SAMPLE_RATE as f64;
+            v.push(((t * 440.0 * std::f64::consts::TAU).sin() * 12000.0) as i16);
+            v.push(((t * 660.0 * std::f64::consts::TAU).sin() * 9000.0) as i16);
+        }
+        v
+    }
+
+    #[test]
+    fn flac_stream_decodes_to_the_same_samples() {
+        let pcm = tone();
+        let mut enc = FlacEncoder::new();
+        let mut out = enc.header();
+        // in packet-sized pieces, as librespot delivers them
+        for piece in pcm.chunks(2 * 1000 + 6) {
+            enc.push(piece, &mut out);
+        }
+        enc.finish(&mut out);
+        assert!(out.len() < pcm.len() * 2 * 3 / 4, "{} bytes", out.len());
+
+        let mut reader = claxon::FlacReader::new(std::io::Cursor::new(out)).unwrap();
+        let info = reader.streaminfo();
+        assert_eq!(
+            (info.sample_rate, info.channels, info.bits_per_sample),
+            (44100, 2, 16)
+        );
+        assert_eq!(info.samples, None);
+        let decoded: Vec<i16> = reader.samples().map(|s| s.unwrap() as i16).collect();
+        assert_eq!(decoded, pcm);
+    }
+
+    #[test]
+    fn a_tiny_last_block_is_padded() {
+        let mut enc = FlacEncoder::new();
+        let mut out = enc.header();
+        enc.push(&[100, -100, 200, -200], &mut out);
+        enc.finish(&mut out);
+        let mut reader = claxon::FlacReader::new(std::io::Cursor::new(out)).unwrap();
+        let decoded: Vec<i32> = reader.samples().map(|s| s.unwrap()).collect();
+        assert_eq!(decoded.len(), flacenc::constant::MIN_BLOCK_SIZE * 2);
+        assert_eq!(&decoded[..4], &[100, -100, 200, -200]);
+        assert!(decoded[4..].iter().all(|&s| s == 0));
+    }
 }

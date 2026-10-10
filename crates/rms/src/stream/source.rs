@@ -14,6 +14,9 @@ pub const CHUNK: usize = 32768;
 pub type ByteStream = BoxStream<'static, std::io::Result<Bytes>>;
 
 pub async fn open(spec: &StreamSpec, http: &reqwest::Client) -> std::io::Result<ByteStream> {
+    if let Some(shared) = &spec.shared {
+        return Ok(shared.subscribe(spec, http));
+    }
     match &spec.source {
         SourceKind::File {
             path,
@@ -88,7 +91,8 @@ pub async fn open(spec: &StreamSpec, http: &reqwest::Client) -> std::io::Result<
             let sp = crate::plugins::spotify::get()
                 .ok_or_else(|| std::io::Error::other("Spotify is not available"))?;
             let config = crate::plugins::spotify::stream::player_config(*bitrate, *normalise);
-            crate::plugins::spotify::stream::open(sp, url, *start_ms, config).await
+            let flac = spec.format == "flc";
+            crate::plugins::spotify::stream::open(sp, url, *start_ms, config, flac).await
         }
         SourceKind::Remote { url } => {
             let resp = http

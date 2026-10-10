@@ -61,7 +61,8 @@ with the `pref` / `playerpref` commands or the web UI.
   fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.
 * **Synchronisation**: sync groups share one controller and playlist; synchronized start
   with `strm u` at a common player-clock time and continuous drift correction with
-  `skipAhead` / `pauseFor` from accurate play points.
+  `skipAhead` / `pauseFor` from accurate play points.  A transcoded, proxied or Spotify
+  stream is produced once for the whole group and paced by its slowest player.
 * **Streaming**: local files are sent natively when the player can decode them, otherwise
   transcoded with ffmpeg (LMS rules: prefer native, honour `maxBitrate` and the player's
   `MaxSampleRate`).  Internet radio is streamed directly by the player (`RESP` → `cont`,
@@ -116,8 +117,9 @@ Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, alb
 playlists can be played, added and saved as favorites.  RMS plays the audio itself with
 [librespot](https://github.com/librespot-org/librespot): it decodes each track (Ogg Vorbis,
 96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
-it to the player as 16-bit 44.1 kHz PCM, so any player works (including WiiM), seeking
-included.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
+it to the player as 16-bit 44.1 kHz FLAC (lossless, about half the size of PCM; PCM for
+players without FLAC), so any player works (including WiiM), seeking included.  Synced
+players share one decode.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
 
 ### WiiM notes
 

@@ -637,3 +637,89 @@ fn stop_cancels_pending_radio_retry() {
         "radio restarted by itself after the user pressed stop"
     );
 }
+
+/// Read a `/stream.mp3` response until it ends or stalls for `stall`; returns the body so
+/// far and whether it ended.
+fn read_stream(s: &mut TcpStream, buf: &mut Vec<u8>, stall: Duration) -> bool {
+    s.set_read_timeout(Some(stall)).unwrap();
+    let mut tmp = [0u8; 65536];
+    loop {
+        match s.read(&mut tmp) {
+            Ok(0) => return true,
+            Ok(n) => buf.extend_from_slice(&tmp[..n]),
+            Err(_) => return false,
+        }
+    }
+}
+
+fn http_body(all: &[u8]) -> &[u8] {
+    let split = all.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    assert!(all.starts_with(b"HTTP/1.") && all[..split].windows(5).any(|w| w == b" 200 "));
+    &all[split..]
+}
+
+#[test]
+fn synced_players_share_one_transcode() {
+    if Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("skipped: no ffmpeg");
+        return;
+    }
+    let music = tempfile::tempdir().unwrap();
+    // 40 s of stereo audio: about 7 MB as PCM, more than the shared buffer holds
+    let ok = Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+        .args([
+            "-i",
+            "sine=frequency=440:duration=40",
+            "-ac",
+            "2",
+            "-ar",
+            "44100",
+        ])
+        .arg(music.path().join("tone.flac"))
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    let server = start_server(music.path());
+    // players without FLAC: the server decodes to PCM with ffmpeg
+    let caps = "Model=squeezelite,ModelName=SqueezeLite,MaxSampleRate=192000,pcm,mp3";
+    let (mac_a, mac_b) = ([0, 4, 0x20, 0xaa, 0, 1], [0, 4, 0x20, 0xaa, 0, 2]);
+    let mut a = FakePlayer::connect_as(server.slim, 12, &mac_a, caps);
+    let mut b = FakePlayer::connect_as(server.slim, 12, &mac_b, caps);
+    a.expect(b"audg", Duration::from_secs(5));
+    b.expect(b"audg", Duration::from_secs(5));
+    cli(server.cli, "00:04:20:aa:00:01 sync 00:04:20:aa:00:02");
+    let dir = music.path().to_str().unwrap().replace(' ', "%20");
+    cli(
+        server.cli,
+        &format!("00:04:20:aa:00:01 playlist play {dir}"),
+    );
+    let strm_a = a.expect_strm(b's', Duration::from_secs(10));
+    let strm_b = b.expect_strm(b's', Duration::from_secs(10));
+    assert_eq!(strm_a[2], b'p', "pcm format byte");
+
+    // the first player is held back while the second has not connected yet
+    let mut sa = TcpStream::connect(("127.0.0.1", server.http)).unwrap();
+    sa.write_all(&strm_a[24..]).unwrap();
+    let mut got_a = Vec::new();
+    assert!(!read_stream(&mut sa, &mut got_a, Duration::from_secs(2)));
+    assert!(
+        (3 << 20..6 << 20).contains(&got_a.len()),
+        "stalled after {} bytes",
+        got_a.len()
+    );
+
+    // ...and both get the same bytes once it has (one ffmpeg feeding both)
+    let mut sb = TcpStream::connect(("127.0.0.1", server.http)).unwrap();
+    sb.write_all(&strm_b[24..]).unwrap();
+    let reader_b = std::thread::spawn(move || {
+        let mut got = Vec::new();
+        assert!(read_stream(&mut sb, &mut got, Duration::from_secs(10)));
+        got
+    });
+    assert!(read_stream(&mut sa, &mut got_a, Duration::from_secs(10)));
+    let got_b = reader_b.join().unwrap();
+    let (body_a, body_b) = (http_body(&got_a), http_body(&got_b));
+    assert_eq!(body_a.len(), 40 * 44100 * 4);
+    assert!(body_a == body_b, "both players got the same audio");
+}

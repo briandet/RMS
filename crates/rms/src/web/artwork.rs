@@ -253,6 +253,7 @@ async fn download(server: &Arc<Server>, id: &str, headers: &HeaderMap) -> Respon
         },
         format: t.content_type.clone(),
         song_id: 0,
+        shared: None,
     };
     let Ok(stream) = crate::stream::source::open(&spec, &server.http).await else {
         return StatusCode::NOT_FOUND.into_response();
