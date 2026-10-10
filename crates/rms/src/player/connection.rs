@@ -339,6 +339,7 @@ fn handle_resp(server: &Arc<Server>, player: &Arc<Player>, raw: &[u8]) {
                 buffer_threshold: None,
                 transition: slimproto::server::TransitionType::None,
                 transition_duration: 0,
+                shared: None,
             };
             crate::stream::send_stream_start(server, player, &s, &params);
         }

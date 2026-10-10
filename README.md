@@ -50,6 +50,31 @@ Preferences are stored as YAML in `<data-dir>/prefs/server.prefs` and one
 `transitionType`, `replayGainMode`, `syncVolume`, `powerOnResume`, …); they can be changed
 with the `pref` / `playerpref` commands or the web UI.
 
+### Running as a service (Debian / Ubuntu)
+
+```sh
+sudo apt install build-essential pkg-config git ffmpeg
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # distro Rust is usually too old
+packaging/install.sh /srv/music          # music folders, comma-separated
+```
+
+The script builds a release binary (the web UI is built in), installs it as
+`/usr/local/bin/rms`, creates an `rms` system user and a hardened systemd service
+(`packaging/rms.service`) with its data in `/var/lib/rms`, and starts it.  Settings are in
+`/etc/default/rms`; running the script again upgrades and keeps them.  Logs:
+`journalctl -u rms -f`.
+
+* The `rms` user only needs read access to the music, e.g.
+  `sudo setfacl -R -m u:rms:rX -m d:u:rms:rX /srv/music` (the script warns if it lacks it).
+* Stop Lyrion first if it is installed (`sudo systemctl disable --now lyrionmusicserver`):
+  both use the same ports.
+* Firewall: allow TCP+UDP 3483 (players) and TCP 9000 (web UI, Squeezer), plus TCP 9090 if
+  you use the telnet CLI.  Keep them on the LAN: like Lyrion, there is no login by default.
+* Player discovery is a UDP broadcast, so players find the server on the same network
+  segment; elsewhere give them its address.
+* Spotify sign-in on a headless server: paste the address Spotify sends you to into the
+  settings card, or sign in while running `ssh -L 5588:127.0.0.1:5588 <server>`.
+
 ## What is implemented
 
 * **slimproto** (crate `slimproto`): byte-exact codec for every client and server frame
@@ -61,7 +86,8 @@ with the `pref` / `playerpref` commands or the web UI.
   fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.
 * **Synchronisation**: sync groups share one controller and playlist; synchronized start
   with `strm u` at a common player-clock time and continuous drift correction with
-  `skipAhead` / `pauseFor` from accurate play points.
+  `skipAhead` / `pauseFor` from accurate play points.  A transcoded, proxied or Spotify
+  stream is produced once for the whole group and paced by its slowest player.
 * **Streaming**: local files are sent natively when the player can decode them, otherwise
   transcoded with ffmpeg (LMS rules: prefer native, honour `maxBitrate` and the player's
   `MaxSampleRate`).  Internet radio is streamed directly by the player (`RESP` → `cont`,
@@ -116,8 +142,9 @@ Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, alb
 playlists can be played, added and saved as favorites.  RMS plays the audio itself with
 [librespot](https://github.com/librespot-org/librespot): it decodes each track (Ogg Vorbis,
 96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
-it to the player as 16-bit 44.1 kHz PCM, so any player works (including WiiM), seeking
-included.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
+it to the player as 16-bit 44.1 kHz FLAC (lossless, about half the size of PCM; PCM for
+players without FLAC), so any player works (including WiiM), seeking included.  Synced
+players share one decode.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
 
 ### WiiM notes
 
