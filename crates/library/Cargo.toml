@@ -12,3 +12,23 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+# NOTE: rusqlite must stay on the same minor as crates/rms (libsqlite3-sys `links` conflict).
+rusqlite = { version = "0.37", features = ["bundled", "functions", "collation"] }
+r2d2 = "0.8"
+r2d2_sqlite = "0.31"
+lofty = "0.22"
+walkdir = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "webp"] }
+md5 = "0.8"
+unicode-normalization = "0.1"
+deunicode = "1"
+percent-encoding = "2"
+encoding_rs = "0.8"
+chrono = "0.4"
+regex = "1"
+indexmap = { version = "2", features = ["serde"] }
+parking_lot = "0.12"
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"
