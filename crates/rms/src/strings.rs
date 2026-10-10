@@ -21,7 +21,9 @@ pub fn get(token: &str) -> Option<&'static str> {
 
 /// String for a token, falling back to the token itself.
 pub fn s(token: &str) -> String {
-    get(token).map(|v| v.replace("\\n", "\n")).unwrap_or_else(|| token.to_string())
+    get(token)
+        .map(|v| v.replace("\\n", "\n"))
+        .unwrap_or_else(|| token.to_string())
 }
 
 #[cfg(test)]

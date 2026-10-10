@@ -16,7 +16,11 @@ use bytes::{BufMut, BytesMut};
 /// A parsed incoming discovery datagram.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoveryRequest {
-    Legacy { device_id: u8, revision: u8, mac: [u8; 6] },
+    Legacy {
+        device_id: u8,
+        revision: u8,
+        mac: [u8; 6],
+    },
     Tlv(Vec<([u8; 4], Vec<u8>)>),
     /// `h`/`i`/`r`/`2`/`a` — SliMP3 protocol, unsupported.
     Slimp3,
@@ -27,7 +31,9 @@ pub enum DiscoveryRequest {
 
 impl DiscoveryRequest {
     pub fn parse(msg: &[u8]) -> DiscoveryRequest {
-        let Some(&first) = msg.first() else { return DiscoveryRequest::Unknown };
+        let Some(&first) = msg.first() else {
+            return DiscoveryRequest::Unknown;
+        };
         match first {
             b'd' => {
                 if msg.len() < 18 {
@@ -35,7 +41,11 @@ impl DiscoveryRequest {
                 }
                 let mut mac = [0u8; 6];
                 mac.copy_from_slice(&msg[12..18]);
-                DiscoveryRequest::Legacy { device_id: msg[2], revision: msg[3], mac }
+                DiscoveryRequest::Legacy {
+                    device_id: msg[2],
+                    revision: msg[3],
+                    mac,
+                }
             }
             b'e' => DiscoveryRequest::Tlv(parse_tlv(&msg[1..])),
             b'E' => DiscoveryRequest::ServerResponse(parse_tlv(&msg[1..])),
@@ -151,13 +161,20 @@ mod tests {
         }
         req.extend_from_slice(b"JVID\x06\x00\x04\x20\x01\x02\x03");
         let parsed = DiscoveryRequest::parse(&req);
-        let DiscoveryRequest::Tlv(items) = &parsed else { panic!() };
+        let DiscoveryRequest::Tlv(items) = &parsed else {
+            panic!()
+        };
         assert_eq!(items.len(), 6);
         assert_eq!(items[5].1, vec![0, 4, 0x20, 1, 2, 3]);
         let resp = info().respond(&parsed).unwrap();
         assert_eq!(resp[0], b'E');
-        let DiscoveryRequest::ServerResponse(r) = DiscoveryRequest::parse(&resp) else { panic!() };
-        let tags: Vec<_> = r.iter().map(|(t, _)| std::str::from_utf8(t).unwrap()).collect();
+        let DiscoveryRequest::ServerResponse(r) = DiscoveryRequest::parse(&resp) else {
+            panic!()
+        };
+        let tags: Vec<_> = r
+            .iter()
+            .map(|(t, _)| std::str::from_utf8(t).unwrap())
+            .collect();
         assert_eq!(tags, vec!["NAME", "JSON", "VERS", "UUID"]); // IPAD omitted when unset
         assert_eq!(r[1].1, b"9000");
     }
@@ -168,7 +185,14 @@ mod tests {
         req.extend_from_slice(&[0u8; 8]);
         req.extend_from_slice(&[0, 4, 0x20, 1, 2, 3]);
         let parsed = DiscoveryRequest::parse(&req);
-        assert_eq!(parsed, DiscoveryRequest::Legacy { device_id: 4, revision: 130, mac: [0, 4, 0x20, 1, 2, 3] });
+        assert_eq!(
+            parsed,
+            DiscoveryRequest::Legacy {
+                device_id: 4,
+                revision: 130,
+                mac: [0, 4, 0x20, 1, 2, 3]
+            }
+        );
         let resp = info().respond(&parsed).unwrap();
         assert_eq!(resp.len(), 18);
         assert_eq!(&resp[..17], b"DRusty Music Serv");

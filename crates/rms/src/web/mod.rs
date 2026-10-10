@@ -23,7 +23,10 @@ pub fn router(server: Arc<Server>) -> Router {
     Router::new()
         .route("/stream.mp3", get(stream_handler))
         .route("/stream", get(stream_handler))
-        .route("/jsonrpc.js", post(jsonrpc::handle_post).get(jsonrpc::handle_get))
+        .route(
+            "/jsonrpc.js",
+            post(jsonrpc::handle_post).get(jsonrpc::handle_get),
+        )
         .route("/cometd", any(cometd::handle))
         .route("/cometd/{*rest}", any(cometd::handle))
         .route("/music/{id}/{spec}", get(artwork::music))
@@ -36,11 +39,20 @@ pub fn router(server: Arc<Server>) -> Router {
 }
 
 fn server_header() -> HeaderValue {
-    HeaderValue::from_str(&format!("Lyrion Music Server ({} - rms {})", crate::VERSION, env!("CARGO_PKG_VERSION"))).unwrap()
+    HeaderValue::from_str(&format!(
+        "Lyrion Music Server ({} - rms {})",
+        crate::VERSION,
+        env!("CARGO_PKG_VERSION")
+    ))
+    .unwrap()
 }
 
 /// `/stream.mp3?player=<mac>`: the audio a player requested via `strm s`.
-async fn stream_handler(State(server): State<Arc<Server>>, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+async fn stream_handler(
+    State(server): State<Arc<Server>>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Response {
     let Some(player) = q.get("player").and_then(|id| server.resolve_client(id)) else {
         return (StatusCode::NOT_FOUND, "unknown player").into_response();
     };
@@ -51,10 +63,17 @@ async fn stream_handler(State(server): State<Arc<Server>>, Query(q): Query<HashM
             .and_then(|v| v.strip_prefix("Basic "))
             .and_then(|b| {
                 use base64::Engine;
-                base64::engine::general_purpose::STANDARD.decode(b.trim()).ok()
+                base64::engine::general_purpose::STANDARD
+                    .decode(b.trim())
+                    .ok()
             })
             .map(|d| String::from_utf8_lossy(&d).to_string())
-            .map(|cred| Some(cred) == player.stream_password().map(|p| format!("squeezeboxXXX:{}", p)))
+            .map(|cred| {
+                Some(cred)
+                    == player
+                        .stream_password()
+                        .map(|p| format!("squeezeboxXXX:{}", p))
+            })
             .unwrap_or(false);
         if !ok {
             return (StatusCode::UNAUTHORIZED, "").into_response();
@@ -70,15 +89,21 @@ async fn stream_handler(State(server): State<Arc<Server>>, Query(q): Query<HashM
         Err(e) => {
             warn!("{}: cannot open stream source: {}", player.id, e);
             let c = player.controller();
-            c.lock().player_streaming_failed(player.id, "PROBLEM_OPENING", false);
+            c.lock()
+                .player_streaming_failed(player.id, "PROBLEM_OPENING", false);
             return (StatusCode::INTERNAL_SERVER_ERROR, "").into_response();
         }
     };
-    info!("{}: streaming {} ({:?})", player.id, spec.format, match &spec.source {
-        crate::stream::SourceKind::File { path, .. } => path.display().to_string(),
-        crate::stream::SourceKind::Ffmpeg { .. } => "ffmpeg".into(),
-        crate::stream::SourceKind::Remote { url } => url.clone(),
-    });
+    info!(
+        "{}: streaming {} ({:?})",
+        player.id,
+        spec.format,
+        match &spec.source {
+            crate::stream::SourceKind::File { path, .. } => path.display().to_string(),
+            crate::stream::SourceKind::Ffmpeg { .. } => "ffmpeg".into(),
+            crate::stream::SourceKind::Remote { url } => url.clone(),
+        }
+    );
 
     struct St {
         src: crate::stream::source::ByteStream,
@@ -90,7 +115,16 @@ async fn stream_handler(State(server): State<Arc<Server>>, Query(q): Query<HashM
         bytes: u64,
         done: bool,
     }
-    let st = St { src: source, cancel, server: server.clone(), player: player.clone(), generation, song_id: spec.song_id, bytes: 0, done: false };
+    let st = St {
+        src: source,
+        cancel,
+        server: server.clone(),
+        player: player.clone(),
+        generation,
+        song_id: spec.song_id,
+        bytes: 0,
+        done: false,
+    };
     let body = futures::stream::unfold(st, |mut st| async move {
         if st.done {
             return None;
@@ -131,8 +165,18 @@ async fn stream_handler(State(server): State<Arc<Server>>, Query(q): Query<HashM
 }
 
 /// `Source::_readNextChunk` end of song: tell the controller the server is done sending.
-fn end_of_stream(_server: &Arc<Server>, player: &Arc<crate::player::Player>, generation: u64, song_id: u64, bytes: u64) {
-    if player.stream_generation.load(std::sync::atomic::Ordering::SeqCst) != generation {
+fn end_of_stream(
+    _server: &Arc<Server>,
+    player: &Arc<crate::player::Player>,
+    generation: u64,
+    song_id: u64,
+    bytes: u64,
+) {
+    if player
+        .stream_generation
+        .load(std::sync::atomic::Ordering::SeqCst)
+        != generation
+    {
         return;
     }
     player.clear_pending_stream();
@@ -155,8 +199,11 @@ pub async fn serve(server: Arc<Server>) -> anyhow::Result<()> {
     info!("HTTP listening on http://{}/", addr);
     let app = router(server.clone()).layer(tower_http::cors::CorsLayer::permissive());
     let shutdown = server.shutdown.clone();
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(async move { shutdown.cancelled().await })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move { shutdown.cancelled().await })
+    .await?;
     Ok(())
 }

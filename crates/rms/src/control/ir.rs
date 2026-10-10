@@ -32,7 +32,14 @@ pub fn handle_ir(server: &Arc<Server>, player: &Arc<Player>, code: u32, time: u3
         Some(b) => execute_button(server, player, b),
         None => {
             debug!("{}: unknown IR code {:08x}", player.id, code);
-            server.notifier.notify_owned(Some(player.id), vec!["unknownir".into(), format!("{:08x}", code), time.to_string()]);
+            server.notifier.notify_owned(
+                Some(player.id),
+                vec![
+                    "unknownir".into(),
+                    format!("{:08x}", code),
+                    time.to_string(),
+                ],
+            );
         }
     }
 }
@@ -88,6 +95,12 @@ pub fn execute_button(server: &Arc<Server>, player: &Arc<Player>, name: &str) {
     let id = player.id;
     let tokens: Vec<String> = cmd.into_iter().map(str::to_string).collect();
     tokio::spawn(async move {
-        super::dispatch::execute_tokens(&server, Some(id), tokens, super::request::Source::Internal).await;
+        super::dispatch::execute_tokens(
+            &server,
+            Some(id),
+            tokens,
+            super::request::Source::Internal,
+        )
+        .await;
     });
 }

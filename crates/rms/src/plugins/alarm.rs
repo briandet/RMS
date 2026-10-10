@@ -31,26 +31,43 @@ pub struct Alarm {
 }
 
 fn load(p: &Player) -> BTreeMap<String, Alarm> {
-    p.prefs.get("alarms").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+    p.prefs
+        .get("alarms")
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
 }
 
 fn store(p: &Player, alarms: &BTreeMap<String, Alarm>) {
-    p.prefs.set("alarms", serde_json::to_value(alarms).unwrap_or(json!({})));
+    p.prefs
+        .set("alarms", serde_json::to_value(alarms).unwrap_or(json!({})));
 }
 
 fn dow_string(a: &Alarm) -> String {
-    (0..7).filter(|&d| a.days[d]).map(|d| d.to_string()).collect::<Vec<_>>().join(",")
+    (0..7)
+        .filter(|&d| a.days[d])
+        .map(|d| d.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// `alarm add|update|delete|enableall|disableall|defaultvolume`.  Returns the alarm id.
-pub fn command(_server: &Arc<Server>, p: &Arc<Player>, cmd: &str, r: &Request) -> Result<Option<String>, ()> {
+pub fn command(
+    _server: &Arc<Server>,
+    p: &Arc<Player>,
+    cmd: &str,
+    r: &Request,
+) -> Result<Option<String>, ()> {
     let mut alarms = load(p);
     let apply = |a: &mut Alarm, r: &Request| -> Result<(), ()> {
         if let Some(t) = r.param("time") {
             a.time = t.parse::<f64>().map_err(|_| ())? as u32;
         }
         if let Some(d) = r.param("dow") {
-            if !regex::Regex::new(r"^[0-6](?:,[0-6])*$").unwrap().is_match(d) && !d.is_empty() {
+            if !regex::Regex::new(r"^[0-6](?:,[0-6])*$")
+                .unwrap()
+                .is_match(d)
+                && !d.is_empty()
+            {
                 return Err(());
             }
             for i in 0..7 {
@@ -76,17 +93,35 @@ pub fn command(_server: &Arc<Server>, p: &Arc<Player>, cmd: &str, r: &Request) -
             a.shufflemode = s.clamp(0, 2) as u8;
         }
         if let Some(u) = r.param("url").or(r.param("playlisturl")) {
-            a.url = if u == "0" || u.is_empty() { None } else { Some(u.to_string()) };
+            a.url = if u == "0" || u.is_empty() {
+                None
+            } else {
+                Some(u.to_string())
+            };
         }
         Ok(())
     };
     match cmd {
         "add" => {
-            if r.param("time").and_then(|t| t.parse::<f64>().ok()).is_none() {
+            if r.param("time")
+                .and_then(|t| t.parse::<f64>().ok())
+                .is_none()
+            {
                 return Err(());
             }
             let id = format!("{:08x}", rand::random::<u32>());
-            let mut a = Alarm { id: id.clone(), time: 0, days: [true; 7], enabled: true, repeat: true, volume: None, url: None, shufflemode: 0, created: crate::util::now(), last_fired_day: None };
+            let mut a = Alarm {
+                id: id.clone(),
+                time: 0,
+                days: [true; 7],
+                enabled: true,
+                repeat: true,
+                volume: None,
+                url: None,
+                shufflemode: 0,
+                created: crate::util::now(),
+                last_fired_day: None,
+            };
             apply(&mut a, r)?;
             alarms.insert(id.clone(), a);
             store(p, &alarms);
@@ -106,7 +141,8 @@ pub fn command(_server: &Arc<Server>, p: &Arc<Player>, cmd: &str, r: &Request) -
             Ok(Some(id))
         }
         "enableall" | "disableall" => {
-            p.prefs.set("alarmsEnabled", json!((cmd == "enableall") as i32));
+            p.prefs
+                .set("alarmsEnabled", json!((cmd == "enableall") as i32));
             Ok(None)
         }
         "defaultvolume" => {
@@ -123,7 +159,11 @@ pub fn alarms_query(p: &Arc<Player>, r: &mut Request) {
     let filter = r.param("filter").unwrap_or("enabled").to_string();
     let dow = r.param_i64("dow");
     let mut list: Vec<&Alarm> = alarms.values().collect();
-    list.sort_by(|a, b| a.created.partial_cmp(&b.created).unwrap_or(std::cmp::Ordering::Equal));
+    list.sort_by(|a, b| {
+        a.created
+            .partial_cmp(&b.created)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let list: Vec<&Alarm> = list
         .into_iter()
         .filter(|a| match dow {
@@ -133,7 +173,8 @@ pub fn alarms_query(p: &Arc<Player>, r: &mut Request) {
         .collect();
     r.add_result("fade", p.prefs.get_i64("alarmfadeseconds"));
     r.add_result("count", list.len());
-    let (valid, start, end) = normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
+    let (valid, start, end) =
+        normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
     if valid {
         for a in &list[start..=end] {
             let mut i = Results::new();
@@ -143,8 +184,16 @@ pub fn alarms_query(p: &Arc<Player>, r: &mut Request) {
             i.insert("repeat".into(), json!(a.repeat as i32));
             i.insert("shufflemode".into(), json!(a.shufflemode));
             i.insert("time".into(), json!(a.time));
-            i.insert("volume".into(), json!(a.volume.unwrap_or(p.prefs.get_i64("alarmDefaultVolume") as i32)));
-            i.insert("url".into(), json!(a.url.clone().unwrap_or_else(|| "CURRENT_PLAYLIST".into())));
+            i.insert(
+                "volume".into(),
+                json!(a
+                    .volume
+                    .unwrap_or(p.prefs.get_i64("alarmDefaultVolume") as i32)),
+            );
+            i.insert(
+                "url".into(),
+                json!(a.url.clone().unwrap_or_else(|| "CURRENT_PLAYLIST".into())),
+            );
             r.add_loop_item("alarms_loop", i);
         }
     }
@@ -173,7 +222,11 @@ pub fn status_info(p: &Arc<Player>) -> (&'static str, i64) {
         return ("none", 0);
     }
     let now = Local::now();
-    let next = load(p).values().filter(|a| a.enabled).filter_map(|a| next_due(a, now)).min();
+    let next = load(p)
+        .values()
+        .filter(|a| a.enabled)
+        .filter_map(|a| next_due(a, now))
+        .min();
     match next {
         Some(t) if t - now.timestamp() < 86400 => ("set", t),
         _ => ("none", 0),
@@ -223,15 +276,39 @@ fn fire(server: &Arc<Server>, p: &Arc<Player>, a: Alarm) {
         use crate::control::dispatch::execute_tokens;
         use crate::control::request::Source;
         let id = Some(p.id);
-        execute_tokens(&server, id, vec!["power".into(), "1".into()], Source::Internal).await;
-        let vol = a.volume.unwrap_or(p.prefs.get_i64("alarmDefaultVolume") as i32);
+        execute_tokens(
+            &server,
+            id,
+            vec!["power".into(), "1".into()],
+            Source::Internal,
+        )
+        .await;
+        let vol = a
+            .volume
+            .unwrap_or(p.prefs.get_i64("alarmDefaultVolume") as i32);
         p.set_volume(vol, false);
         if a.shufflemode > 0 {
-            execute_tokens(&server, id, vec!["playlist".into(), "shuffle".into(), a.shufflemode.to_string()], Source::Internal).await;
+            execute_tokens(
+                &server,
+                id,
+                vec![
+                    "playlist".into(),
+                    "shuffle".into(),
+                    a.shufflemode.to_string(),
+                ],
+                Source::Internal,
+            )
+            .await;
         }
         match &a.url {
             Some(u) => {
-                execute_tokens(&server, id, vec!["playlist".into(), "play".into(), u.clone()], Source::Internal).await;
+                execute_tokens(
+                    &server,
+                    id,
+                    vec!["playlist".into(), "play".into(), u.clone()],
+                    Source::Internal,
+                )
+                .await;
             }
             None => {
                 execute_tokens(&server, id, vec!["play".into()], Source::Internal).await;

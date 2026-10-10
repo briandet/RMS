@@ -32,7 +32,10 @@ pub struct Favorites {
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn parse_outlines(node: roxmltree::Node) -> Vec<Fav> {
@@ -40,7 +43,10 @@ fn parse_outlines(node: roxmltree::Node) -> Vec<Fav> {
         .filter(|n| n.has_tag_name("outline"))
         .map(|n| Fav {
             text: n.attribute("text").unwrap_or("").to_string(),
-            url: n.attribute("URL").or(n.attribute("url")).map(str::to_string),
+            url: n
+                .attribute("URL")
+                .or(n.attribute("url"))
+                .map(str::to_string),
             kind: n.attribute("type").map(str::to_string),
             icon: n.attribute("icon").map(str::to_string),
             children: parse_outlines(n),
@@ -85,7 +91,10 @@ impl Favorites {
                 Err(e) => warn!("cannot parse {}: {}", path.display(), e),
             }
         }
-        Favorites { path, root: RwLock::new(root) }
+        Favorites {
+            path,
+            root: RwLock::new(root),
+        }
     }
 
     pub fn save(&self) {
@@ -120,7 +129,9 @@ impl Favorites {
             Some((p, l)) => (p, l),
             None => ("", id),
         };
-        self.level(parent)?.get(last.parse::<usize>().ok()?).cloned()
+        self.level(parent)?
+            .get(last.parse::<usize>().ok()?)
+            .cloned()
     }
 
     fn with_level<R>(&self, id: &str, f: impl FnOnce(&mut Vec<Fav>) -> R) -> Option<R> {
@@ -139,7 +150,11 @@ impl Favorites {
     pub fn find_url(&self, url: &str) -> Option<String> {
         fn walk(items: &[Fav], prefix: &str, url: &str) -> Option<String> {
             for (i, f) in items.iter().enumerate() {
-                let id = if prefix.is_empty() { i.to_string() } else { format!("{}.{}", prefix, i) };
+                let id = if prefix.is_empty() {
+                    i.to_string()
+                } else {
+                    format!("{}.{}", prefix, i)
+                };
                 if f.url.as_deref() == Some(url) {
                     return Some(id);
                 }
@@ -159,13 +174,28 @@ impl Favorites {
             i
         })?;
         self.save();
-        Some(if parent.is_empty() { r.to_string() } else { format!("{}.{}", parent, r) })
+        Some(if parent.is_empty() {
+            r.to_string()
+        } else {
+            format!("{}.{}", parent, r)
+        })
     }
 
     pub fn delete(&self, id: &str) -> bool {
         let (parent, last) = id.rsplit_once('.').unwrap_or(("", id));
-        let Ok(i) = last.parse::<usize>() else { return false };
-        let ok = self.with_level(parent, |l| if i < l.len() { l.remove(i); true } else { false }).unwrap_or(false);
+        let Ok(i) = last.parse::<usize>() else {
+            return false;
+        };
+        let ok = self
+            .with_level(parent, |l| {
+                if i < l.len() {
+                    l.remove(i);
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
         if ok {
             self.save();
         }
@@ -174,8 +204,14 @@ impl Favorites {
 
     pub fn rename(&self, id: &str, title: &str) -> bool {
         let (parent, last) = id.rsplit_once('.').unwrap_or(("", id));
-        let Ok(i) = last.parse::<usize>() else { return false };
-        let ok = self.with_level(parent, |l| l.get_mut(i).map(|f| f.text = title.to_string()).is_some()).unwrap_or(false);
+        let Ok(i) = last.parse::<usize>() else {
+            return false;
+        };
+        let ok = self
+            .with_level(parent, |l| {
+                l.get_mut(i).map(|f| f.text = title.to_string()).is_some()
+            })
+            .unwrap_or(false);
         if ok {
             self.save();
         }
@@ -184,7 +220,9 @@ impl Favorites {
 
     /// Move `from` (dotted id) to position `to` (dotted id) — within or across levels.
     pub fn move_item(&self, from: &str, to: &str) -> bool {
-        let Some(item) = self.get(from) else { return false };
+        let Some(item) = self.get(from) else {
+            return false;
+        };
         if !self.delete(from) {
             return false;
         }
@@ -210,14 +248,56 @@ impl Favorites {
 }
 
 pub fn register(t: &mut DispatchTable) {
-    t.add(&["favorites", "items", "_index", "_quantity"], 0, true, true, Handler::Sync(items));
+    t.add(
+        &["favorites", "items", "_index", "_quantity"],
+        0,
+        true,
+        true,
+        Handler::Sync(items),
+    );
     t.add(&["favorites", "add"], 0, false, true, Handler::Sync(add));
-    t.add(&["favorites", "addlevel"], 0, false, true, Handler::Sync(addlevel));
-    t.add(&["favorites", "delete"], 0, false, true, Handler::Sync(delete));
-    t.add(&["favorites", "rename"], 0, false, true, Handler::Sync(rename));
-    t.add(&["favorites", "move"], 0, false, true, Handler::Sync(move_cmd));
-    t.add(&["favorites", "exists", "_id"], 0, true, true, Handler::Sync(exists));
-    t.add(&["favorites", "playlist", "_method"], 1, false, true, Handler::Async(|s, r| Box::pin(playlist(s, r))));
+    t.add(
+        &["favorites", "addlevel"],
+        0,
+        false,
+        true,
+        Handler::Sync(addlevel),
+    );
+    t.add(
+        &["favorites", "delete"],
+        0,
+        false,
+        true,
+        Handler::Sync(delete),
+    );
+    t.add(
+        &["favorites", "rename"],
+        0,
+        false,
+        true,
+        Handler::Sync(rename),
+    );
+    t.add(
+        &["favorites", "move"],
+        0,
+        false,
+        true,
+        Handler::Sync(move_cmd),
+    );
+    t.add(
+        &["favorites", "exists", "_id"],
+        0,
+        true,
+        true,
+        Handler::Sync(exists),
+    );
+    t.add(
+        &["favorites", "playlist", "_method"],
+        1,
+        false,
+        true,
+        Handler::Async(|s, r| Box::pin(playlist(s, r))),
+    );
 }
 
 fn fav_type(f: &Fav) -> &'static str {
@@ -234,16 +314,34 @@ fn items(server: &Arc<Server>, r: &mut Request) {
         return crate::control::jive::favorites_menu(server, r);
     }
     let id = r.param("item_id").unwrap_or("").to_string();
-    let Some(level) = server.favorites.level(&id) else { return r.bad_params() };
-    let title = if id.is_empty() { crate::strings::s("FAVORITES") } else { server.favorites.get(&id).map(|f| f.text).unwrap_or_default() };
+    let Some(level) = server.favorites.level(&id) else {
+        return r.bad_params();
+    };
+    let title = if id.is_empty() {
+        crate::strings::s("FAVORITES")
+    } else {
+        server
+            .favorites
+            .get(&id)
+            .map(|f| f.text)
+            .unwrap_or_default()
+    };
     r.add_result("title", title);
     r.add_result("count", level.len());
-    let (valid, start, end) = normalize(r.param_i64("_index"), r.param_i64("_quantity"), level.len());
+    let (valid, start, end) =
+        normalize(r.param_i64("_index"), r.param_i64("_quantity"), level.len());
     if valid {
         let want_url = r.param_bool("want_url");
         for (i, f) in level.iter().enumerate().take(end + 1).skip(start) {
             let mut item = Results::new();
-            item.insert("id".into(), json!(if id.is_empty() { i.to_string() } else { format!("{}.{}", id, i) }));
+            item.insert(
+                "id".into(),
+                json!(if id.is_empty() {
+                    i.to_string()
+                } else {
+                    format!("{}.{}", id, i)
+                }),
+            );
             item.insert("name".into(), json!(f.text));
             item.insert("type".into(), json!(fav_type(f)));
             if want_url {
@@ -255,7 +353,10 @@ fn items(server: &Arc<Server>, r: &mut Request) {
                 item.insert("image".into(), json!(i));
             }
             item.insert("isaudio".into(), json!((f.url.is_some()) as i32));
-            item.insert("hasitems".into(), json!((!f.children.is_empty() || f.url.is_none()) as i32));
+            item.insert(
+                "hasitems".into(),
+                json!((!f.children.is_empty() || f.url.is_none()) as i32),
+            );
             r.add_loop_item("loop_loop", item);
         }
     }
@@ -263,8 +364,19 @@ fn items(server: &Arc<Server>, r: &mut Request) {
 }
 
 fn add(server: &Arc<Server>, r: &mut Request) {
-    let (Some(url), Some(title)) = (r.param_nonempty("url").map(str::to_string), r.param_nonempty("title").map(str::to_string)) else { return r.bad_params() };
-    let fav = Fav { text: title, url: Some(url), kind: r.param("type").map(str::to_string), icon: r.param("icon").map(str::to_string), children: vec![] };
+    let (Some(url), Some(title)) = (
+        r.param_nonempty("url").map(str::to_string),
+        r.param_nonempty("title").map(str::to_string),
+    ) else {
+        return r.bad_params();
+    };
+    let fav = Fav {
+        text: title,
+        url: Some(url),
+        kind: r.param("type").map(str::to_string),
+        icon: r.param("icon").map(str::to_string),
+        children: vec![],
+    };
     let (parent, idx) = match r.param("item_id") {
         Some(id) => match id.rsplit_once('.') {
             Some((p, i)) => (p.to_string(), i.parse().ok()),
@@ -281,9 +393,17 @@ fn add(server: &Arc<Server>, r: &mut Request) {
 }
 
 fn addlevel(server: &Arc<Server>, r: &mut Request) {
-    let Some(title) = r.param_nonempty("title").map(str::to_string) else { return r.bad_params() };
-    let fav = Fav { text: title, ..Default::default() };
-    let parent = r.param("item_id").and_then(|id| id.rsplit_once('.').map(|(p, _)| p.to_string())).unwrap_or_default();
+    let Some(title) = r.param_nonempty("title").map(str::to_string) else {
+        return r.bad_params();
+    };
+    let fav = Fav {
+        text: title,
+        ..Default::default()
+    };
+    let parent = r
+        .param("item_id")
+        .and_then(|id| id.rsplit_once('.').map(|(p, _)| p.to_string()))
+        .unwrap_or_default();
     if let Some(id) = server.favorites.add(&parent, fav, None) {
         r.add_result("count", 1);
         r.add_result("item_id", id);
@@ -305,14 +425,24 @@ fn delete(server: &Arc<Server>, r: &mut Request) {
 }
 
 fn rename(server: &Arc<Server>, r: &mut Request) {
-    let (Some(id), Some(t)) = (r.param("item_id").map(str::to_string), r.param_nonempty("title").map(str::to_string)) else { return r.bad_params() };
+    let (Some(id), Some(t)) = (
+        r.param("item_id").map(str::to_string),
+        r.param_nonempty("title").map(str::to_string),
+    ) else {
+        return r.bad_params();
+    };
     server.favorites.rename(&id, &t);
     server.notifier.notify(None, &["favorites", "changed"]);
     r.set_done();
 }
 
 fn move_cmd(server: &Arc<Server>, r: &mut Request) {
-    let (Some(from), Some(to)) = (r.param("from_id").map(str::to_string), r.param("to_id").map(str::to_string)) else { return r.bad_params() };
+    let (Some(from), Some(to)) = (
+        r.param("from_id").map(str::to_string),
+        r.param("to_id").map(str::to_string),
+    ) else {
+        return r.bad_params();
+    };
     server.favorites.move_item(&from, &to);
     server.notifier.notify(None, &["favorites", "changed"]);
     r.set_done();
@@ -320,7 +450,11 @@ fn move_cmd(server: &Arc<Server>, r: &mut Request) {
 
 fn exists(server: &Arc<Server>, r: &mut Request) {
     let id = r.param("_id").unwrap_or("").to_string();
-    let url = if let Ok(track_id) = id.parse::<i64>() { server.library.track(track_id).map(|t| t.url) } else { Some(crate::control::commands::to_url(&id)) };
+    let url = if let Ok(track_id) = id.parse::<i64>() {
+        server.library.track(track_id).map(|t| t.url)
+    } else {
+        Some(crate::control::commands::to_url(&id))
+    };
     match url.and_then(|u| server.favorites.find_url(&u)) {
         Some(idx) => {
             r.add_result("exists", 1);
@@ -382,9 +516,33 @@ mod tests {
     fn opml_roundtrip_and_ids() {
         let dir = tempfile::tempdir().unwrap();
         let f = Favorites::load(dir.path());
-        f.add("", Fav { text: "Radio A".into(), url: Some("http://a".into()), kind: Some("audio".into()), ..Default::default() }, None);
-        f.add("", Fav { text: "Folder".into(), ..Default::default() }, None);
-        f.add("1", Fav { text: "Inner & Co".into(), url: Some("http://b?x=1&y=2".into()), ..Default::default() }, None);
+        f.add(
+            "",
+            Fav {
+                text: "Radio A".into(),
+                url: Some("http://a".into()),
+                kind: Some("audio".into()),
+                ..Default::default()
+            },
+            None,
+        );
+        f.add(
+            "",
+            Fav {
+                text: "Folder".into(),
+                ..Default::default()
+            },
+            None,
+        );
+        f.add(
+            "1",
+            Fav {
+                text: "Inner & Co".into(),
+                url: Some("http://b?x=1&y=2".into()),
+                ..Default::default()
+            },
+            None,
+        );
         let g = Favorites::load(dir.path());
         assert_eq!(g.get("1.0").unwrap().text, "Inner & Co");
         assert_eq!(g.find_url("http://b?x=1&y=2").as_deref(), Some("1.0"));

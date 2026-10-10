@@ -26,9 +26,16 @@ pub const VERSION: &str = "9.2.0";
 async fn main() -> anyhow::Result<()> {
     let config = config::Config::parse();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_new(&config.log).unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_new(&config.log)
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
-    info!("Rusty Music Server {} (LMS protocol {})", env!("CARGO_PKG_VERSION"), VERSION);
+    info!(
+        "Rusty Music Server {} (LMS protocol {})",
+        env!("CARGO_PKG_VERSION"),
+        VERSION
+    );
 
     let server = server::Server::new(config.clone())?;
     let dirs = server.prefs.server.get_string_list("mediadirs");
@@ -39,7 +46,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if config.scan_only || config.rescan || config.wipe {
-        let mode = if config.wipe { rms_library::ScanMode::Wipe } else { rms_library::ScanMode::Full };
+        let mode = if config.wipe {
+            rms_library::ScanMode::Wipe
+        } else {
+            rms_library::ScanMode::Full
+        };
         if config.scan_only {
             let lib = server.library.clone();
             let summary = tokio::task::spawn_blocking(move || lib.scan(mode)).await??;

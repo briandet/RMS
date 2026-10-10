@@ -23,7 +23,11 @@ use tracing::{debug, info};
 #[derive(Debug, Clone)]
 pub enum SourceKind {
     /// Raw bytes of a local file, optionally a byte range.
-    File { path: PathBuf, offset: u64, length: Option<u64> },
+    File {
+        path: PathBuf,
+        offset: u64,
+        length: Option<u64>,
+    },
     /// Output of an ffmpeg pipeline.
     Ffmpeg { args: Vec<String> },
     /// Proxy a remote HTTP(S) stream.
@@ -71,10 +75,17 @@ pub fn mime_for_format(fmt: &str) -> Option<&'static str> {
 
 /// Map an HTTP content type to an LMS type code (`Slim::Music::Info::mimeToType`).
 pub fn type_for_mime(mime: &str) -> Option<&'static str> {
-    let m = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let m = mime
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
     Some(match m.as_str() {
         "audio/mpeg" | "audio/mp3" | "audio/x-mpeg" | "audio/mpeg3" | "audio/mpg" => "mp3",
-        "audio/aac" | "audio/aacp" | "audio/x-aac" | "audio/mp4" | "audio/m4a" | "audio/x-m4a" => "aac",
+        "audio/aac" | "audio/aacp" | "audio/x-aac" | "audio/mp4" | "audio/m4a" | "audio/x-m4a" => {
+            "aac"
+        }
         "audio/ogg" | "application/ogg" | "audio/x-ogg" | "audio/vorbis" => "ogg",
         "audio/opus" => "ops",
         "audio/flac" | "audio/x-flac" => "flc",
@@ -82,7 +93,10 @@ pub fn type_for_mime(mime: &str) -> Option<&'static str> {
         "audio/aiff" | "audio/x-aiff" => "aif",
         "audio/x-ms-wma" | "audio/wma" => "wma",
         "audio/x-scpls" | "audio/scpls" => "pls",
-        "audio/x-mpegurl" | "audio/mpegurl" | "application/x-mpegurl" | "application/vnd.apple.mpegurl" => "m3u",
+        "audio/x-mpegurl"
+        | "audio/mpegurl"
+        | "application/x-mpegurl"
+        | "application/vnd.apple.mpegurl" => "m3u",
         "video/x-ms-asf" | "video/x-ms-asx" | "audio/x-ms-asx" => "asx",
         "application/xspf+xml" => "xspf",
         "text/html" => "html",
@@ -91,7 +105,10 @@ pub fn type_for_mime(mime: &str) -> Option<&'static str> {
 }
 
 pub fn is_lossless(fmt: &str) -> bool {
-    matches!(fmt, "flc" | "ogf" | "wav" | "alc" | "aif" | "dff" | "dsf" | "wvp" | "ape" | "pcm")
+    matches!(
+        fmt,
+        "flc" | "ogf" | "wav" | "alc" | "aif" | "dff" | "dsf" | "wvp" | "ape" | "pcm"
+    )
 }
 
 /// Formats the player can play natively for a given source type, with LMS's passthrough table.
@@ -115,14 +132,20 @@ fn passthrough_target(src: &str, supported: &[String]) -> Option<String> {
     };
     cands.iter().find(|c| has(c)).map(|c| {
         // squeezelite advertises "dsd" for both DSD containers
-        if *c == "dsd" { src.to_string() } else { c.to_string() }
+        if *c == "dsd" {
+            src.to_string()
+        } else {
+            c.to_string()
+        }
     })
 }
 
 /// Formats supported by every active player of the group, in the first player's order.
 pub fn supported_formats(players: &[Arc<Player>]) -> Vec<String> {
     let mut iter = players.iter();
-    let Some(first) = iter.next() else { return vec!["mp3".into()] };
+    let Some(first) = iter.next() else {
+        return vec!["mp3".into()];
+    };
     let mut formats = first.state.lock().caps.formats.clone();
     for p in iter {
         let caps = p.state.lock().caps.formats.clone();
@@ -147,7 +170,11 @@ fn rate_limit(players: &[Arc<Player>]) -> u32 {
 /// `CapabilitiesHelper::samplerateLimit`.
 fn samplerate_limit(players: &[Arc<Player>], track_rate: Option<u32>) -> Option<u32> {
     let rate = track_rate?;
-    let limit = players.iter().map(|p| p.state.lock().caps.max_sample_rate).filter(|r| *r > 0).min()?;
+    let limit = players
+        .iter()
+        .map(|p| p.state.lock().caps.max_sample_rate)
+        .filter(|r| *r > 0)
+        .min()?;
     if limit < rate {
         if limit % 12000 == 0 && rate % 11025 == 0 {
             return Some(limit / 12000 * 11025);
@@ -169,7 +196,12 @@ pub struct OpenedSong {
 }
 
 /// `Song::open($seekdata)`: decide format and source.  `seek` is the time offset in seconds.
-pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>], seek: Option<f64>) -> Result<OpenedSong, String> {
+pub fn open_song(
+    server: &Arc<Server>,
+    song: &mut Song,
+    players: &[Arc<Player>],
+    seek: Option<f64>,
+) -> Result<OpenedSong, String> {
     let supported = supported_formats(players);
     let track = song.track.clone();
     let start = seek.unwrap_or(0.0).max(0.0);
@@ -182,7 +214,8 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
         return open_remote(server, song, &supported, rate, all_https);
     }
 
-    let path = crate::util::path_from_file_url(&track.url).ok_or_else(|| "PROBLEM_OPENING".to_string())?;
+    let path =
+        crate::util::path_from_file_url(&track.url).ok_or_else(|| "PROBLEM_OPENING".to_string())?;
     if !path.exists() {
         return Err("PROBLEM_OPENING".into());
     }
@@ -191,8 +224,17 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
     let abs_start = track.cue_start.unwrap_or(0.0) + start;
     let abs_end = track.cue_end;
 
-    let native = passthrough_target(src, &supported);
-    let bitrate_ok = rate == 0 || !matches!(src, "mp3" | "aac" | "ogg" | "ops" | "wma") || track.bitrate.map(|b| (rate as f64) * 1.01 >= b as f64 / 1000.0).unwrap_or(true);
+    let mut native = passthrough_target(src, &supported);
+    // WiiM garbles 32-bit PCM; send it as 24-bit FLAC instead.
+    if track.samplesize == Some(32) && players.iter().any(|p| p.state.lock().caps.is_wiim()) {
+        native = None;
+    }
+    let bitrate_ok = rate == 0
+        || !matches!(src, "mp3" | "aac" | "ogg" | "ops" | "wma")
+        || track
+            .bitrate
+            .map(|b| (rate as f64) * 1.01 >= b as f64 / 1000.0)
+            .unwrap_or(true);
     let lossless_too_big = rate > 0 && is_lossless(src);
 
     // Passthrough: native format, no limits, and either no seek or a format we can byte-seek.
@@ -203,11 +245,23 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
             let audio_size = track.audio_size.unwrap_or(size.saturating_sub(offset));
             let strip_header = matches!(src, "wav" | "aif") && fmt == "pcm";
             if start == 0.0 {
-                let (off, len) = if strip_header { (offset, Some(audio_size)) } else { (0, None) };
+                let (off, len) = if strip_header {
+                    (offset, Some(audio_size))
+                } else {
+                    (0, None)
+                };
                 info!("{}: streaming {} natively as {}", track.url, src, fmt);
                 return Ok(OpenedSong {
                     stream_format: fmt.clone(),
-                    spec: Some(StreamSpec { source: SourceKind::File { path, offset: off, length: len }, format: fmt, song_id: song.id }),
+                    spec: Some(StreamSpec {
+                        source: SourceKind::File {
+                            path,
+                            offset: off,
+                            length: len,
+                        },
+                        format: fmt,
+                        song_id: song.id,
+                    }),
                     direct_url: None,
                     stream_bitrate: track.bitrate,
                     can_seek: true,
@@ -218,14 +272,27 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
                 let secs = track.secs.unwrap_or(1.0);
                 let mut byte = (audio_size as f64 / secs * start) as u64;
                 if strip_header {
-                    let align = (track.channels.unwrap_or(2) * track.samplesize.unwrap_or(16) / 8).max(1) as u64;
+                    let align = (track.channels.unwrap_or(2) * track.samplesize.unwrap_or(16) / 8)
+                        .max(1) as u64;
                     byte -= byte % align;
                 }
                 let off = offset + byte;
-                let len = if strip_header { Some(audio_size.saturating_sub(byte)) } else { None };
+                let len = if strip_header {
+                    Some(audio_size.saturating_sub(byte))
+                } else {
+                    None
+                };
                 return Ok(OpenedSong {
                     stream_format: fmt.clone(),
-                    spec: Some(StreamSpec { source: SourceKind::File { path, offset: off, length: len }, format: fmt, song_id: song.id }),
+                    spec: Some(StreamSpec {
+                        source: SourceKind::File {
+                            path,
+                            offset: off,
+                            length: len,
+                        },
+                        format: fmt,
+                        song_id: song.id,
+                    }),
                     direct_url: None,
                     stream_bitrate: track.bitrate,
                     can_seek: true,
@@ -240,7 +307,15 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
             // No transcoder: best effort raw passthrough, ignoring seek/limits.
             return Ok(OpenedSong {
                 stream_format: fmt.clone(),
-                spec: Some(StreamSpec { source: SourceKind::File { path, offset: 0, length: None }, format: fmt, song_id: song.id }),
+                spec: Some(StreamSpec {
+                    source: SourceKind::File {
+                        path,
+                        offset: 0,
+                        length: None,
+                    },
+                    format: fmt,
+                    song_id: song.id,
+                }),
                 direct_url: None,
                 stream_bitrate: track.bitrate,
                 can_seek: false,
@@ -249,17 +324,34 @@ pub fn open_song(server: &Arc<Server>, song: &mut Song, players: &[Arc<Player>],
         return Err("PROBLEM_CONVERT_FILE".into());
     }
     let target = choose_transcode_target(src, &supported, rate)?;
-    let args = ffmpeg_args(&path.to_string_lossy(), &target, abs_start, abs_end, rate, sr_limit, &track);
+    let args = ffmpeg_args(
+        &path.to_string_lossy(),
+        &target,
+        abs_start,
+        abs_end,
+        rate,
+        sr_limit,
+        &track,
+    );
     debug!("ffmpeg {:?}", args);
-    info!("{}: transcoding {} -> {} (start {:.1}s)", track.url, src, target, start);
+    info!(
+        "{}: transcoding {} -> {} (start {:.1}s)",
+        track.url, src, target, start
+    );
     let stream_bitrate = match target.as_str() {
         "mp3" => Some(if rate > 0 { rate } else { 320 } * 1000),
-        "pcm" => Some(sr_limit.or(track.samplerate).unwrap_or(44100) * track.samplesize.unwrap_or(16) * 2),
+        "pcm" => Some(
+            sr_limit.or(track.samplerate).unwrap_or(44100) * track.samplesize.unwrap_or(16) * 2,
+        ),
         _ => track.bitrate,
     };
     Ok(OpenedSong {
         stream_format: target.clone(),
-        spec: Some(StreamSpec { source: SourceKind::Ffmpeg { args }, format: target, song_id: song.id }),
+        spec: Some(StreamSpec {
+            source: SourceKind::Ffmpeg { args },
+            format: target,
+            song_id: song.id,
+        }),
         direct_url: None,
         stream_bitrate,
         can_seek: true,
@@ -277,15 +369,41 @@ fn choose_transcode_target(src: &str, supported: &[String], rate: u32) -> Result
         // avoids generation loss when the player supports it.
         &["flc", "mp3", "pcm"]
     };
-    order.iter().find(|f| has(f)).map(|f| f.to_string()).ok_or_else(|| "PROBLEM_CONVERT_FILE".to_string())
+    order
+        .iter()
+        .find(|f| has(f))
+        .map(|f| f.to_string())
+        .ok_or_else(|| "PROBLEM_CONVERT_FILE".to_string())
 }
 
 /// Build ffmpeg arguments producing `target` on stdout.
-pub fn ffmpeg_args(input: &str, target: &str, start: f64, end: Option<f64>, rate_kbps: u32, sr_limit: Option<u32>, track: &TrackInfo) -> Vec<String> {
-    let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin"].iter().map(|s| s.to_string()).collect();
+pub fn ffmpeg_args(
+    input: &str,
+    target: &str,
+    start: f64,
+    end: Option<f64>,
+    rate_kbps: u32,
+    sr_limit: Option<u32>,
+    track: &TrackInfo,
+) -> Vec<String> {
+    let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let remote = input.contains("://");
     if remote {
-        a.extend(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"].iter().map(|s| s.to_string()));
+        a.extend(
+            [
+                "-reconnect",
+                "1",
+                "-reconnect_streamed",
+                "1",
+                "-reconnect_delay_max",
+                "5",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        );
     }
     if start > 0.0 {
         a.push("-ss".into());
@@ -298,29 +416,53 @@ pub fn ffmpeg_args(input: &str, target: &str, start: f64, end: Option<f64>, rate
         a.push("-t".into());
         a.push(format!("{:.3}", dur));
     }
-    a.extend(["-map", "0:a:0", "-vn", "-sn", "-dn"].iter().map(|s| s.to_string()));
+    a.extend(
+        ["-map", "0:a:0", "-vn", "-sn", "-dn"]
+            .iter()
+            .map(|s| s.to_string()),
+    );
     if let Some(sr) = sr_limit {
         a.push("-ar".into());
         a.push(sr.to_string());
     }
     match target {
         "flc" => {
-            a.extend(["-c:a", "flac", "-compression_level", "0", "-f", "flac"].iter().map(|s| s.to_string()));
+            a.extend(
+                ["-c:a", "flac", "-compression_level", "0", "-f", "flac"]
+                    .iter()
+                    .map(|s| s.to_string()),
+            );
             if track.samplesize.unwrap_or(16) > 16 {
-                a.extend(["-sample_fmt", "s32"].iter().map(|s| s.to_string()));
+                a.extend(
+                    ["-sample_fmt", "s32", "-bits_per_raw_sample", "24"]
+                        .iter()
+                        .map(|s| s.to_string()),
+                );
             } else {
                 a.extend(["-sample_fmt", "s16"].iter().map(|s| s.to_string()));
             }
         }
         "pcm" => {
             if track.samplesize.unwrap_or(16) > 16 {
-                a.extend(["-c:a", "pcm_s24le", "-f", "s24le"].iter().map(|s| s.to_string()));
+                a.extend(
+                    ["-c:a", "pcm_s24le", "-f", "s24le"]
+                        .iter()
+                        .map(|s| s.to_string()),
+                );
             } else {
-                a.extend(["-c:a", "pcm_s16le", "-f", "s16le"].iter().map(|s| s.to_string()));
+                a.extend(
+                    ["-c:a", "pcm_s16le", "-f", "s16le"]
+                        .iter()
+                        .map(|s| s.to_string()),
+                );
             }
             a.extend(["-ac", "2"].iter().map(|s| s.to_string()));
         }
-        "aac" => a.extend(["-c:a", "aac", "-b:a", "256k", "-f", "adts"].iter().map(|s| s.to_string())),
+        "aac" => a.extend(
+            ["-c:a", "aac", "-b:a", "256k", "-f", "adts"]
+                .iter()
+                .map(|s| s.to_string()),
+        ),
         _ => {
             let kbps = if rate_kbps > 0 { rate_kbps } else { 320 };
             a.extend(["-c:a", "libmp3lame", "-b:a"].iter().map(|s| s.to_string()));
@@ -336,14 +478,31 @@ pub fn ffmpeg_args(input: &str, target: &str, start: f64, end: Option<f64>, rate
     a
 }
 
-fn open_remote(server: &Arc<Server>, song: &mut Song, supported: &[String], rate: u32, can_https: bool) -> Result<OpenedSong, String> {
-    let url = song.stream_url.clone().unwrap_or_else(|| song.track.url.clone());
-    let ct = if song.track.content_type.is_empty() { "mp3".to_string() } else { song.track.content_type.clone() };
+fn open_remote(
+    server: &Arc<Server>,
+    song: &mut Song,
+    supported: &[String],
+    rate: u32,
+    can_https: bool,
+) -> Result<OpenedSong, String> {
+    let url = song
+        .stream_url
+        .clone()
+        .unwrap_or_else(|| song.track.url.clone());
+    let ct = if song.track.content_type.is_empty() {
+        "mp3".to_string()
+    } else {
+        song.track.content_type.clone()
+    };
     let https = url.starts_with("https://");
     let native = passthrough_target(&ct, supported);
-    let hls = song.remote_meta.content_type.as_deref() == Some("hls") || ct == "m3u" || url.contains(".m3u8");
+    let hls = song.remote_meta.content_type.as_deref() == Some("hls")
+        || ct == "m3u"
+        || url.contains(".m3u8");
     if let Some(fmt) = native.clone().filter(|_| !hls) {
-        if (!https || can_https) && (rate == 0 || song.track.bitrate.map(|b| rate * 1000 >= b).unwrap_or(true)) {
+        if (!https || can_https)
+            && (rate == 0 || song.track.bitrate.map(|b| rate * 1000 >= b).unwrap_or(true))
+        {
             return Ok(OpenedSong {
                 stream_format: fmt,
                 spec: None,
@@ -356,7 +515,11 @@ fn open_remote(server: &Arc<Server>, song: &mut Song, supported: &[String], rate
             // Proxy the bytes unchanged.
             return Ok(OpenedSong {
                 stream_format: fmt.clone(),
-                spec: Some(StreamSpec { source: SourceKind::Remote { url }, format: fmt, song_id: song.id }),
+                spec: Some(StreamSpec {
+                    source: SourceKind::Remote { url },
+                    format: fmt,
+                    song_id: song.id,
+                }),
                 direct_url: None,
                 stream_bitrate: song.track.bitrate,
                 can_seek: false,
@@ -374,7 +537,11 @@ fn open_remote(server: &Arc<Server>, song: &mut Song, supported: &[String], rate
     let args = ffmpeg_args(&url, &target, 0.0, None, rate, None, &song.track);
     Ok(OpenedSong {
         stream_format: target.clone(),
-        spec: Some(StreamSpec { source: SourceKind::Ffmpeg { args }, format: target, song_id: song.id }),
+        spec: Some(StreamSpec {
+            source: SourceKind::Ffmpeg { args },
+            format: target,
+            song_id: song.id,
+        }),
         direct_url: None,
         stream_bitrate: song.track.bitrate,
         can_seek: false,
@@ -394,16 +561,36 @@ pub struct PlayParams {
 
 /// Build and send the `strm s` frame for `song` to `player`.  Returns false if the frame
 /// could not be built (e.g. direct stream host unresolvable).
-pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song, p: &PlayParams) -> bool {
+pub fn send_stream_start(
+    server: &Arc<Server>,
+    player: &Arc<Player>,
+    song: &Song,
+    p: &PlayParams,
+) -> bool {
     let fmt = Format::from_content_type(&song.stream_format);
     let mut h = StrmHeader::start(fmt, !p.paused);
     let track = &song.track;
     match song.stream_format.as_str() {
         "pcm" | "wav" | "aif" => {
-            let transcoded = matches!(song.spec.as_ref().map(|s| &s.source), Some(SourceKind::Ffmpeg { .. }));
-            let bits = if transcoded { if track.samplesize.unwrap_or(16) > 16 { 24 } else { 16 } } else { track.samplesize.unwrap_or(16) };
+            let transcoded = matches!(
+                song.spec.as_ref().map(|s| &s.source),
+                Some(SourceKind::Ffmpeg { .. })
+            );
+            let bits = if transcoded {
+                if track.samplesize.unwrap_or(16) > 16 {
+                    24
+                } else {
+                    16
+                }
+            } else {
+                track.samplesize.unwrap_or(16)
+            };
             let little = transcoded || track.little_endian;
-            let chans = if transcoded { 2 } else { track.channels.unwrap_or(2) };
+            let chans = if transcoded {
+                2
+            } else {
+                track.channels.unwrap_or(2)
+            };
             h = h.with_pcm(bits, track.samplerate.unwrap_or(44100), chans, little);
         }
         "flc" => {
@@ -413,7 +600,12 @@ pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song
         }
         "aac" => {
             // '5' = mp4ff container, '2' = ADTS
-            let container = song.direct_url.is_none() && matches!(track.content_type.as_str(), "mp4" | "alc") && !matches!(song.spec.as_ref().map(|s| &s.source), Some(SourceKind::Ffmpeg { .. }));
+            let container = song.direct_url.is_none()
+                && matches!(track.content_type.as_str(), "mp4" | "alc")
+                && !matches!(
+                    song.spec.as_ref().map(|s| &s.source),
+                    Some(SourceKind::Ffmpeg { .. })
+                );
             h.pcm_sample_size = if container { b'5' } else { b'2' };
         }
         "dsf" => h.pcm_sample_size = b'0',
@@ -421,7 +613,9 @@ pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song
         _ => {}
     }
 
-    let mut threshold = p.buffer_threshold.unwrap_or_else(|| player.prefs.get_i64("bufferThreshold").clamp(1, 255) as u8);
+    let mut threshold = p
+        .buffer_threshold
+        .unwrap_or_else(|| player.prefs.get_i64("bufferThreshold").clamp(1, 255) as u8);
     if let Some(size) = track.filesize {
         if size < threshold as u64 * 1024 {
             threshold = ((size / 1024).max(2) - 1) as u8;
@@ -444,7 +638,9 @@ pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song
         h.transition_duration = p.fade_in.min(10.0) as u8;
     } else {
         h.transition_type = p.transition;
-        h.transition_duration = p.transition_duration.min(player.state.lock().caps.max_transition_duration);
+        h.transition_duration = p
+            .transition_duration
+            .min(player.state.lock().caps.max_transition_duration);
     }
     if let Some(db) = p.replay_gain_db {
         h.replay_gain = slimproto::server::AudioGain::db_to_fixed(db);
@@ -452,7 +648,9 @@ pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song
 
     let request: Bytes;
     if let Some(url) = &song.direct_url {
-        let Ok(u) = url::Url::parse(url) else { return false };
+        let Ok(u) = url::Url::parse(url) else {
+            return false;
+        };
         let host = u.host_str().unwrap_or("").to_string();
         let port = u.port_or_known_default().unwrap_or(80);
         let ip = match (host.as_str(), port).to_socket_addrs_v4() {
@@ -473,11 +671,16 @@ pub fn send_stream_start(server: &Arc<Server>, player: &Arc<Player>, song: &Song
             let pw: String = {
                 use rand::Rng;
                 let mut rng = rand::rng();
-                (0..10).map(|_| rng.sample(rand::distr::Alphanumeric) as char).collect()
+                (0..10)
+                    .map(|_| rng.sample(rand::distr::Alphanumeric) as char)
+                    .collect()
             };
             player.set_stream_password(Some(pw.clone()));
             use base64::Engine;
-            r.push_str(&format!("Authorization: Basic {}\r\n", base64::engine::general_purpose::STANDARD.encode(format!("squeezeboxXXX:{}", pw))));
+            r.push_str(&format!(
+                "Authorization: Basic {}\r\n",
+                base64::engine::general_purpose::STANDARD.encode(format!("squeezeboxXXX:{}", pw))
+            ));
         }
         r.push_str("\r\n");
         request = Bytes::from(r);
@@ -531,7 +734,10 @@ impl ToV4 for (&str, u16) {
 
 #[allow(unused)]
 pub fn capabilities_summary(c: &Capabilities) -> String {
-    format!("{} ({}), formats {:?}, max {} Hz", c.model_name, c.model, c.formats, c.max_sample_rate)
+    format!(
+        "{} ({}), formats {:?}, max {} Hz",
+        c.model_name, c.model, c.formats, c.max_sample_rate
+    )
 }
 
 #[cfg(test)]
@@ -540,7 +746,10 @@ mod tests {
 
     #[test]
     fn passthrough_rules() {
-        let sq: Vec<String> = ["flc", "pcm", "mp3", "ogg", "aac", "alc", "ops", "dsd"].iter().map(|s| s.to_string()).collect();
+        let sq: Vec<String> = ["flc", "pcm", "mp3", "ogg", "aac", "alc", "ops", "dsd"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         assert_eq!(passthrough_target("flc", &sq).as_deref(), Some("flc"));
         assert_eq!(passthrough_target("wav", &sq).as_deref(), Some("pcm"));
         assert_eq!(passthrough_target("mp4", &sq).as_deref(), Some("aac"));

@@ -298,7 +298,11 @@ impl StrmHeader {
         self.pcm_sample_size = PcmSampleSize::from_bits(bits).0;
         self.pcm_sample_rate = PcmSampleRate::from_hz(hz).0;
         self.pcm_channels = if channels == 1 { b'1' } else { b'2' };
-        self.pcm_endian = if little_endian { PcmEndian::Little.byte() } else { PcmEndian::Big.byte() };
+        self.pcm_endian = if little_endian {
+            PcmEndian::Little.byte()
+        } else {
+            PcmEndian::Big.byte()
+        };
         self
     }
 
@@ -342,11 +346,11 @@ pub struct AudioGain {
 impl AudioGain {
     /// Legacy 129-step volume map from the reference server (indexed by 0..=100).
     pub const VOLUME_MAP: [u8; 101] = [
-        0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7, 8, 9, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17, 18, 19,
-        20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35, 37, 38, 39, 40, 42, 43, 44, 46, 47, 48,
-        50, 51, 53, 54, 56, 57, 59, 60, 61, 63, 65, 66, 68, 69, 71, 72, 74, 75, 77, 79, 80, 82, 84, 85,
-        87, 89, 90, 92, 94, 96, 97, 99, 101, 103, 104, 106, 108, 110, 112, 113, 115, 117, 119, 121, 123,
-        125, 127, 128,
+        0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 5, 6, 6, 7, 8, 9, 9, 10, 11, 12, 13, 14, 15, 16, 16, 17,
+        18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35, 37, 38, 39, 40, 42, 43, 44,
+        46, 47, 48, 50, 51, 53, 54, 56, 57, 59, 60, 61, 63, 65, 66, 68, 69, 71, 72, 74, 75, 77, 79,
+        80, 82, 84, 85, 87, 89, 90, 92, 94, 96, 97, 99, 101, 103, 104, 106, 108, 110, 112, 113,
+        115, 117, 119, 121, 123, 125, 127, 128,
     ];
 
     /// Convert a dB attenuation to the 16.16 fixed-point multiplier used by firmware ≥22.
@@ -361,20 +365,57 @@ impl AudioGain {
 
     /// Volume (0..=100) → dB using the Squeezebox2 curve: linear from -50 dB at 0 to 0 dB at 100.
     pub fn volume_to_db(volume: u32) -> f64 {
-        let total_range = -50.0f64;
-        let v = volume.min(100) as f64;
-        // slope_high = (0 - total_range*1)/(100 - (-1)); applied from x1=100,y1=0
-        let slope = (0.0 - total_range) / 101.0;
-        slope * (v - 100.0)
+        VolumeCurve::SQUEEZEBOX2.db(volume)
     }
 
     /// Build the gain frame for a UI volume 0..=100 (negative/zero = mute) with balance -25..=25,
-    /// mirroring `Slim::Player::Squeezebox2::volume`.
-    pub fn for_volume(volume: i32, dvc: bool, preamp_db: f64, balance: i32, sequence: Option<u32>) -> AudioGain {
-        let old_gain = if volume > 0 { Self::VOLUME_MAP[volume.min(100) as usize] as f64 } else { 0.0 };
-        let new_gain = if volume <= 0 { 0.0 } else { Self::db_to_fixed(Self::volume_to_db(volume as u32)) as f64 };
-        let left = if balance > 0 { (25 - balance) as f64 / 25.0 } else { 1.0 };
-        let right = if balance < 0 { (25 + balance) as f64 / 25.0 } else { 1.0 };
+    /// mirroring `Slim::Player::Squeezebox2::volume` (Squeezebox2 curve).
+    pub fn for_volume(
+        volume: i32,
+        dvc: bool,
+        preamp_db: f64,
+        balance: i32,
+        sequence: Option<u32>,
+    ) -> AudioGain {
+        Self::for_volume_curve(
+            volume,
+            VolumeCurve::SQUEEZEBOX2,
+            dvc,
+            preamp_db,
+            balance,
+            sequence,
+        )
+    }
+
+    /// As [`AudioGain::for_volume`] with an explicit player volume curve.
+    pub fn for_volume_curve(
+        volume: i32,
+        curve: VolumeCurve,
+        dvc: bool,
+        preamp_db: f64,
+        balance: i32,
+        sequence: Option<u32>,
+    ) -> AudioGain {
+        let old_gain = if volume > 0 {
+            Self::VOLUME_MAP[volume.min(100) as usize] as f64
+        } else {
+            0.0
+        };
+        let new_gain = if volume <= 0 {
+            0.0
+        } else {
+            Self::db_to_fixed(curve.db(volume as u32)) as f64
+        };
+        let left = if balance > 0 {
+            (25 - balance) as f64 / 25.0
+        } else {
+            1.0
+        };
+        let right = if balance < 0 {
+            (25 + balance) as f64 / 25.0
+        } else {
+            1.0
+        };
         let preamp = (255i64 - (2.0 * preamp_db) as i64).clamp(0, 255) as u8;
         AudioGain {
             old_left: (old_gain * left) as u32,
@@ -397,6 +438,53 @@ impl AudioGain {
         if let Some(seq) = self.sequence {
             out.put_u32(seq);
         }
+    }
+}
+
+/// `getVolumeParameters`: maps UI volume 0..100 to dB with two linear segments.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumeCurve {
+    /// dB at volume 0
+    pub total_range: f64,
+    /// volume step where the upper ramp starts (negative = single ramp)
+    pub step_point: f64,
+    /// fraction of `total_range` reached at `step_point`
+    pub step_fraction: f64,
+}
+
+impl VolumeCurve {
+    /// Squeezebox2/3, Transporter, Receiver.
+    pub const SQUEEZEBOX2: VolumeCurve = VolumeCurve {
+        total_range: -50.0,
+        step_point: -1.0,
+        step_fraction: 1.0,
+    };
+    /// SqueezePlay-class players (squeezelite, WiiM, Touch, Radio) and Boom.
+    pub const SQUEEZEPLAY: VolumeCurve = VolumeCurve {
+        total_range: -74.0,
+        step_point: 25.0,
+        step_fraction: 0.5,
+    };
+
+    /// `Slim::Player::Squeezebox2::getVolume`.
+    pub fn db(&self, volume: u32) -> f64 {
+        let max_db = 0.0;
+        let step_db = self.total_range * self.step_fraction;
+        let x2 = volume.min(100) as f64;
+        let (m, x1, y1) = if x2 > self.step_point {
+            (
+                (max_db - step_db) / (100.0 - self.step_point),
+                100.0,
+                max_db,
+            )
+        } else {
+            (
+                (step_db - self.total_range) / (self.step_point - 0.0),
+                0.0,
+                self.total_range,
+            )
+        };
+        m * (x2 - x1) + y1
     }
 }
 
@@ -427,7 +515,11 @@ pub enum ServerFrame {
     /// `serv` — tell the player to connect to another server (`ip`, optional sync group id as 10 ASCII digits).
     Serv { ip: u32, sync_group_id: Option<u64> },
     /// `cont` — direct stream continue: ICY metaint, loop flag, WMA GUID list.
-    Cont { metaint: u32, loop_: bool, guids: Vec<u8> },
+    Cont {
+        metaint: u32,
+        loop_: bool,
+        guids: Vec<u8>,
+    },
     /// `dsco` — tell the player to disconnect (sent on unknown device id).
     Dsco,
     /// `ureq` — ask the player to perform a firmware update.
@@ -435,7 +527,12 @@ pub enum ServerFrame {
     /// `body` — body length announcement for direct stream playlist fetches.
     Body { length: u32 },
     /// `grfe` — graphics frame for the display (raw bitmap, Squeezebox2 and later).
-    Grfe { offset: u16, transition: u8, param: u8, bitmap: Bytes },
+    Grfe {
+        offset: u16,
+        transition: u8,
+        param: u8,
+        bitmap: Bytes,
+    },
     /// `grfb` — display brightness.
     Grfb(u16),
     /// `visu` — visualiser parameters (raw).
@@ -464,7 +561,10 @@ pub enum ServerFrame {
 
 impl ServerFrame {
     pub fn strm(header: StrmHeader) -> ServerFrame {
-        ServerFrame::Strm { header, request: Bytes::new() }
+        ServerFrame::Strm {
+            header,
+            request: Bytes::new(),
+        }
     }
 
     pub fn op(&self) -> [u8; 4] {
@@ -519,7 +619,11 @@ impl ServerFrame {
                     out.put_slice(format!("{:010}", id).as_bytes());
                 }
             }
-            ServerFrame::Cont { metaint, loop_, guids } => {
+            ServerFrame::Cont {
+                metaint,
+                loop_,
+                guids,
+            } => {
                 out.put_u32(*metaint);
                 out.put_u8(*loop_ as u8);
                 out.put_u16(guids.len() as u16);
@@ -527,7 +631,12 @@ impl ServerFrame {
             }
             ServerFrame::Dsco | ServerFrame::Ureq => {}
             ServerFrame::Body { length } => out.put_u32(*length),
-            ServerFrame::Grfe { offset, transition, param, bitmap } => {
+            ServerFrame::Grfe {
+                offset,
+                transition,
+                param,
+                bitmap,
+            } => {
                 out.put_u16(*offset);
                 out.put_u8(*transition);
                 out.put_u8(*param);
@@ -591,9 +700,15 @@ mod tests {
         h.replay_gain = 0x0001_0000;
         h.server_port = 9000;
         let req = Bytes::from_static(b"GET /stream.mp3?player=00:04:20:aa:bb:cc HTTP/1.0\r\n\r\n");
-        let f = ServerFrame::Strm { header: h, request: req.clone() };
+        let f = ServerFrame::Strm {
+            header: h,
+            request: req.clone(),
+        };
         let b = f.to_bytes();
-        assert_eq!(u16::from_be_bytes([b[0], b[1]]) as usize, 4 + 24 + req.len());
+        assert_eq!(
+            u16::from_be_bytes([b[0], b[1]]) as usize,
+            4 + 24 + req.len()
+        );
         let p = &b[6..];
         assert_eq!(&p[0..7], b"s1f????");
         assert_eq!(p[7], 255); // buffer threshold
@@ -609,7 +724,12 @@ mod tests {
     fn pcm_header() {
         let h = StrmHeader::start(Format::Pcm, true).with_pcm(24, 96000, 2, true);
         assert_eq!(
-            [h.pcm_sample_size, h.pcm_sample_rate, h.pcm_channels, h.pcm_endian],
+            [
+                h.pcm_sample_size,
+                h.pcm_sample_rate,
+                h.pcm_channels,
+                h.pcm_endian
+            ],
             [b'2', b'9', b'2', b'1']
         );
     }
@@ -629,21 +749,47 @@ mod tests {
         assert_eq!(b.len(), 22);
         let m = AudioGain::for_volume(0, false, 0.0, 0, None);
         assert_eq!((m.old_left, m.new_left), (0, 0));
+        // SqueezePlay curve: -74 dB at 0, -37 dB at step point 25, 0 dB at 100
+        assert!((VolumeCurve::SQUEEZEPLAY.db(0) + 74.0).abs() < 1e-9);
+        assert!((VolumeCurve::SQUEEZEPLAY.db(25) + 37.0).abs() < 1e-9);
+        assert!((VolumeCurve::SQUEEZEPLAY.db(100)).abs() < 1e-9);
         let bal = AudioGain::for_volume(100, true, 0.0, 25, None);
         assert_eq!((bal.new_left, bal.new_right), (0, 65536));
     }
 
     #[test]
     fn misc_frames() {
-        assert_eq!(&ServerFrame::Aude { spdif: true, dac: true }.to_bytes()[..], &[0, 6, b'a', b'u', b'd', b'e', 1, 1]);
-        assert_eq!(&ServerFrame::Setd { id: 0, value: None }.to_bytes()[..], &[0, 5, b's', b'e', b't', b'd', 0]);
+        assert_eq!(
+            &ServerFrame::Aude {
+                spdif: true,
+                dac: true
+            }
+            .to_bytes()[..],
+            &[0, 6, b'a', b'u', b'd', b'e', 1, 1]
+        );
+        assert_eq!(
+            &ServerFrame::Setd { id: 0, value: None }.to_bytes()[..],
+            &[0, 5, b's', b'e', b't', b'd', 0]
+        );
         let v = ServerFrame::Vers("9.2.0".into()).to_bytes();
         assert_eq!(&v[..], b"\x00\x09vers9.2.0");
-        let s = ServerFrame::Serv { ip: 0xc0a80001, sync_group_id: Some(42) }.to_bytes();
+        let s = ServerFrame::Serv {
+            ip: 0xc0a80001,
+            sync_group_id: Some(42),
+        }
+        .to_bytes();
         assert_eq!(&s[6..10], &[0xc0, 0xa8, 0, 1]);
         assert_eq!(&s[10..], b"0000000042");
-        let c = ServerFrame::Cont { metaint: 16000, loop_: false, guids: vec![] }.to_bytes();
+        let c = ServerFrame::Cont {
+            metaint: 16000,
+            loop_: false,
+            guids: vec![],
+        }
+        .to_bytes();
         assert_eq!(&c[6..], &[0, 0, 0x3e, 0x80, 0, 0, 0]);
-        assert_eq!(&ServerFrame::Dsco.to_bytes()[..], &[0, 4, b'd', b's', b'c', b'o']);
+        assert_eq!(
+            &ServerFrame::Dsco.to_bytes()[..],
+            &[0, 4, b'd', b's', b'c', b'o']
+        );
     }
 }

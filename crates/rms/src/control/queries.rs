@@ -14,48 +14,66 @@ pub fn version(_: &Arc<Server>, r: &mut Request) {
 }
 
 pub fn connected(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     r.add_result("_connected", p.is_connected() as i32);
     r.set_done();
 }
 
 pub fn power(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     r.add_result("_power", p.power() as i32);
     r.set_done();
 }
 
 pub fn mode(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let m = p.controller().lock().mode();
     r.add_result("_mode", m);
     r.set_done();
 }
 
 pub fn time(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let t = p.controller().lock().playing_song_elapsed();
     r.add_result("_time", t);
     r.set_done();
 }
 
 pub fn sleep(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let st = p.state.lock().sleep_time;
-    let rem = if st > 0.0 { (st - crate::util::now()).max(0.0) } else { 0.0 };
+    let rem = if st > 0.0 {
+        (st - crate::util::now()).max(0.0)
+    } else {
+        0.0
+    };
     r.add_result("_sleep", rem);
     r.set_done();
 }
 
 pub fn signalstrength(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let s = p.state.lock().signal_strength;
     r.add_result("_signalstrength", if s > 100 { 0 } else { s });
     r.set_done();
 }
 
 pub fn name(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     r.add_result("_value", p.name());
     r.set_done();
 }
@@ -77,32 +95,68 @@ pub fn linesperscreen(server: &Arc<Server>, r: &mut Request) {
 }
 
 pub fn display(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
-    let lines = p.state.lock().show_briefly.clone().map(|(l, _)| l).unwrap_or_default();
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
+    let lines = p
+        .state
+        .lock()
+        .show_briefly
+        .clone()
+        .map(|(l, _)| l)
+        .unwrap_or_default();
     r.add_result("_line1", lines.first().cloned().unwrap_or_default());
     r.add_result("_line2", lines.get(1).cloned().unwrap_or_default());
     r.set_done();
 }
 
 pub fn sync(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
-    let others: Vec<String> = p.controller().lock().all_players().into_iter().filter(|o| o.id != p.id).map(|o| o.id.to_string()).collect();
-    r.add_result("_sync", if others.is_empty() { "-".to_string() } else { others.join(",") });
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
+    let others: Vec<String> = p
+        .controller()
+        .lock()
+        .all_players()
+        .into_iter()
+        .filter(|o| o.id != p.id)
+        .map(|o| o.id.to_string())
+        .collect();
+    r.add_result(
+        "_sync",
+        if others.is_empty() {
+            "-".to_string()
+        } else {
+            others.join(",")
+        },
+    );
     r.set_done();
 }
 
 pub fn syncgroups(server: &Arc<Server>, r: &mut Request) {
     for g in server.sync_groups() {
         let mut item = Results::new();
-        item.insert("sync_members".into(), json!(g.iter().map(|p| p.id.to_string()).collect::<Vec<_>>().join(",")));
-        item.insert("sync_member_names".into(), json!(g.iter().map(|p| p.name()).collect::<Vec<_>>().join(",")));
+        item.insert(
+            "sync_members".into(),
+            json!(g
+                .iter()
+                .map(|p| p.id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")),
+        );
+        item.insert(
+            "sync_member_names".into(),
+            json!(g.iter().map(|p| p.name()).collect::<Vec<_>>().join(",")),
+        );
         r.add_loop_item("syncgroups_loop", item);
     }
     r.set_done();
 }
 
 pub fn mixer(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     match r.term(1) {
         "volume" => {
             let v = p.volume();
@@ -127,12 +181,19 @@ pub fn rescanprogress(server: &Arc<Server>, r: &mut Request) {
     if p.running || server.library.is_scanning() {
         r.add_result("rescan", 1);
         if !p.step.is_empty() {
-            let pct = if p.total > 0 { (p.done * 100 / p.total) as i64 } else { -1 };
+            let pct = if p.total > 0 {
+                (p.done * 100 / p.total) as i64
+            } else {
+                -1
+            };
             r.add_result(&p.step, pct);
             r.add_result("steps", p.step.clone());
         }
         let t = p.total_time as u64;
-        r.add_result("totaltime", format!("{:02}:{:02}:{:02}", t / 3600, (t % 3600) / 60, t % 60));
+        r.add_result(
+            "totaltime",
+            format!("{:02}:{:02}:{:02}", t / 3600, (t % 3600) / 60, t % 60),
+        );
     } else {
         r.add_result("rescan", 0);
     }
@@ -184,19 +245,26 @@ pub fn can(server: &Arc<Server>, r: &mut Request) {
             }
         }
     }
-    let ok = matches!(terms.first().map(String::as_str), Some("login" | "shutdown" | "exit")) || server.dispatch.can(&terms);
+    let ok = matches!(
+        terms.first().map(String::as_str),
+        Some("login" | "shutdown" | "exit")
+    ) || server.dispatch.can(&terms);
     r.add_result("_can", ok as i32);
     r.set_done();
 }
 
 pub fn pref(server: &Arc<Server>, r: &mut Request) {
-    let Some(name) = r.param("_prefname").map(str::to_string) else { return r.bad_params() };
+    let Some(name) = r.param("_prefname").map(str::to_string) else {
+        return r.bad_params();
+    };
     let (ns, pname) = match name.split_once(':') {
         Some((n, p)) => (n.to_string(), p.to_string()),
         None => ("server".into(), name.clone()),
     };
     let v = if r.term(0) == "playerpref" {
-        let Some(p) = player(server, r) else { return r.bad_dispatch() };
+        let Some(p) = player(server, r) else {
+            return r.bad_dispatch();
+        };
         match pname.as_str() {
             "playername" => Some(json!(p.name())),
             _ => p.prefs.get(&pname),
@@ -229,8 +297,14 @@ pub fn artwork(_: &Arc<Server>, r: &mut Request) {
 }
 
 pub fn rating(server: &Arc<Server>, r: &mut Request) {
-    let Some(item) = r.param("_item").map(str::to_string) else { return r.bad_params() };
-    let t = item.parse::<i64>().ok().and_then(|id| server.library.track(id)).or_else(|| server.library.track_by_url(&super::commands::to_url(&item)));
+    let Some(item) = r.param("_item").map(str::to_string) else {
+        return r.bad_params();
+    };
+    let t = item
+        .parse::<i64>()
+        .ok()
+        .and_then(|id| server.library.track(id))
+        .or_else(|| server.library.track_by_url(&super::commands::to_url(&item)));
     let Some(t) = t else { return r.bad_params() };
     let row = server.library.track_row(&t, "R");
     r.add_result("_rating", row.get("rating").cloned().unwrap_or(json!(0)));
@@ -251,19 +325,36 @@ pub fn readdirectory(_: &Arc<Server>, r: &mut Request) {
             let keep = match filter.as_str() {
                 "foldersonly" => is_dir,
                 "filesonly" => !is_dir,
-                "musicfiles" => is_dir || crate::server::content_type_for_ext(&crate::util::extension(&e.path())) != "",
-                f if f.starts_with("filetype:") => is_dir || name.to_lowercase().ends_with(&format!(".{}", &f[9..].to_lowercase())),
+                "musicfiles" => {
+                    is_dir
+                        || crate::server::content_type_for_ext(&crate::util::extension(&e.path()))
+                            != ""
+                }
+                f if f.starts_with("filetype:") => {
+                    is_dir
+                        || name
+                            .to_lowercase()
+                            .ends_with(&format!(".{}", &f[9..].to_lowercase()))
+                }
                 "" => true,
-                f => regex::RegexBuilder::new(f).case_insensitive(true).build().map(|re| re.is_match(&e.path().to_string_lossy())).unwrap_or(true),
+                f => regex::RegexBuilder::new(f)
+                    .case_insensitive(true)
+                    .build()
+                    .map(|re| re.is_match(&e.path().to_string_lossy()))
+                    .unwrap_or(true),
             };
             if keep {
                 items.push((e.path().to_string_lossy().to_string(), name, is_dir));
             }
         }
     }
-    items.sort_by(|a, b| b.2.cmp(&a.2).then(a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    items.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then(a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
     r.add_result("count", items.len());
-    let (valid, start, end) = normalize(r.param_i64("_index"), r.param_i64("_quantity"), items.len());
+    let (valid, start, end) =
+        normalize(r.param_i64("_index"), r.param_i64("_quantity"), items.len());
     if valid {
         for (path, name, dir) in &items[start..=end] {
             let mut i = Results::new();
@@ -277,7 +368,9 @@ pub fn readdirectory(_: &Arc<Server>, r: &mut Request) {
 }
 
 pub fn displaystatus(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let sb = p.state.lock().show_briefly.clone();
     if let Some((lines, until)) = sb {
         if until > crate::util::now() {
@@ -299,18 +392,25 @@ pub fn displaystatus(server: &Arc<Server>, r: &mut Request) {
 // ---- current song / playlist entity queries -------------------------------------------------
 
 pub fn cursonginfo(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let c = p.controller();
     let c = c.lock();
     let idx = c.playing_song_index();
-    let Some(entry) = c.playlist.song(idx).cloned() else { return r.set_done() };
+    let Some(entry) = c.playlist.song(idx).cloned() else {
+        return r.set_done();
+    };
     let song = c.playing_song().cloned();
     drop(c);
     let key = r.term(0).to_string();
     match key.as_str() {
         "path" => r.add_result("_path", entry.url.clone()),
         "remote" => r.add_result("_remote", crate::util::is_remote_url(&entry.url) as i32),
-        "current_title" => r.add_result("_current_title", current_title(server, &entry, song.as_ref())),
+        "current_title" => r.add_result(
+            "_current_title",
+            current_title(server, &entry, song.as_ref()),
+        ),
         _ => {
             let row = song_row(server, &entry, song.as_ref(), "dalg");
             if let Some(v) = row.get(&key) {
@@ -322,16 +422,23 @@ pub fn cursonginfo(server: &Arc<Server>, r: &mut Request) {
 }
 
 /// `getCurrentTitle`: live stream title, else the track's standard title.
-pub fn current_title(server: &Server, entry: &crate::player::playlist::Entry, song: Option<&crate::player::Song>) -> String {
+pub fn current_title(
+    server: &Server,
+    entry: &crate::player::playlist::Entry,
+    song: Option<&crate::player::Song>,
+) -> String {
     if let Some(s) = song {
         return crate::player::controller::standard_title(s);
     }
     let info = server.track_info_for(entry);
-    info.title.unwrap_or_else(|| crate::player::controller::title_from_url(&entry.url))
+    info.title
+        .unwrap_or_else(|| crate::player::controller::title_from_url(&entry.url))
 }
 
 pub fn playlist_x(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let c = p.controller();
     let c = c.lock();
     let entity = r.term(1).to_string();
@@ -346,10 +453,18 @@ pub fn playlist_x(server: &Arc<Server>, r: &mut Request) {
                 r.add_result("_url", u.clone());
             }
         }
-        "name" if c.playlist.name.is_some() => r.add_result("_name", c.playlist.name.clone().unwrap()),
+        "name" if c.playlist.name.is_some() => {
+            r.add_result("_name", c.playlist.name.clone().unwrap())
+        }
         "path" => {
             let idx = r.param_i64("_index").unwrap_or(0).max(0) as usize;
-            r.add_result("_path", c.playlist.song(idx).map(|e| json!(e.url)).unwrap_or(json!(0)));
+            r.add_result(
+                "_path",
+                c.playlist
+                    .song(idx)
+                    .map(|e| json!(e.url))
+                    .unwrap_or(json!(0)),
+            );
         }
         "remote" => {
             let idx = r.param_i64("_index").unwrap_or(0).max(0) as usize;
@@ -358,13 +473,28 @@ pub fn playlist_x(server: &Arc<Server>, r: &mut Request) {
             }
         }
         _ => {
-            let idx = r.param_i64("_index").map(|i| i.max(0) as usize).unwrap_or_else(|| c.playing_song_index());
-            let Some(e) = c.playlist.song(idx).cloned() else { return r.set_done() };
+            let idx = r
+                .param_i64("_index")
+                .map(|i| i.max(0) as usize)
+                .unwrap_or_else(|| c.playing_song_index());
+            let Some(e) = c.playlist.song(idx).cloned() else {
+                return r.set_done();
+            };
             let song = c.queue.iter().find(|s| s.index == idx).cloned();
             drop(c);
             let row = song_row(server, &e, song.as_ref(), "dalgN");
-            let key = if entity == "name" { "title" } else { entity.as_str() };
-            let v = row.get(key).cloned().or_else(|| if entity == "name" { row.get("remote_title").cloned() } else { None });
+            let key = if entity == "name" {
+                "title"
+            } else {
+                entity.as_str()
+            };
+            let v = row.get(key).cloned().or_else(|| {
+                if entity == "name" {
+                    row.get("remote_title").cloned()
+                } else {
+                    None
+                }
+            });
             if let Some(v) = v {
                 r.add_result(&format!("_{}", entity), v);
             }
@@ -375,7 +505,9 @@ pub fn playlist_x(server: &Arc<Server>, r: &mut Request) {
 }
 
 pub fn playlist_playlistsinfo(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     let c = p.controller();
     let c = c.lock();
     if let (Some(name), Some(url)) = (&c.playlist.name, &c.playlist.url) {
@@ -397,7 +529,11 @@ pub fn player_x(server: &Arc<Server>, r: &mut Request) {
     let id = r.param("_IDorIndex").unwrap_or("").to_string();
     let p = slimproto::MacAddress::parse(&id)
         .and_then(|m| server.player(&m))
-        .or_else(|| id.parse::<usize>().ok().and_then(|i| server.players().get(i).cloned()))
+        .or_else(|| {
+            id.parse::<usize>()
+                .ok()
+                .and_then(|i| server.players().get(i).cloned())
+        })
         .or_else(|| server.resolve_client(&id));
     let Some(p) = p else { return r.set_done() };
     let s = p.state.lock();
@@ -407,7 +543,11 @@ pub fn player_x(server: &Arc<Server>, r: &mut Request) {
         "ip" => json!(s.addr.map(|a| a.to_string()).unwrap_or_default()),
         "model" => json!(s.caps.model),
         "isplayer" => json!(1),
-        "displaytype" => json!(if s.caps.has_display { "graphic-320x32" } else { "none" }),
+        "displaytype" => json!(if s.caps.has_display {
+            "graphic-320x32"
+        } else {
+            "none"
+        }),
         "canpoweroff" => json!(1),
         "uuid" => json!(s.uuid),
         _ => return,
@@ -423,7 +563,10 @@ fn player_item(p: &Arc<Player>, index: usize, playerprefs: &[String]) -> Results
     i.insert("playerindex".into(), json!(index));
     i.insert("playerid".into(), json!(p.id.to_string()));
     i.insert("uuid".into(), json!(s.uuid));
-    i.insert("ip".into(), json!(s.addr.map(|a| a.to_string()).unwrap_or_default()));
+    i.insert(
+        "ip".into(),
+        json!(s.addr.map(|a| a.to_string()).unwrap_or_default()),
+    );
     i.insert("name".into(), json!(s.name));
     if s.sequence_number > 0 {
         i.insert("seq_no".into(), json!(s.sequence_number));
@@ -435,7 +578,14 @@ fn player_item(p: &Arc<Player>, index: usize, playerprefs: &[String]) -> Results
     let playing = p.controller().lock().is_playing(false);
     let s = p.state.lock();
     i.insert("isplaying".into(), json!(playing as i32));
-    i.insert("displaytype".into(), json!(if s.caps.has_display { "graphic-320x32" } else { "none" }));
+    i.insert(
+        "displaytype".into(),
+        json!(if s.caps.has_display {
+            "graphic-320x32"
+        } else {
+            "none"
+        }),
+    );
     i.insert("isplayer".into(), json!(1));
     i.insert("canpoweroff".into(), json!(1));
     i.insert("connected".into(), json!(s.connected as i32));
@@ -452,8 +602,12 @@ fn player_item(p: &Arc<Player>, index: usize, playerprefs: &[String]) -> Results
 pub fn players(server: &Arc<Server>, r: &mut Request) {
     let list = server.players();
     r.add_result("count", list.len());
-    let prefs: Vec<String> = r.param("playerprefs").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
-    let (valid, start, end) = normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
+    let prefs: Vec<String> = r
+        .param("playerprefs")
+        .map(|s| s.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let (valid, start, end) =
+        normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
     if valid {
         for (n, p) in list[start..=end].iter().enumerate() {
             r.add_loop_item("players_loop", player_item(p, start + n, &prefs));
@@ -494,8 +648,12 @@ pub fn serverstatus(server: &Arc<Server>, r: &mut Request) {
     }
     let list = server.players();
     r.add_result("player count", list.len());
-    let pprefs: Vec<String> = r.param("playerprefs").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
-    let (valid, start, end) = normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
+    let pprefs: Vec<String> = r
+        .param("playerprefs")
+        .map(|s| s.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let (valid, start, end) =
+        normalize(r.param_i64("_index"), r.param_i64("_quantity"), list.len());
     if valid {
         for (n, p) in list[start..=end].iter().enumerate() {
             r.add_loop_item("players_loop", player_item(p, start + n, &pprefs));
@@ -523,7 +681,15 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
     }
     let (name, connected, ip, power, signal, seq, sleep_time) = {
         let s = p.state.lock();
-        (s.name.clone(), s.connected, s.addr.map(|a| a.to_string()), s.power, s.signal_strength, s.sequence_number, s.sleep_time)
+        (
+            s.name.clone(),
+            s.connected,
+            s.addr.map(|a| a.to_string()),
+            s.power,
+            s.signal_strength,
+            s.sequence_number,
+            s.sleep_time,
+        )
     };
     if !name.is_empty() {
         r.add_result("player_name", name);
@@ -545,7 +711,10 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
     if let Some(s) = &song {
         if s.is_remote() {
             r.add_result("remote", 1);
-            r.add_result("current_title", crate::player::controller::standard_title(s));
+            r.add_result(
+                "current_title",
+                crate::player::controller::standard_title(s),
+            );
         }
         r.add_result("time", c.playing_song_elapsed());
         r.add_result("rate", 1);
@@ -558,7 +727,11 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         if s.replay_gain_db != 0.0 {
             r.add_result("replay_gain", s.replay_gain_db);
         }
-        if s.spec.as_ref().map(|sp| matches!(sp.source, crate::stream::SourceKind::Ffmpeg { .. })).unwrap_or(false) {
+        if s.spec
+            .as_ref()
+            .map(|sp| matches!(sp.source, crate::stream::SourceKind::Ffmpeg { .. }))
+            .unwrap_or(false)
+        {
             r.add_result("is_transcoded", 1);
         }
         if tags.contains('o') && !s.stream_format.is_empty() {
@@ -566,7 +739,10 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         }
         if tags.contains('b') {
             if let Some(b) = s.stream_bitrate {
-                r.add_result("bitrate", super::songdata::pretty_bitrate(b, s.track.vbr, &s.stream_format));
+                r.add_result(
+                    "bitrate",
+                    super::songdata::pretty_bitrate(b, s.track.vbr, &s.stream_format),
+                );
             }
         }
         if tags.contains('T') {
@@ -588,7 +764,15 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
     let members = c.all_players();
     if members.len() > 1 {
         r.add_result("sync_master", c.master_id.to_string());
-        r.add_result("sync_slaves", members.iter().filter(|m| m.id != c.master_id).map(|m| m.id.to_string()).collect::<Vec<_>>().join(","));
+        r.add_result(
+            "sync_slaves",
+            members
+                .iter()
+                .filter(|m| m.id != c.master_id)
+                .map(|m| m.id.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
     }
     let vol = p.volume();
     r.add_result("mixer volume", if p.is_muted() { -vol } else { vol });
@@ -622,12 +806,21 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         r.add_result("alarm_state", state);
         r.add_result("alarm_next", next);
         r.add_result("alarm_version", 2);
-        r.add_result("alarm_snooze_seconds", p.prefs.get_i64("alarmSnoozeSeconds"));
-        r.add_result("alarm_timeout_seconds", p.prefs.get_i64("alarmTimeoutSeconds"));
+        r.add_result(
+            "alarm_snooze_seconds",
+            p.prefs.get_i64("alarmSnoozeSeconds"),
+        );
+        r.add_result(
+            "alarm_timeout_seconds",
+            p.prefs.get_i64("alarmTimeoutSeconds"),
+        );
     }
     if menu_mode {
         r.add_result("preset_loop", json!([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
-        r.add_result("preset_data", json!([{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]));
+        r.add_result(
+            "preset_data",
+            json!([{}, {}, {}, {}, {}, {}, {}, {}, {}, {}]),
+        );
         r.add_result("count", if count > 0 { count + 2 } else { 0 });
         let base = if use_context_menu {
             json!({"actions": {"more": {"player": 0, "cmd": ["contextmenu"], "params": {"menu": "track", "context": "playlist"}, "itemsParams": "params", "window": {"isContextMenu": 1}}}})
@@ -663,7 +856,11 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
             } else {
                 indexes.extend(start..=end);
                 let q = quantity.unwrap_or(0).max(0) as usize;
-                if c.playlist.repeat == 2 && (c.playlist.shuffle == 0 || !server.prefs.server.get_bool("reshuffleOnRepeat")) && indexes.len() < q {
+                if c.playlist.repeat == 2
+                    && (c.playlist.shuffle == 0
+                        || !server.prefs.server.get_bool("reshuffleOnRepeat"))
+                    && indexes.len() < q
+                {
                     let (v2, s2, e2) = normalize(Some(0), Some((q - indexes.len()) as i64), count);
                     if v2 {
                         indexes.extend(s2..=e2);
@@ -684,9 +881,18 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
             r.add_result("offset", idx.unwrap_or(0));
         }
     }
-    let entries: Vec<(usize, crate::player::playlist::Entry, Option<crate::player::Song>)> = indexes
+    let entries: Vec<(
+        usize,
+        crate::player::playlist::Entry,
+        Option<crate::player::Song>,
+    )> = indexes
         .iter()
-        .filter_map(|&i| c.playlist.song(i).cloned().map(|e| (i, e, c.queue.iter().find(|s| s.index == i).cloned())))
+        .filter_map(|&i| {
+            c.playlist
+                .song(i)
+                .cloned()
+                .map(|e| (i, e, c.queue.iter().find(|s| s.index == i).cloned()))
+        })
         .collect();
     let cur_entry = c.playlist.song(cur).cloned();
     drop(c);
@@ -696,12 +902,23 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         if crate::util::is_remote_url(&e.url) && !menu_mode {
             let mut t = tags.clone();
             t.push('B');
-            r.add_result("remoteMeta", Value::Object(song_row(server, e, Some(s), &t)));
+            r.add_result(
+                "remoteMeta",
+                Value::Object(song_row(server, e, Some(s), &t)),
+            );
         }
     }
-    let loop_name = if menu_mode { "item_loop" } else { "playlist_loop" };
+    let loop_name = if menu_mode {
+        "item_loop"
+    } else {
+        "playlist_loop"
+    };
     for (i, e, s) in entries {
-        let song_ref = if Some(i) == Some(cur) { song.as_ref().or(s.as_ref()) } else { s.as_ref() };
+        let song_ref = if Some(i) == Some(cur) {
+            song.as_ref().or(s.as_ref())
+        } else {
+            s.as_ref()
+        };
         let row = song_row(server, &e, song_ref, &tags);
         if menu_mode {
             let item = jive_song(&row, i, crate::util::is_remote_url(&e.url));
@@ -721,9 +938,22 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
 
 /// `_addJiveSong`.
 fn jive_song(row: &Results, index: usize, remote: bool) -> Results {
-    let s = |k: &str| row.get(k).and_then(|v| v.as_str().map(str::to_string).or_else(|| if v.is_number() { Some(v.to_string()) } else { None }));
+    let s = |k: &str| {
+        row.get(k).and_then(|v| {
+            v.as_str().map(str::to_string).or_else(|| {
+                if v.is_number() {
+                    Some(v.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+    };
     let mut item = Results::new();
-    item.insert("trackType".into(), json!(if remote { "radio" } else { "local" }));
+    item.insert(
+        "trackType".into(),
+        json!(if remote { "radio" } else { "local" }),
+    );
     if let Some(a) = s("artwork_url") {
         item.insert("icon".into(), json!(proxied_image(&a)));
     } else if let Some(c) = s("coverid").or_else(|| s("artwork_track_id")) {
@@ -747,10 +977,19 @@ fn jive_song(row: &Results, index: usize, remote: bool) -> Results {
     item.insert("track".into(), json!(title));
     item.insert("album".into(), json!(album));
     item.insert("artist".into(), json!(artist));
-    let second: Vec<&str> = [artist.as_str(), album.as_str()].into_iter().filter(|x| !x.is_empty()).collect();
-    item.insert("text".into(), json!(format!("{}\n{}", title, second.join(" - "))));
+    let second: Vec<&str> = [artist.as_str(), album.as_str()]
+        .into_iter()
+        .filter(|x| !x.is_empty())
+        .collect();
+    item.insert(
+        "text".into(),
+        json!(format!("{}\n{}", title, second.join(" - "))),
+    );
     let id = row.get("id").cloned().unwrap_or(json!(0));
-    item.insert("params".into(), json!({"track_id": id, "playlist_index": index}));
+    item.insert(
+        "params".into(),
+        json!({"track_id": id, "playlist_index": index}),
+    );
     item.insert("style".into(), json!("itemplay"));
     item
 }
@@ -783,15 +1022,23 @@ fn add_jive_playlist_controls(r: &mut Request) {
 // ---- alarms ------------------------------------------------------------------------------
 
 pub fn alarms(server: &Arc<Server>, r: &mut Request) {
-    let Some(p) = player(server, r) else { return r.bad_dispatch() };
+    let Some(p) = player(server, r) else {
+        return r.bad_dispatch();
+    };
     crate::plugins::alarm::alarms_query(&p, r);
     r.set_done();
 }
 
 pub fn alarm_playlists(server: &Arc<Server>, r: &mut Request) {
     let mut item = Results::new();
-    item.insert("category".into(), json!(crate::strings::get("CURRENT_PLAYLIST").unwrap_or("Current Playlist")));
-    item.insert("title".into(), json!(crate::strings::get("ALARM_USE_CURRENT_PLAYLIST").unwrap_or("Current playlist")));
+    item.insert(
+        "category".into(),
+        json!(crate::strings::get("CURRENT_PLAYLIST").unwrap_or("Current Playlist")),
+    );
+    item.insert(
+        "title".into(),
+        json!(crate::strings::get("ALARM_USE_CURRENT_PLAYLIST").unwrap_or("Current playlist")),
+    );
     item.insert("url".into(), Value::Null);
     item.insert("singleton".into(), json!("1"));
     r.add_loop_item("item_loop", item);

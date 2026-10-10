@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now() -> f64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 pub fn now_secs() -> i64 {
@@ -124,7 +127,9 @@ pub fn format_duration(secs: f64) -> String {
 
 /// Lower-cased file extension without the dot.
 pub fn extension(path: &Path) -> String {
-    path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
+    path.extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -135,10 +140,19 @@ mod tests {
     fn file_urls() {
         let p = Path::new("/music/Artist Name/Album #1/01 - Song?.flac");
         let u = file_url_from_path(p);
-        assert_eq!(u, "file:///music/Artist%20Name/Album%20%231/01%20-%20Song%3F.flac");
+        assert_eq!(
+            u,
+            "file:///music/Artist%20Name/Album%20%231/01%20-%20Song%3F.flac"
+        );
         assert_eq!(path_from_file_url(&u).unwrap(), p);
-        assert_eq!(split_url_fragment("file:///a.flac#10.5-20"), ("file:///a.flac", Some(10.5), Some(20.0)));
-        assert_eq!(split_url_fragment("file:///a#1.flac"), ("file:///a#1.flac", None, None));
+        assert_eq!(
+            split_url_fragment("file:///a.flac#10.5-20"),
+            ("file:///a.flac", Some(10.5), Some(20.0))
+        );
+        assert_eq!(
+            split_url_fragment("file:///a#1.flac"),
+            ("file:///a#1.flac", None, None)
+        );
         assert!(is_remote_url("http://x/y.mp3"));
         assert!(!is_remote_url("file:///x.mp3"));
     }
@@ -154,5 +168,7 @@ mod tests {
 
 /// Best guess of this host's LAN IP address (for `serverstatus ip`).
 pub fn server_ip() -> String {
-    local_ip_address::local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".to_string())
+    local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string())
 }

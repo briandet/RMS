@@ -15,7 +15,12 @@ async fn run(server: Arc<Server>, mut r: Request, name: LibQueryName) -> Request
             params.insert("term".into(), s);
         }
     }
-    let q = LibQuery { name, start, quantity, params };
+    let q = LibQuery {
+        name,
+        start,
+        quantity,
+        params,
+    };
     let lib = server.library.clone();
     match tokio::task::spawn_blocking(move || lib.query(&q)).await {
         Ok(Ok(results)) => {

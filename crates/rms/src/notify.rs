@@ -64,21 +64,50 @@ impl Notifier {
     }
 
     pub fn notify_owned(&self, player: Option<MacAddress>, words: Vec<String>) {
-        tracing::debug!("notify {} {:?}", player.map(|p| p.to_string()).unwrap_or_default(), words);
-        let _ = self.tx.send(Notification { player, words: Arc::new(words), json: None, source: Source::Internal });
+        tracing::debug!(
+            "notify {} {:?}",
+            player.map(|p| p.to_string()).unwrap_or_default(),
+            words
+        );
+        let _ = self.tx.send(Notification {
+            player,
+            words: Arc::new(words),
+            json: None,
+            source: Source::Internal,
+        });
     }
 
     /// Notification of an executed command.
     pub fn notify_request(&self, req: &Request) {
         let words = req.render_as_array();
-        tracing::debug!("notify {} {:?}", req.client.map(|p| p.to_string()).unwrap_or_default(), words);
-        let _ = self.tx.send(Notification { player: req.client, words: Arc::new(words), json: None, source: req.source.clone() });
+        tracing::debug!(
+            "notify {} {:?}",
+            req.client.map(|p| p.to_string()).unwrap_or_default(),
+            words
+        );
+        let _ = self.tx.send(Notification {
+            player: req.client,
+            words: Arc::new(words),
+            json: None,
+            source: req.source.clone(),
+        });
     }
 
     /// Notification with a structured JSON form (Cometd delivers `json`, the CLI `words`).
     pub fn notify_json(&self, player: Option<MacAddress>, json: Vec<serde_json::Value>) {
-        let words = json.iter().map(|v| match v { serde_json::Value::String(s) => s.clone(), other => other.to_string() }).collect();
-        let _ = self.tx.send(Notification { player, words: Arc::new(words), json: Some(Arc::new(json)), source: Source::Internal });
+        let words = json
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+            .collect();
+        let _ = self.tx.send(Notification {
+            player,
+            words: Arc::new(words),
+            json: Some(Arc::new(json)),
+            source: Source::Internal,
+        });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Notification> {

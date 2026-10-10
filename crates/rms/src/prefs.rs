@@ -59,7 +59,17 @@ pub fn server_defaults() -> PrefMap {
         ("timeFormat", json!("|%I:%M %p")),
         ("showArtist", json!(0)),
         ("showYear", json!(0)),
-        ("titleFormat", json!(["TITLE", "DISC-TRACKNUM. TITLE", "TRACKNUM. TITLE", "TRACKNUM. ARTIST - TITLE", "FILE.EXT", "TRACKNUM. TITLE (ARTIST)"])),
+        (
+            "titleFormat",
+            json!([
+                "TITLE",
+                "DISC-TRACKNUM. TITLE",
+                "TRACKNUM. TITLE",
+                "TRACKNUM. ARTIST - TITLE",
+                "FILE.EXT",
+                "TRACKNUM. TITLE (ARTIST)"
+            ]),
+        ),
         ("titleFormatWeb", json!(0)),
         ("thumbSize", json!(100)),
         ("syncStartDelay", json!(200)),
@@ -120,8 +130,22 @@ pub fn player_defaults() -> PrefMap {
         ("outputChannels", json!(0)),
         ("fadeInDuration", json!(0)),
         ("playingDisplayMode", json!(0)),
-        ("playingDisplayModes", json!([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])),
-        ("menuItem", json!(["NOW_PLAYING", "BROWSE_MUSIC", "RADIO", "PLUGIN_MY_APPS_MODULE_NAME", "FAVORITES", "PLUGIN_APP_GALLERY_MODULE_NAME", "SETTINGS"])),
+        (
+            "playingDisplayModes",
+            json!([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+        ),
+        (
+            "menuItem",
+            json!([
+                "NOW_PLAYING",
+                "BROWSE_MUSIC",
+                "RADIO",
+                "PLUGIN_MY_APPS_MODULE_NAME",
+                "FAVORITES",
+                "PLUGIN_APP_GALLERY_MODULE_NAME",
+                "SETTINGS"
+            ]),
+        ),
         ("alarmsEnabled", json!(1)),
         ("alarmDefaultVolume", json!(50)),
         ("alarmSnoozeSeconds", json!(540)),
@@ -183,11 +207,19 @@ impl PrefStore {
                 Err(e) => warn!("could not read {}: {}", path.display(), e),
             }
         }
-        PrefStore { path, defaults, values: RwLock::new(values) }
+        PrefStore {
+            path,
+            defaults,
+            values: RwLock::new(values),
+        }
     }
 
     pub fn get(&self, key: &str) -> Option<Value> {
-        self.values.read().get(key).cloned().or_else(|| self.defaults.get(key).cloned())
+        self.values
+            .read()
+            .get(key)
+            .cloned()
+            .or_else(|| self.defaults.get(key).cloned())
     }
 
     pub fn get_str(&self, key: &str) -> String {
@@ -200,7 +232,9 @@ impl PrefStore {
 
     pub fn get_i64(&self, key: &str) -> i64 {
         match self.get(key) {
-            Some(Value::Number(n)) => n.as_i64().unwrap_or_else(|| n.as_f64().map(|f| f as i64).unwrap_or(0)),
+            Some(Value::Number(n)) => n
+                .as_i64()
+                .unwrap_or_else(|| n.as_f64().map(|f| f as i64).unwrap_or(0)),
             Some(Value::String(s)) => s.trim().parse().unwrap_or(0),
             Some(Value::Bool(b)) => b as i64,
             _ => 0,
@@ -269,7 +303,9 @@ impl PrefStore {
         match serde_yaml::to_string(&values) {
             Ok(text) => {
                 let tmp = self.path.with_extension("prefs.tmp");
-                if let Err(e) = std::fs::write(&tmp, format!("---\n{}", text)).and_then(|_| std::fs::rename(&tmp, &self.path)) {
+                if let Err(e) = std::fs::write(&tmp, format!("---\n{}", text))
+                    .and_then(|_| std::fs::rename(&tmp, &self.path))
+                {
                     warn!("could not write {}: {}", self.path.display(), e);
                 }
             }
@@ -290,13 +326,23 @@ impl Prefs {
         std::fs::create_dir_all(dir).ok();
         let server = PrefStore::load(dir.join("server.prefs"), server_defaults());
         if server.get_str("server_uuid").is_empty() {
-            server.set("server_uuid", json!(uuid::Uuid::new_v4().simple().to_string()));
+            server.set(
+                "server_uuid",
+                json!(uuid::Uuid::new_v4().simple().to_string()),
+            );
         }
         if server.get_str("securitySecret").is_empty() {
-            server.set("securitySecret", json!(uuid::Uuid::new_v4().simple().to_string()));
+            server.set(
+                "securitySecret",
+                json!(uuid::Uuid::new_v4().simple().to_string()),
+            );
         }
         info!("prefs directory: {}", dir.display());
-        Prefs { dir: dir.to_path_buf(), server, players: RwLock::new(BTreeMap::new()) }
+        Prefs {
+            dir: dir.to_path_buf(),
+            server,
+            players: RwLock::new(BTreeMap::new()),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -308,8 +354,14 @@ impl Prefs {
         if let Some(p) = self.players.read().get(id) {
             return p.clone();
         }
-        let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
-        let store = Arc::new(PrefStore::load(self.dir.join(format!("{}.prefs", safe)), player_defaults()));
+        let safe: String = id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        let store = Arc::new(PrefStore::load(
+            self.dir.join(format!("{}.prefs", safe)),
+            player_defaults(),
+        ));
         self.players.write().insert(id.to_string(), store.clone());
         store
     }

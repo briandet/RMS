@@ -4,7 +4,11 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rms", version, about = "Rusty Music Server — Lyrion/Squeezebox compatible music server")]
+#[command(
+    name = "rms",
+    version,
+    about = "Rusty Music Server — Lyrion/Squeezebox compatible music server"
+)]
 pub struct Config {
     /// Directory for preferences, database, cache and logs.
     #[arg(long, env = "RMS_DATA_DIR", default_value = "./data")]
