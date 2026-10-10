@@ -348,3 +348,102 @@ fn play_album_with_fake_player() {
         Some("stop")
     );
 }
+
+/// Minimal HTTP POST returning the body (HTTP/1.0, connection closes).
+fn http_post(port: u16, path: &str, body: &str) -> String {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(
+        s,
+        "POST {} HTTP/1.0\r\nContent-Type: text/json\r\nContent-Length: {}\r\n\r\n{}",
+        path,
+        body.len(),
+        body
+    )
+    .unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    resp[resp.find("\r\n\r\n").unwrap() + 4..].to_string()
+}
+
+#[test]
+fn cometd_and_cli_notifications() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"audg", Duration::from_secs(5));
+
+    // CLI listener sees commands issued elsewhere
+    let mut listener = TcpStream::connect(("127.0.0.1", server.cli)).unwrap();
+    listener
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    listener.write_all(b"listen 1\n").unwrap();
+    let mut lr = BufReader::new(listener.try_clone().unwrap());
+    let mut line = String::new();
+    lr.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "listen 1");
+
+    // Bayeux handshake
+    let hs: serde_json::Value = serde_json::from_str(&http_post(server.http, "/cometd", r#"[{"channel":"/meta/handshake","version":"1.0","supportedConnectionTypes":["long-polling"]}]"#)).unwrap();
+    assert_eq!(hs[0]["successful"], true);
+    let clid = hs[0]["clientId"].as_str().unwrap().to_string();
+    assert_eq!(clid.len(), 8);
+
+    // /slim/request on a long-polling client: result inline
+    let req = format!(
+        r#"[{{"channel":"/slim/request","clientId":"{c}","id":3,"data":{{"request":["",["players",0,10]],"response":"/{c}/slim/request/3"}}}}]"#,
+        c = clid
+    );
+    let r: serde_json::Value =
+        serde_json::from_str(&http_post(server.http, "/cometd", &req)).unwrap();
+    let result = r
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["channel"] == format!("/{}/slim/request/3", clid))
+        .expect("result event");
+    assert_eq!(result["data"]["count"], 1);
+    assert_eq!(result["data"]["players_loop"][0]["playerid"], MAC_S);
+
+    // subscribe to player status, then change the volume and long-poll for the update
+    let sub = format!(
+        r#"[{{"channel":"/slim/subscribe","clientId":"{c}","id":4,"data":{{"request":["{m}",["status","-",1,"subscribe:0"]],"response":"/{c}/slim/playerstatus/{m}"}}}}]"#,
+        c = clid,
+        m = MAC_S
+    );
+    let r: serde_json::Value =
+        serde_json::from_str(&http_post(server.http, "/cometd", &sub)).unwrap();
+    assert!(r
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["channel"] == "/slim/subscribe" && e["successful"] == true));
+    cli(server.cli, &format!("{} mixer volume 33", MAC_S));
+    let poll = format!(
+        r#"[{{"channel":"/meta/connect","clientId":"{}","connectionType":"long-polling","advice":{{"timeout":5000}}}}]"#,
+        clid
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = false;
+    while Instant::now() < deadline && !seen {
+        let r: serde_json::Value =
+            serde_json::from_str(&http_post(server.http, "/cometd", &poll)).unwrap();
+        seen = r
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["data"]["mixer volume"] == 33);
+    }
+    assert!(seen, "status subscription delivered the new volume");
+
+    // the CLI listener got the mixer notification
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut got = false;
+    while Instant::now() < deadline && !got {
+        line.clear();
+        if lr.read_line(&mut line).is_ok() {
+            got = line.contains("mixer volume 33");
+        }
+    }
+    assert!(got, "listen output contains the mixer command");
+}
