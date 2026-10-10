@@ -114,6 +114,20 @@ pub fn register(t: &mut DispatchTable) {
         s(settings::lineout_settings),
     );
     t.add(
+        &["jiveplayerbrightnesssettings", "_index", "_quantity"],
+        1,
+        true,
+        false,
+        s(settings::player_brightness_settings),
+    );
+    t.add(
+        &["jiveplayertextsettings", "_whatFont", "_index", "_quantity"],
+        1,
+        true,
+        false,
+        s(settings::player_text_settings),
+    );
+    t.add(
         &["crossfadesettings", "_index", "_quantity"],
         1,
         true,

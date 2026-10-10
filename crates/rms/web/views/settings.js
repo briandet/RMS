@@ -9,6 +9,18 @@ export const cacheable = false;
 
 const TRANSITIONS = [[0, 'None'], [1, 'Crossfade'], [2, 'Fade in'], [3, 'Fade out'], [4, 'Fade in and out']];
 const REPLAY_GAIN = [[0, 'Off'], [1, 'Track gain'], [2, 'Album gain'], [3, 'Smart gain (album when playing whole album)']];
+// Playing display modes of each display type (`Slim::Display::*` `@modes`), indexed by mode number.
+const VU = 'Small VU meter', SPEC_S = 'Small spectrum', SPEC = 'Spectrum analyzer';
+const DISPLAY_MODES = {
+  squeezebox2: ['Text only', 'Elapsed time', 'Remaining time', VU, `${VU} and elapsed time`, `${VU} and remaining time`,
+    SPEC_S, `${SPEC_S} and elapsed time`, `${SPEC_S} and remaining time`, SPEC, `${SPEC} and elapsed time`,
+    `${SPEC} and remaining time`, 'Buffer fullness', 'Clock'],
+  transporter: ['Text only', 'Progress bar', 'Progress bar and elapsed time', 'Progress bar and remaining time',
+    'Elapsed time', 'Remaining time', 'Buffer fullness', 'Clock'],
+  boom: ['Text only', 'Progress bar', 'Elapsed time', 'Remaining time', VU, SPEC_S, SPEC, `${SPEC} and progress bar`,
+    `${SPEC} and elapsed time`, `${SPEC} and remaining time`, 'Clock', 'Buffer fullness'],
+};
+DISPLAY_MODES.squeezebox3 = DISPLAY_MODES.squeezebox2;
 const BITRATES = [[0, 'No limit'], [320, '320 kbps'], [256, '256 kbps'], [192, '192 kbps'], [160, '160 kbps'], [128, '128 kbps'], [96, '96 kbps'], [64, '64 kbps']];
 
 let uid = 0;
@@ -20,14 +32,16 @@ export function render(node, { ctx }) {
   let alive = true;
 
   const playerSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-player' });
+  const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
+  const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
   const aboutSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-about' });
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, syncSection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // ---------------------------------------------------------------- player
   let renderedName = null;
@@ -88,6 +102,126 @@ export function render(node, { ctx }) {
     );
   }
 
+  // ---------------------------------------------------------------- display (Squeezebox screens)
+  async function renderDisplay() {
+    const pid = store.playerId;
+    const p = currentPlayer();
+    const modes = p && DISPLAY_MODES[p.model];
+    displaySection.hidden = !modes;
+    if (!modes) { displaySection.replaceChildren(); return; }
+    const [bright, active, idle, pdm, pdms] = await Promise.allSettled([
+      rpc(['jiveplayerbrightnesssettings', 0, 10], pid),
+      rpc(['jiveplayertextsettings', 'activeFont', 0, 10], pid),
+      rpc(['jiveplayertextsettings', 'idleFont', 0, 10], pid),
+      rpc(['playerpref', 'playingDisplayMode', '?'], pid),
+      rpc(['playerpref', 'playingDisplayModes', '?'], pid),
+    ]);
+    if (!alive || pid !== store.playerId) return;
+    const ok = (r) => (r.status === 'fulfilled' ? r.value : null);
+    const setPref = async (name, value) => {
+      if (await ctx.cmd('playerpref', name, value)) toast('Setting saved');
+    };
+    // radio lists from the Jive menus: [{text, radio, actions.do.cmd}] → select
+    const radioSelect = (label, items) => {
+      if (!items?.length) return null;
+      const opts = items.map((it, i) => [i, it.text]);
+      const cur = items.findIndex((it) => +it.radio === 1);
+      return selectField(label, opts, cur < 0 ? undefined : cur, (i) => {
+        const c = items[i]?.actions?.do?.cmd;
+        if (c) setPref(c[1], c[2]);
+      });
+    };
+    const sliders = [];
+    const brightness = (ok(bright)?.item_loop || []).map((group) => {
+      const slider = group.item_loop?.[0];
+      if (slider?.slider) {
+        const id = fieldId();
+        const pref = slider.actions.do.cmd[1];
+        const out = h('output', { for: id }, String(slider.initial));
+        sliders.push(h('div', { class: 'field' }, h('label', { for: id }, group.text),
+          h('div', { class: 'inline-row' },
+            h('input', { id, type: 'range', class: 'range', min: slider.min, max: slider.max, step: 1, value: slider.initial,
+              oninput: (e) => { out.textContent = e.target.value; }, onchange: (e) => setPref(pref, +e.target.value) }), out)));
+        return null;
+      }
+      const when = group.text.toLowerCase();
+      return radioSelect(when.startsWith('while') ? `Brightness ${when}` : `Brightness when ${when}`, group.item_loop);
+    });
+    const list = (ok(pdms)?._p2 ?? []).map(Number);
+    const modeOpts = list.map((m, i) => [i, modes[m] ?? `Mode ${m}`]);
+    displaySection.replaceChildren(...[
+      h('h2', { id: 'set-display' }, 'Player display'),
+      h('p', { class: 'muted small' }, 'The Now Playing button on the remote cycles the playing display; Size and Brightness change the text size and brightness.'),
+      selectField('Now Playing information', modeOpts, ok(pdm)?._p2, (v) => setPref('playingDisplayMode', v)),
+      radioSelect('Text size', ok(active)?.item_loop),
+      radioSelect('Text size when off', ok(idle)?.item_loop),
+      ...brightness, ...sliders,
+    ].filter(Boolean));
+  }
+
+  // ---------------------------------------------------------------- spotify
+  let spotifyPoll = null;
+  async function renderSpotify() {
+    const head = h('h2', { id: 'set-spotify' }, 'Spotify');
+    const st = await rpc(['spotify', 'status']).catch(() => null);
+    if (!alive) return;
+    if (!st) { spotifySection.replaceChildren(head, h('p', { class: 'muted' }, 'Spotify is not available.')); return; }
+    if (+st.signed_in) {
+      clearInterval(spotifyPoll);
+      const [br, norm] = await Promise.allSettled([rpc(['pref', 'spotifyBitrate', '?']), rpc(['pref', 'spotifyNormalisation', '?'])]);
+      if (!alive) return;
+      const normId = fieldId();
+      spotifySection.replaceChildren(head,
+        h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
+        st.error && h('p', { class: 'muted small' }, st.error),
+        st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
+        selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
+          br.status === 'fulfilled' ? br.value._p2 : 320,
+          async (v) => { if (await ctx.serverCmd('pref', 'spotifyBitrate', v)) toast('Setting saved'); }),
+        h('div', { class: 'field check' },
+          h('input', { id: normId, type: 'checkbox', checked: norm.status === 'fulfilled' && +norm.value._p2 === 1,
+            onchange: async (e) => { if (await ctx.serverCmd('pref', 'spotifyNormalisation', e.target.checked ? 1 : 0)) toast('Setting saved'); } }),
+          h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
+        h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
+        h('div', { class: 'button-row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
+          if (!confirm('Sign out of Spotify on this server?')) return;
+          await ctx.serverCmd('spotify', 'logout');
+          renderSpotify();
+        } }, 'Sign out')));
+      return;
+    }
+    const pasteId = fieldId();
+    const paste = h('input', { id: pasteId, type: 'url', placeholder: 'http://127.0.0.1:5588/login?code=…', spellcheck: 'false' });
+    const msg = h('p', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
+    const finish = h('form', { class: 'field', hidden: true, onsubmit: async (e) => {
+      e.preventDefault();
+      if (!paste.value.trim()) return;
+      msg.textContent = 'Signing in…';
+      const r = await rpc(['spotify', 'login', `code:${paste.value.trim()}`]).catch((err) => ({ error: err.message }));
+      if (r.user) { toast(`Signed in to Spotify as ${r.user}`); renderSpotify(); } else msg.textContent = r.error || 'Sign-in failed.';
+    } },
+    h('label', { for: pasteId }, 'Address of the page Spotify sent you to'),
+    h('p', { class: 'muted small' }, 'After you agree, Spotify sends your browser to an address starting with http://127.0.0.1:5588/login. If this server runs on another computer that page won’t load — copy its full address from the address bar and paste it here.'),
+    h('div', { class: 'inline-row' }, paste, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Finish')),
+    msg);
+    spotifySection.replaceChildren(head,
+      h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
+      h('div', { class: 'button-row' }, h('button', { class: 'btn btn-primary', type: 'button', onclick: async () => {
+        const r = await rpc(['spotify', 'login']).catch(() => null);
+        if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
+        window.open(r.url, '_blank', 'noopener');
+        finish.hidden = false;
+        paste.focus();
+        // signed in by the redirect itself when the browser runs on the server
+        clearInterval(spotifyPoll);
+        spotifyPoll = setInterval(async () => {
+          const s2 = await rpc(['spotify', 'status']).catch(() => null);
+          if (s2 && +s2.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
+        }, 3000);
+      } }, 'Sign in with Spotify')),
+      finish);
+  }
+
   // ---------------------------------------------------------------- sync
   let syncSig = '';
   function renderSync(force = false) {
@@ -127,9 +261,12 @@ export function render(node, { ctx }) {
   // ---------------------------------------------------------------- library
   async function renderLibrary() {
     libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), h('div', { class: 'loading' }, h('span', { class: 'spinner' })));
-    const [nameRes, dirsRes] = await Promise.allSettled([rpc(['pref', 'libraryname', '?']), rpc(['pref', 'mediadirs', '?'])]);
+    const [nameRes, dirsRes, artRes, onlineRes] = await Promise.allSettled([rpc(['pref', 'libraryname', '?']), rpc(['pref', 'mediadirs', '?']),
+      rpc(['pref', 'artfolder', '?']), rpc(['pref', 'onlineArtistImages', '?'])]);
     if (!alive) return;
     const libName = nameRes.status === 'fulfilled' ? nameRes.value._p2 ?? '' : '';
+    const artFolder = artRes.status === 'fulfilled' ? artRes.value._p2 ?? '' : '';
+    const onlineArt = onlineRes.status === 'fulfilled' ? +onlineRes.value._p2 || 0 : 0;
     let dirs = dirsRes.status === 'fulfilled' ? dirsRes.value._p2 : [];
     if (typeof dirs === 'string') dirs = dirs ? dirs.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean) : [];
     if (!Array.isArray(dirs)) dirs = [];
@@ -167,7 +304,25 @@ export function render(node, { ctx }) {
       h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => addDir().focus() }, icon('add'), 'Add folder'),
       h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save folders')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm);
+    // Artist pictures: <artfolder>/<Artist Name>.jpg, artist.jpg next to albums, optional download
+    const artId = fieldId();
+    const artInput = h('input', { id: artId, type: 'text', value: artFolder, placeholder: '/path/to/artist/pictures', spellcheck: 'false' });
+    const artForm = h('form', { class: 'field inline', onsubmit: async (e) => {
+      e.preventDefault();
+      const r = await ctx.serverCmd('pref', 'artfolder', artInput.value.trim());
+      if (r) toast('Artist pictures folder saved. Rescan to pick up changes.');
+    } }, h('label', { for: artId }, 'Artist pictures folder'),
+    h('p', { class: 'muted small' }, 'Optional folder with pictures named after the artist (e.g. “Miles Davis.jpg”). An artist.jpg next to the album folders is found as well.'),
+    h('div', { class: 'inline-row' }, artInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+    const onlineId = fieldId();
+    const onlineField = h('div', { class: 'field check' },
+      h('input', { id: onlineId, type: 'checkbox', checked: onlineArt !== 0, onchange: async (e) => {
+        const r = await ctx.serverCmd('pref', 'onlineArtistImages', e.target.checked ? 1 : 0);
+        if (r) toast(e.target.checked ? 'Missing artist pictures will be downloaded' : 'Artist picture downloads off');
+      } }),
+      h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, artForm, onlineField);
   }
 
   // ---------------------------------------------------------------- scan
@@ -214,18 +369,20 @@ export function render(node, { ctx }) {
 
   // ---------------------------------------------------------------- wire up
   renderPlayer();
+  renderDisplay();
   renderSync(true);
   renderLibrary();
+  renderSpotify();
   renderScan();
   offs.push(
-    on('player', () => { renderPlayer(); renderSync(true); }),
+    on('player', () => { renderPlayer(); renderDisplay(); renderSync(true); }),
     on('players', () => { renderSync(); if (currentPlayer()?.name !== renderedName) renderPlayer(); }),
     on('status', () => renderSync()),
     on('server', renderScan),
   );
   ctx.refreshServer();
 
-  return () => { alive = false; offs.forEach((f) => f()); };
+  return () => { alive = false; clearInterval(spotifyPoll); offs.forEach((f) => f()); };
 }
 
 function appearance(ctx) {

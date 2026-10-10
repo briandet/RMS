@@ -7,7 +7,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Client | Protocol | Status |
 |---|---|---|
 | squeezelite, piCorePlayer, **WiiM** (Pro, Pro Plus, Amp, Ultra…) | slimproto (TCP 3483) + HTTP streaming, UDP discovery | ✔ tested with squeezelite 2.0 |
-| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback (no display rendering for SB2/3/Transporter screens) |
+| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, on-screen menus with the IR remote |
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
@@ -76,10 +76,48 @@ with the `pref` / `playerpref` commands or the web UI.
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
   WavPack, DSF), cue sheets, compilations, multi-artist/genre splitting, artwork
   extraction and resizing, saved playlists.
+* **Artist pictures** (Lyrion's contributor portraits): `artist.jpg` / `<Artist Name>.jpg`
+  next to or above an artist's albums, or in the *artist pictures folder* (`artfolder`),
+  served at `/contributor/<id>/image` and shown in Squeezer, Jive clients and the web UI.
+  Optionally (`onlineArtistImages`, off by default) missing pictures are downloaded from
+  Deezer, which sends artist names to Deezer.
 * **Jive menus** for Squeezer/SqueezePlay: home menu, My Music browsing, context menus,
-  favorites, settings.
+  favorites, settings (including player display brightness and text size).
+* **Player displays** (Squeezebox2/3/Classic, Transporter, Boom): Lyrion's bitmap fonts in
+  all three text sizes, the Now Playing screen with each model's playing display modes
+  (progress bar, elapsed/remaining time, buffer fullness, clock, VU meter and spectrum
+  visualizers), server-side scrolling of long titles, the volume bar, the date/time
+  screensaver while off, Transporter's second screen and brightness while on / off / idle
+  (Boom's automatic brightness included).
+* **On-screen menus** for those players, driven by the IR remote and front panel buttons:
+  Lyrion's IR timing (press / repeat / hold / single) and its own `Default.map` button
+  maps, Home → My Music / Radio / Favorites / Search / Settings, browsing with accelerated
+  scrolling and number-key letter jumps, play / add / insert from any list, the Now Playing
+  playlist browser, track info, text entry for searches and names (multi-tap number keys),
+  sliders, checkboxes and radio settings, volume, presets, sleep, shuffle / repeat and the
+  screensavers, with the push and bump animations of the real firmware.  Holding FWD/REW
+  opens the song scanner (seek within the song); Settings → Alarm Clock edits alarms on the
+  player (time entry, days, sound, shuffle, repeat, volume) like Lyrion's player screens.  The menus are the
+  same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
-  a small internet radio directory.
+  a small internet radio directory, Spotify (below).
+
+### Spotify
+
+Spotify Premium is required (Spotify streams only to Premium accounts).  Sign in under web UI
+→ Settings → Spotify: Spotify's login page opens, and after you agree it sends your browser
+to `http://127.0.0.1:5588/login`, which RMS answers when the browser runs on the server's
+machine.  Otherwise that page won't load; paste its address from the address bar into the
+form in the settings card.  The login is saved under `<data-dir>/spotify/`.
+
+Liked Songs, your playlists, saved albums and followed artists, recently played, top tracks
+and artists, new releases and search are then in the web UI's Library → Spotify tab, in the
+Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, albums and
+playlists can be played, added and saved as favorites.  RMS plays the audio itself with
+[librespot](https://github.com/librespot-org/librespot): it decodes each track (Ogg Vorbis,
+96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
+it to the player as 16-bit 44.1 kHz PCM, so any player works (including WiiM), seeking
+included.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
 
 ### WiiM notes
 
@@ -94,11 +132,12 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 
 * One transcoder (ffmpeg) replaces Lyrion's `convert.conf` helper chain (flac, sox, lame,
   faad…); per-format enable/disable is not configurable yet.
-* Only a few plugins exist (Favorites, alarms, radio directory).  Streaming-service
-  plugins (Spotty, Qobuz, TIDAL…) and the TuneIn directory are not ported.
-* Players with graphical displays (SB2/3, Transporter, Boom) are not sent screen
-  updates; Squeezebox 1 and SliMP3 are not supported.  IR remotes control playback
-  (play/pause/skip/volume/power) but not on-screen menus.
+* Only a few plugins exist (Favorites, alarms, radio directory, Spotify).  Other
+  streaming services (Qobuz, TIDAL…) and the TuneIn directory are not ported; Spotify is
+  built in rather than through Spotty, and without Spotify Connect.
+* The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
+  than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.
+  Squeezebox 1 and SliMP3 (text displays) are not supported.
 * No firmware updates for hardware players.
 
 ## Development

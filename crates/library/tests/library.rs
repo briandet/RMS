@@ -926,3 +926,65 @@ fn library_is_send_sync_and_handles_removed_media_dirs() {
     f.lib.scan(ScanMode::Dir(f.media.join("Artist B"))).unwrap();
     assert_eq!(f.lib.totals().songs, 3);
 }
+
+#[test]
+fn contributor_portraits() {
+    need_ffmpeg!();
+    let f = common::build();
+    // artist.jpg next to the album folder, "<name>.png" in the artfolder
+    common::make_image(&f.media.join("Artist A/artist.jpg"), "green", 60, 40);
+    let art = f.dir.path().join("artists");
+    common::make_image(&art.join("The Artist B.png"), "yellow", 30, 30);
+    let mut cfg = f.lib.config();
+    cfg.art_folder = Some(art.clone());
+    f.lib.set_config(cfg);
+    f.lib.scan(ScanMode::Full).unwrap();
+
+    let r = run(&f.lib, LibQueryName::Artists, 0, 100, &[("tags", "s4")]);
+    let artists = lp(&r, "artists_loop");
+    let pid = |name: &str| {
+        artists
+            .iter()
+            .find(|a| a["artist"] == name)
+            .and_then(|a| a.get("portraitid"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let a = pid("Artist A").expect("portrait for Artist A");
+    assert_eq!(a.len(), 8);
+    assert!(pid("The Artist B").is_some());
+    assert_eq!(pid("Xavier"), None);
+    // ... in albums and track rows
+    let r = run(&f.lib, LibQueryName::Albums, 0, 10, &[("tags", "la4")]);
+    let albums = lp(&r, "albums_loop");
+    let a1 = albums.iter().find(|x| x["album"] == "Album One").unwrap();
+    assert_eq!(a1["portraitid"], json!(a));
+    let t = f
+        .lib
+        .tracks_for(&TrackFilter {
+            search: Some("song one".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(f.lib.track_row(&t[0], "a4")["portraitid"], json!(a));
+
+    // served (and resized) by portraitid
+    let (bytes, ct) = f.lib.contributor_image(&a, "image").unwrap();
+    assert_eq!(ct, "image/jpeg");
+    assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 60);
+    let (bytes, _) = f.lib.contributor_image(&a, "image_20x20_o").unwrap();
+    assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 20);
+    assert!(f.lib.contributor_image("deadbeef", "image").is_none());
+    assert!(f.lib.contributor_image("../x", "image").is_none());
+
+    // a picture that was removed is dropped on the next scan
+    std::fs::remove_file(f.media.join("Artist A/artist.jpg")).unwrap();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let r = run(&f.lib, LibQueryName::Artists, 0, 100, &[("tags", "4")]);
+    let artists = lp(&r, "artists_loop");
+    let a_row = artists.iter().find(|x| x["artist"] == "Artist A").unwrap();
+    assert!(a_row.get("portraitid").is_none());
+    let missing = f.lib.contributors_without_portrait();
+    assert!(missing.iter().any(|(_, n)| n == "Artist A"));
+    assert!(!missing.iter().any(|(_, n)| n == "The Artist B"));
+}

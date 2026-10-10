@@ -38,7 +38,7 @@ r2d2_sqlite = "0.31"
 lofty = "0.22"
 walkdir = "2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "json"] }
 url = "2"
 percent-encoding = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -62,6 +62,11 @@ base64 = "0.22"
 async-trait = "0.1"
 socket2 = "0.5"
 roxmltree = "0.20"
+# Spotify: librespot for the session and audio, the Web API for browsing
+librespot-core = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
+librespot-playback = { version = "0.8", default-features = false, features = ["rustls-tls-webpki-roots"] }
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }

@@ -12,6 +12,7 @@ mod prefs;
 mod server;
 mod stream;
 mod strings;
+mod ui;
 mod util;
 mod web;
 

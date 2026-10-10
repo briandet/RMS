@@ -79,6 +79,17 @@ pub async fn open(spec: &StreamSpec, http: &reqwest::Client) -> std::io::Result<
                 .boxed(),
             )
         }
+        SourceKind::Spotify {
+            url,
+            start_ms,
+            bitrate,
+            normalise,
+        } => {
+            let sp = crate::plugins::spotify::get()
+                .ok_or_else(|| std::io::Error::other("Spotify is not available"))?;
+            let config = crate::plugins::spotify::stream::player_config(*bitrate, *normalise);
+            crate::plugins::spotify::stream::open(sp, url, *start_ms, config).await
+        }
         SourceKind::Remote { url } => {
             let resp = http
                 .get(url)

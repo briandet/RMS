@@ -201,8 +201,8 @@ pub fn artists_query(bp: &BrowseParams, library_id: Option<&str>) -> Vec<String>
     q
 }
 
-/// `_artists` result conversion.
-pub fn artists_result(bp: &BrowseParams, results: &Obj) -> ModeResult {
+/// `_artists` result conversion. `no_pictures`: pref `noContributorPictures`.
+pub fn artists_result(bp: &BrowseParams, results: &Obj, no_pictures: bool) -> ModeResult {
     let pt_tags = bp.tags.clone();
     let items = loop_of(results, "artists_loop")
         .into_iter()
@@ -213,6 +213,7 @@ pub fn artists_result(bp: &BrowseParams, results: &Obj) -> ModeResult {
             it.playlist_ref = true;
             it.lazy = true;
             match get_str(a, "portraitid") {
+                _ if no_pictures => {}
                 Some(p) => it.image = Some(format!("contributor/{}/image", p)),
                 None => it.icon = Some("html/images/artists.png".into()),
             }
@@ -1233,7 +1234,7 @@ async fn run_mode(
     let results = &out.results;
     let total = results.get("count").and_then(value_i64).unwrap_or(0).max(0) as usize;
     let m = match bp.mode.as_str() {
-        "artists" => artists_result(bp, results),
+        "artists" => artists_result(bp, results, prefs.get_bool("noContributorPictures")),
         "genres" => genres_result(bp, results, prefs.get_bool("useUnifiedArtistsList")),
         "years" => years_result(bp, results),
         "albums" | "vaalbums" | "randomalbums" => albums_result(bp, results, only_album_years),
@@ -1562,7 +1563,7 @@ mod tests {
             { "id": 5, "artist": "ABBA", "textkey": "A" },
             { "id": 6, "artist": "Beatles", "textkey": "B", "portraitid": "ff00" },
         ] }));
-        let feed = finish(artists_result(&p, &results), 2, 0, 512, false);
+        let feed = finish(artists_result(&p, &results, false), 2, 0, 512, false);
         assert_eq!(feed.items.len(), 2);
         let mut r = Request::blank();
         render(&ctx(), Level::List(feed), &mut r);
@@ -1572,6 +1573,12 @@ mod tests {
         assert_eq!(items[0]["commonParams"], json!({ "artist_id": 5 }));
         assert_eq!(items[0]["icon-id"], "html/images/artists.png");
         assert_eq!(items[1]["icon"], "contributor/ff00/image");
+        // noContributorPictures: neither portraits nor the generic icon
+        let feed = finish(artists_result(&p, &results, true), 2, 0, 512, false);
+        let mut r2 = Request::blank();
+        render(&ctx(), Level::List(feed), &mut r2);
+        let plain = results_loop(&r2, "item_loop");
+        assert!(plain[0].get("icon-id").is_none() && plain[1].get("icon").is_none());
         let base = r.result("base").unwrap();
         assert_eq!(
             base["actions"]["go"]["params"],
@@ -1583,7 +1590,7 @@ mod tests {
         );
         assert_eq!(base["actions"]["play"]["params"]["cmd"], "load");
         // _next leads to the artist's albums
-        let next = feed_next(&artists_result(&p, &results).feed.items[0]);
+        let next = feed_next(&artists_result(&p, &results, false).feed.items[0]);
         assert_eq!(next.mode, "albums");
         assert_eq!(next.tag("artist_id"), Some("5"));
     }
@@ -1598,7 +1605,7 @@ mod tests {
         let results = obj(
             json!({ "count": 2, "artists_loop": [{ "id": 1, "artist": "A" }, { "id": 2, "artist": "B" }] }),
         );
-        let feed = finish(artists_result(&p, &results), 2, 0, 512, false);
+        let feed = finish(artists_result(&p, &results, false), 2, 0, 512, false);
         assert_eq!(feed.items.len(), 3);
         assert_eq!(feed.total, Some(3));
         let mut r = Request::blank();
@@ -1612,7 +1619,7 @@ mod tests {
         // singleton: the extra is skipped
         let one = obj(json!({ "count": 1, "artists_loop": [{ "id": 1, "artist": "A" }] }));
         assert_eq!(
-            finish(artists_result(&p, &one), 1, 0, 512, false)
+            finish(artists_result(&p, &one, false), 1, 0, 512, false)
                 .items
                 .len(),
             1
@@ -1856,12 +1863,16 @@ mod tests {
         let p = bp(&[("mode", "artists"), ("genre_id", "3")]);
         let results = obj(json!({ "count": 3, "artists_loop": [] }));
         // second page past the real items: only the extra
-        let feed = finish(artists_result(&p, &results), 3, 3, 10, false);
+        let feed = finish(artists_result(&p, &results, false), 3, 3, 10, false);
         assert_eq!(feed.items.len(), 1);
         assert_eq!(feed.total, Some(4));
         // empty, non-search list gets the EMPTY placeholder
         let feed = finish(
-            artists_result(&bp(&[("mode", "artists")]), &obj(json!({ "count": 0 }))),
+            artists_result(
+                &bp(&[("mode", "artists")]),
+                &obj(json!({ "count": 0 })),
+                false,
+            ),
             0,
             0,
             10,

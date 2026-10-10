@@ -178,8 +178,10 @@ pub fn mixer(server: &Arc<Server>, r: &mut Request) {
             }
             let new = if relative { old as f64 + n } else { n }.round() as i32;
             let new = p.set_volume(new, false);
+            crate::display::show_volume(&p);
             for o in group {
                 o.set_volume(new, false);
+                crate::display::show_volume(&o);
             }
             server.notifier.notify(
                 Some(p.id),
@@ -193,6 +195,7 @@ pub fn mixer(server: &Arc<Server>, r: &mut Request) {
                 _ => !p.is_muted(),
             };
             p.set_muted(muted);
+            crate::display::show_volume(&p);
             for o in group {
                 o.set_muted(muted);
             }
@@ -319,7 +322,11 @@ pub fn ir(server: &Arc<Server>, r: &mut Request) {
         return r.bad_params();
     };
     if let Ok(c) = u32::from_str_radix(code.trim_start_matches("0x"), 16) {
-        super::ir::handle_ir(server, &p, c, 0);
+        let time = r
+            .param("_time")
+            .and_then(|t| t.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        super::ir::handle_ir(server, &p, c, time as u32);
     }
     r.set_done();
 }
@@ -424,6 +431,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
             ) {
                 server.apply_library_config();
             }
+            if pname == "onlineArtistImages" && !server.library.is_scanning() {
+                crate::plugins::artist_images::spawn_fetch(server);
+            }
         }
         server
             .notifier
@@ -484,6 +494,7 @@ pub fn start_scan(server: &Arc<Server>, mode: rms_library::ScanMode) {
         }
         s.notifier.notify(None, &["rescan", "done"]);
         s.notifier.notify(None, &["library", "changed", "1"]);
+        crate::plugins::artist_images::spawn_fetch(&s);
     });
 }
 
@@ -848,6 +859,19 @@ const PLAYLIST_EXTS: &[&str] = &["m3u", "m3u8", "pls", "cue", "xspf", "asx", "wp
 /// Expand a `playlist play|add|insert` item into entries (`scanPathOrURL`).
 pub async fn expand_item(server: &Arc<Server>, item: &str) -> Vec<Entry> {
     let url = to_url(item);
+    // Spotify albums, playlists, artists and liked songs become their tracks
+    if crate::plugins::spotify::is_spotify(&url) {
+        return match crate::plugins::spotify::get().map(|sp| sp.expand(&url)) {
+            Some(f) => match f.await {
+                Ok(urls) => urls.into_iter().map(Entry::new).collect(),
+                Err(e) => {
+                    tracing::warn!("{url}: {e}");
+                    Vec::new()
+                }
+            },
+            None => Vec::new(),
+        };
+    }
     if crate::util::is_remote_url(&url) {
         return vec![Entry::new(url)];
     }

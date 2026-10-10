@@ -171,11 +171,20 @@ pub fn handle_message(server: &Arc<Server>, player: &Arc<Player>, msg: ClientMes
         ClientMessage::Butn { time, button } => {
             crate::control::ir::handle_button(server, player, button, time)
         }
-        ClientMessage::Knob { position, .. } => debug!("{}: KNOB {}", player.id, position),
+        ClientMessage::Knob { position, .. } => crate::ui::send(
+            server,
+            player,
+            crate::ui::Event::Knob(if position & 0x8000_0000 != 0 {
+                -((position & 0x7fff_ffff) as i32)
+            } else {
+                position as i32
+            }),
+        ),
         ClientMessage::Bye { upgrading } => info!("{}: BYE! upgrading={}", player.id, upgrading),
         ClientMessage::Ureq => info!("{}: requests firmware update (not supported)", player.id),
         ClientMessage::Dbug(text) => info!("{} firmware: {}", player.id, text),
-        ClientMessage::Anic | ClientMessage::Alss { .. } | ClientMessage::RawIr(_) => {}
+        ClientMessage::Anic => player.state.lock().animating_until = 0.0,
+        ClientMessage::Alss { .. } | ClientMessage::RawIr(_) => {}
         ClientMessage::Shut => server.close_connection(&player.id),
         ClientMessage::Helo(_) => warn!("{}: unexpected second HELO", player.id),
         ClientMessage::Unknown { op, .. } => warn!(

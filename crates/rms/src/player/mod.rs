@@ -270,8 +270,14 @@ pub struct PlayerState {
     pub show_briefly: Option<(Vec<String>, f64)>,
     /// Timestamp of the last user interaction (IR/button/command) for screensaver logic.
     pub last_activity: f64,
+    /// Time of the last IR / front panel button (`Slim::Hardware::IR::lastIRTime`), 0 = none.
+    pub last_ir: f64,
+    /// The volume bar is shown on the display until this time (`mixerDisplay`).
+    pub mixer_display_until: f64,
     /// Last `strm t` sent, so we can detect dead connections.
     pub last_status_request: f64,
+    /// A push/bump animation is running on the display (until `ANIC` or this time).
+    pub animating_until: f64,
 }
 
 /// A connected (or recently disconnected) player.
@@ -290,6 +296,10 @@ pub struct Player {
     /// Per-stream password when `authorize` is on.
     stream_password: Mutex<Option<String>>,
     pub server: Weak<Server>,
+    /// Screen published by the player UI (`crate::ui`).
+    pub ui: Mutex<crate::ui::View>,
+    /// Events to the player's UI task.
+    pub ui_tx: Mutex<Option<tokio::sync::mpsc::UnboundedSender<crate::ui::Event>>>,
 }
 
 impl std::fmt::Debug for Player {
@@ -350,7 +360,10 @@ impl Player {
             remote_stream_start: None,
             show_briefly: None,
             last_activity: now,
+            last_ir: 0.0,
+            mixer_display_until: 0.0,
             last_status_request: 0.0,
+            animating_until: 0.0,
         };
         let player = Arc::new(Player {
             id,
@@ -363,6 +376,8 @@ impl Player {
             pending_stream: Mutex::new(None),
             stream_password: Mutex::new(None),
             server: Arc::downgrade(server),
+            ui: Mutex::new(crate::ui::View::default()),
+            ui_tx: Mutex::new(None),
         });
         // a controller of its own, until synced
         let ctrl = Controller::new_shared(server, &player);

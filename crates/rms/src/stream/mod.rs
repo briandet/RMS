@@ -32,6 +32,13 @@ pub enum SourceKind {
     Ffmpeg { args: Vec<String> },
     /// Proxy a remote HTTP(S) stream.
     Remote { url: String },
+    /// A Spotify track decoded to PCM by librespot.
+    Spotify {
+        url: String,
+        start_ms: u32,
+        bitrate: u32,
+        normalise: bool,
+    },
 }
 
 /// Everything needed to serve one stream generation to one player.
@@ -210,6 +217,29 @@ pub fn open_song(
     let sr_limit = samplerate_limit(players, track.samplerate);
     let all_https = players.iter().all(|p| p.state.lock().caps.can_https);
 
+    if crate::plugins::spotify::is_spotify(&track.url) {
+        use crate::plugins::spotify::stream::{CHANNELS, SAMPLE_RATE, SAMPLE_SIZE};
+        info!(
+            "{}: streaming from Spotify as PCM (start {:.1}s)",
+            track.url, start
+        );
+        return Ok(OpenedSong {
+            stream_format: "pcm".into(),
+            spec: Some(StreamSpec {
+                source: SourceKind::Spotify {
+                    url: track.url.clone(),
+                    start_ms: (start * 1000.0) as u32,
+                    bitrate: server.prefs.server.get_i64("spotifyBitrate").max(96) as u32,
+                    normalise: server.prefs.server.get_bool("spotifyNormalisation"),
+                },
+                format: "pcm".into(),
+                song_id: song.id,
+            }),
+            direct_url: None,
+            stream_bitrate: Some(SAMPLE_RATE * SAMPLE_SIZE * CHANNELS),
+            can_seek: true,
+        });
+    }
     if track.remote {
         return open_remote(server, song, &supported, rate, all_https);
     }

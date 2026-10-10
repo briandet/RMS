@@ -1,4 +1,4 @@
-// Library browser: Artists / Albums / Genres / Years / Folders / Playlists / Favorites
+// Library browser: Artists / Albums / Genres / Years / Folders / Playlists / Favorites / Spotify
 // with drill-down pages and breadcrumbs.
 //
 // Routes (hash):
@@ -10,8 +10,9 @@
 //   #/library/folders/<id>?name=    music folder contents
 //   #/library/playlist/<id>?name=   saved playlist tracks
 //   #/library/favorites/<id>?name=  favorites sub-folder
+//   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
 
-import { rpc, itemArt, coverUrl } from '../api.js';
+import { rpc, itemArt, coverUrl, portraitUrl } from '../api.js';
 import { store } from '../store.js';
 import { h, fmtDuration, plural, storage, toast } from '../util.js';
 import {
@@ -21,7 +22,7 @@ import {
 
 const TABS = [
   ['artists', 'Artists'], ['albums', 'Albums'], ['genres', 'Genres'], ['years', 'Years'],
-  ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'],
+  ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['spotify', 'Spotify'],
 ];
 const TAB_OF = { artist: 'artists', album: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 const ALBUM_TAGS = 'tags:ljaysSKw';
@@ -31,7 +32,7 @@ const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
 
 // Remember breadcrumb trails for hierarchical browsing (folders, favorites).
-const trails = { folders: new Map(), favorites: new Map() };
+const trails = { folders: new Map(), favorites: new Map(), spotify: new Map() };
 
 export function render(node, { parts, query, ctx, scrollRoot }) {
   const section = parts[1] || 'albums';
@@ -80,7 +81,7 @@ const ROUTES = {
     v.body.append(ul);
     let lastKey = null;
     pager(v, ul, async (start, count) => {
-      const r = await rpc(['artists', start, count, 'tags:s']);
+      const r = await rpc(['artists', start, count, 'tags:s4']);
       return { items: r.artists_loop || [], total: r.count };
     }, (a) => {
       const out = [];
@@ -90,7 +91,7 @@ const ROUTES = {
       }
       out.push(row({
         href: `#/library/artist/${enc(a.id)}?name=${enc(a.artist)}`,
-        title: a.artist, iconName: 'person',
+        title: a.artist, iconName: 'person', art: portraitUrl(a.portraitid, 80) ?? undefined, cls: 'artist',
         actions: actionButtons(v.ctx, 'artist_id', a.id, a.artist, { compact: true }),
       }));
       return out;
@@ -98,14 +99,16 @@ const ROUTES = {
   },
 
   async artist(v, id) {
-    let name = v.query.get('name');
-    if (!name) {
-      const r = await rpc(['artists', 0, 1, `artist_id:${id}`]).catch(() => ({}));
-      name = r.artists_loop?.[0]?.artist || 'Artist';
-    }
+    const r = await rpc(['artists', 0, 1, `artist_id:${id}`, 'tags:4']).catch(() => ({}));
+    if (!v.alive) return;
+    const a = r.artists_loop?.[0] || {};
+    const name = v.query.get('name') || a.artist || 'Artist';
     v.crumbs([crumbRoot('artists'), { label: name }]);
     const countEl = h('span');
-    v.body.append(pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'artist_id', id, name), art: undefined }));
+    const art = a.portraitid ? portraitUrl(a.portraitid, 400) : undefined;
+    const head = pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'artist_id', id, name), art, iconName: 'person' });
+    head.classList.add('artist');
+    v.body.append(head);
     albumsGrid(v, [`artist_id:${id}`], (total) => { countEl.textContent = plural(total, 'album'); });
   },
 
@@ -329,6 +332,65 @@ const ROUTES = {
         actions: actionButtons(v.ctx, null, null, name, { compact: true, run }),
       });
     }, { empty: h('div', {}, h('p', {}, 'No favorites yet.'), h('p', { class: 'muted' }, 'Use the heart button on the Now Playing panel to save the current track or station.')) });
+  },
+
+  // ------------------------------------------------------------ spotify
+  async spotify(v, id) {
+    const trail = id ? trails.spotify.get(String(id)) || [{ id, name: v.query.get('name') || 'Spotify' }] : [];
+    v.crumbs([crumbRoot('spotify'), ...trail.map((t) => ({ label: t.name, href: `#/library/spotify/${enc(t.id)}?name=${enc(t.name)}` }))]);
+    if (!id) {
+      const st = await rpc(['spotify', 'status']).catch(() => ({}));
+      if (!v.alive) return;
+      if (!+st.signed_in) {
+        v.body.append(emptyBox(h('div', {},
+          h('p', {}, 'Not signed in to Spotify.'),
+          h('p', { class: 'muted' }, 'Sign in under ', h('a', { href: '#/settings' }, 'Settings → Spotify'), ' (Spotify Premium is required).'))));
+        return;
+      }
+    }
+    const ul = list('Spotify');
+    v.body.append(ul);
+    const spCmd = (action, itemId, label) => async () => {
+      if (!store.playerId) { toast('Select a player first', 'error'); return; }
+      const r = await v.ctx.cmd('spotify', 'playlist', action, `item_id:${itemId}`);
+      if (r) { toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`); v.ctx.refreshQueue(); }
+    };
+    pager(v, ul, async (start, count) => {
+      const cmd = ['spotify', 'items', start, count, 'want_url:1'];
+      if (id) cmd.push(`item_id:${id}`);
+      const r = await rpc(cmd);
+      return { items: r.loop_loop || [], total: r.count };
+    }, (f) => {
+      const name = f.name || f.title || '—';
+      const art = f.image ? itemArt({ image: f.image }) : undefined;
+      if (f.type === 'search') {
+        const input = h('input', { type: 'search', placeholder: 'Search Spotify', 'aria-label': 'Search Spotify', enterkeyhint: 'search' });
+        const form = h('form', { class: 'inline-row sp-search', onsubmit: (e) => {
+          e.preventDefault();
+          const term = input.value.trim();
+          if (!term) return;
+          const sid = `${f.id}_${encodeURIComponent(term)}`;
+          const label = `Search: ${term}`;
+          trails.spotify.set(sid, [...trail, { id: sid, name: label }]);
+          location.hash = `#/library/spotify/${enc(sid)}?name=${enc(label)}`;
+        } }, input, h('button', { class: 'btn', type: 'submit' }, 'Search'));
+        return h('li', { class: 'row' }, form);
+      }
+      const run = (action) => spCmd(action === 'load' ? 'play' : action, f.id, name)();
+      const playable = +f.isaudio || f.type === 'playlist';
+      if (+f.hasitems && !+f.isaudio) {
+        trails.spotify.set(String(f.id), [...trail, { id: f.id, name }]);
+        return row({
+          href: `#/library/spotify/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art,
+          actions: playable ? actionButtons(v.ctx, null, null, name, { compact: true, run }) : null,
+        });
+      }
+      if (f.type === 'text') return row({ title: name, iconName: 'link' });
+      return row({
+        title: name, iconName: 'note', art, label: `Play ${name}`, onActivate: () => run('load'),
+        actions: actionButtons(v.ctx, null, null, name, { compact: true, run }),
+      });
+    }, { empty: 'Nothing here.' });
   },
 };
 

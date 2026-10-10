@@ -1278,7 +1278,32 @@ impl Controller {
         {
             self.queue.pop_back();
         }
-        if needs_probe {
+        if needs_probe && crate::plugins::spotify::is_spotify(&entry.url) {
+            // Spotify: no stream to probe, just the track's metadata
+            let me = self.me.clone();
+            let url = entry.url.clone();
+            tokio::spawn(async move {
+                let meta = match crate::plugins::spotify::get() {
+                    Some(sp) => sp.track_meta(&url).await,
+                    None => None,
+                };
+                let Some(c) = me.upgrade() else { return };
+                let mut c = c.lock();
+                if c.next_track_cb_id != id {
+                    return;
+                }
+                if let Some(s) = c.queue.iter_mut().find(|s| s.id == song_id) {
+                    s.track = crate::server::spotify_track_info(&url);
+                    if let Some(m) = meta {
+                        s.remote_meta.title = Some(m.title);
+                        s.remote_meta.artist = Some(m.artist).filter(|a| !a.is_empty());
+                        s.remote_meta.album = Some(m.album).filter(|a| !a.is_empty());
+                        s.remote_meta.cover = m.image;
+                    }
+                }
+                c.next_track_ready(id, song_id);
+            });
+        } else if needs_probe {
             let me = self.me.clone();
             let url = entry.url.clone();
             tokio::spawn(async move {

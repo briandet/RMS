@@ -82,6 +82,7 @@ pub fn server_defaults() -> PrefMap {
         ("disabledformats", json!([])),
         ("coverArt", json!("")),
         ("artfolder", json!("")),
+        ("onlineArtistImages", json!(0)),
         ("ignoreDirRE", json!("")),
         ("rank-PLUGIN_FAVORITES_MODULE_NAME", json!(5)),
         ("server_uuid", json!("")),
@@ -90,6 +91,8 @@ pub fn server_defaults() -> PrefMap {
         ("scannerPriority", json!(0)),
         ("transcoding", json!(1)),
         ("webproxy", json!("")),
+        ("spotifyBitrate", json!(320)),
+        ("spotifyNormalisation", json!(0)),
     ];
     for (k, v) in defaults {
         m.insert(k.to_string(), v);
@@ -156,7 +159,7 @@ pub fn player_defaults() -> PrefMap {
         ("powerOnBrightness", json!(4)),
         ("powerOffBrightness", json!(1)),
         ("idleBrightness", json!(1)),
-        ("screensaver", json!("playlist")),
+        ("screensaver", json!("screensaver")),
         ("idlesaver", json!("nosaver")),
         ("offsaver", json!("SCREENSAVER.datetime")),
         ("screensavertimeout", json!(30)),
@@ -275,6 +278,18 @@ impl PrefStore {
 
     pub fn exists(&self, key: &str) -> bool {
         self.values.read().contains_key(key) || self.defaults.contains_key(key)
+    }
+
+    /// Set a value unless one is stored already (`Slim::Utils::Prefs::Namespace::init`).
+    pub fn init(&self, key: &str, value: Value) {
+        {
+            let mut values = self.values.write();
+            if values.contains_key(key) {
+                return;
+            }
+            values.insert(key.to_string(), value);
+        }
+        self.save();
     }
 
     /// Set a value and persist.  Returns the previous value.

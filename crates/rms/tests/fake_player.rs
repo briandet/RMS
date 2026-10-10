@@ -110,6 +110,10 @@ struct FakePlayer {
 
 impl FakePlayer {
     fn connect(port: u16) -> FakePlayer {
+        Self::connect_as(port, 12, &MAC, "Model=squeezelite,AccuratePlayPoints=1,HasDigitalOut=1,Firmware=v2.0.0-test,ModelName=SqueezeLite,MaxSampleRate=192000,flc,pcm,mp3")
+    }
+
+    fn connect_as(port: u16, device_id: u8, mac: &[u8; 6], caps: &str) -> FakePlayer {
         let sock = TcpStream::connect(("127.0.0.1", port)).unwrap();
         sock.set_read_timeout(Some(Duration::from_millis(200)))
             .unwrap();
@@ -118,11 +122,10 @@ impl FakePlayer {
             buf: Vec::new(),
             jiffies_start: Instant::now(),
         };
-        let caps = "Model=squeezelite,AccuratePlayPoints=1,HasDigitalOut=1,Firmware=v2.0.0-test,ModelName=SqueezeLite,MaxSampleRate=192000,flc,pcm,mp3";
         let mut helo = BytesMut::new();
-        helo.put_u8(12);
-        helo.put_u8(0);
-        helo.put_slice(&MAC);
+        helo.put_u8(device_id);
+        helo.put_u8(if device_id == 12 { 0 } else { 130 });
+        helo.put_slice(mac);
         helo.put_slice(&[0u8; 16]);
         helo.put_u16(0);
         helo.put_u64(0);
@@ -446,4 +449,57 @@ fn cometd_and_cli_notifications() {
         }
     }
     assert!(got, "listen output contains the mixer command");
+}
+
+/// Wait for the next `grfe` frame with an animation (not `c`), answering with `ANIC`.
+fn expect_transition(p: &mut FakePlayer) -> u8 {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        let f = p.expect(b"grfe", left);
+        if f[2] != b'c' {
+            p.send(b"ANIC", &[]);
+            return f[2];
+        }
+    }
+}
+
+#[test]
+fn squeezebox_remote_navigates_menus() {
+    let (music, _files) = make_music();
+    let srv = start_server(music.path());
+    let mac = [0x00, 0x04, 0x20, 0x12, 0x34, 0x56];
+    let mut p = FakePlayer::connect_as(srv.slim, 4, &mac, "");
+    // the home menu is drawn
+    p.expect(b"grfe", Duration::from_secs(5));
+    let start = Instant::now();
+    let ir = |p: &mut FakePlayer, code: u32| {
+        let mut f = BytesMut::new();
+        f.put_u32(start.elapsed().as_millis() as u32 + 1000);
+        f.put_u8(0xff);
+        f.put_u8(32);
+        f.put_u32(code);
+        p.send(b"IR  ", &f);
+        std::thread::sleep(Duration::from_millis(300));
+    };
+    // down: next home item, pushed up from below
+    ir(&mut p, 0x7689b04f);
+    assert_eq!(expect_transition(&mut p), b'd');
+    // right: into My Music
+    ir(&mut p, 0x7689d02f);
+    assert_eq!(expect_transition(&mut p), b'r');
+    // left: back home
+    ir(&mut p, 0x7689906f);
+    assert_eq!(expect_transition(&mut p), b'l');
+    // left at the top of home: bump
+    ir(&mut p, 0x7689906f);
+    assert_eq!(expect_transition(&mut p), b'L');
+    // volume up on the remote changes the volume
+    let before = cli(srv.cli, "00:04:20:12:34:56 mixer volume ?")
+        .last()
+        .cloned();
+    ir(&mut p, 0x7689807f);
+    std::thread::sleep(Duration::from_millis(300));
+    let after = cli(srv.cli, "00:04:20:12:34:56 mixer volume ?");
+    assert_ne!(after.last(), before.as_ref(), "volume changed: {after:?}");
 }

@@ -248,7 +248,9 @@ pub fn can(server: &Arc<Server>, r: &mut Request) {
     let ok = matches!(
         terms.first().map(String::as_str),
         Some("login" | "shutdown" | "exit")
-    ) || server.dispatch.can(&terms);
+    ) || server.dispatch.can(&terms)
+        // queries (`can version ?`): the terms with their own `?`
+        || server.dispatch.can(&[terms.clone(), vec!["?".to_string()]].concat());
     r.add_result("_can", ok as i32);
     r.set_done();
 }

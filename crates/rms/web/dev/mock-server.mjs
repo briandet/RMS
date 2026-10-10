@@ -36,7 +36,9 @@ while (artists.length < 45) {
   const name = `${pick(FIRST)} ${pick(SECOND)}`;
   if (seen.has(name)) continue;
   seen.add(name);
-  artists.push({ id: artists.length + 1, artist: name });
+  const id = artists.length + 1;
+  // every third artist has a picture (`portraitid`, tag 4)
+  artists.push({ id, artist: name, ...(id % 3 === 0 ? { portraitid: `p${id}` } : {}) });
 }
 artists.sort((a, b) => a.artist.localeCompare(b.artist));
 for (const ar of artists) {
@@ -482,6 +484,12 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.pathname.startsWith('/music/')) return serveMusic(url, res);
+  if (url.pathname.startsWith('/contributor/')) {
+    const ar = artists.find((a) => a.portraitid === decodeURIComponent(url.pathname.split('/')[2]));
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'max-age=300' });
+    res.end(coverSvg(ar?.portraitid || 'none', ar?.artist || ''));
+    return;
+  }
   if (url.pathname.startsWith('/imageproxy/') || url.pathname.startsWith('/html/images/')) { res.writeHead(200, { 'Content-Type': 'image/svg+xml' }); res.end(coverSvg('radio', 'Example FM')); return; }
   serveStatic(url, res);
 });

@@ -68,6 +68,12 @@ export function coverUrl(coverId, size = 300) {
   return `${serverRoot}music/${encodeURIComponent(coverId)}/cover_${size}x${size}_o`;
 }
 
+/** Artist picture by `portraitid` (artists/albums/titles tag 4), or null. */
+export function portraitUrl(portraitId, size = 300) {
+  if (!portraitId) return null;
+  return `${serverRoot}contributor/${encodeURIComponent(portraitId)}/image_${size}x${size}_o`;
+}
+
 /** artwork_url may be absolute, root-relative, relative (e.g. "imageproxy/..."), or a data URI. */
 export function resolveArtwork(url) {
   if (!url) return null;
