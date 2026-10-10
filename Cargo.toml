@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/slimproto", "crates/rms"]
+members = ["crates/slimproto", "crates/library", "crates/rms"]
 
 [workspace.package]
 version = "0.1.0"
