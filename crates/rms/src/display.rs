@@ -248,7 +248,7 @@ pub async fn run(server: Arc<Server>) {
             let bright = brightness_value(level);
             let mut sent = sent.lock();
             let prev = sent.get(&p.id);
-            if prev.map(|(f, b)| *b != bright).unwrap_or(true) {
+            if prev.map(|(_, b)| *b != bright).unwrap_or(true) {
                 p.send(ServerFrame::Grfb(bright));
             }
             if prev.map(|(f, _)| *f != frame).unwrap_or(true) {

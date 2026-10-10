@@ -179,9 +179,8 @@ async fn process_line(
     // player prefix
     let mut client = server.resolve_client(&tokens[0]);
     let mut client_raw: Option<String> = None;
-    if client.is_some() {
-        client_raw = Some(tokens.remove(0));
-    } else if tokens.len() > 1 && tokens[1] == "menu" {
+    // a known player id, or any id in front of `menu` (Jive menus for disconnected players)
+    if client.is_some() || (tokens.len() > 1 && tokens[1] == "menu") {
         client_raw = Some(tokens.remove(0));
     }
     if tokens.is_empty() {

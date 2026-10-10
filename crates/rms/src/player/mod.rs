@@ -446,7 +446,7 @@ impl Player {
     /// Send the `audg` frame for the current volume/mute/balance.
     pub fn send_volume(&self) {
         let (vol, dvc, preamp, balance, seq, curve) = {
-            let mut s = self.state.lock();
+            let s = self.state.lock();
             let effective = if s.muted {
                 0
             } else {
