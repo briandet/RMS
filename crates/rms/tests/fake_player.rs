@@ -503,3 +503,137 @@ fn squeezebox_remote_navigates_menus() {
     let after = cli(srv.cli, "00:04:20:12:34:56 mixer volume ?");
     assert_ne!(after.last(), before.as_ref(), "volume changed: {after:?}");
 }
+
+/// A fake internet radio station: every connection gets an endless-looking mp3 response
+/// (no Content-Length) that closes after a few bytes.
+fn start_radio() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in listener.incoming() {
+            let Ok(mut s) = s else { continue };
+            std::thread::spawn(move || {
+                let mut req = [0u8; 2048];
+                let _ = s.read(&mut req);
+                let _ = s.write_all(
+                    b"HTTP/1.0 200 OK\r\nContent-Type: audio/mpeg\r\nicy-br: 128\r\nicy-name: Fake FM\r\n\r\n",
+                );
+                let _ = s.write_all(&[0xff; 4096]);
+            });
+        }
+    });
+    port
+}
+
+impl FakePlayer {
+    /// Like [`expect_strm`], but returns `None` instead of panicking on timeout.
+    fn try_expect_strm(&mut self, cmd: u8, timeout: Duration) -> Option<Bytes> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            while self.buf.len() >= 6 {
+                let len = u16::from_be_bytes([self.buf[0], self.buf[1]]) as usize;
+                if self.buf.len() < 2 + len {
+                    break;
+                }
+                let frame: Vec<u8> = self.buf.drain(..2 + len).collect();
+                if &frame[2..6] == b"strm" && frame[6] == cmd {
+                    return Some(Bytes::copy_from_slice(&frame[6..]));
+                }
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            let mut tmp = [0u8; 4096];
+            match self.sock.read(&mut tmp) {
+                Ok(0) => panic!("server closed connection"),
+                Ok(n) => self.buf.extend_from_slice(&tmp[..n]),
+                Err(_) => {}
+            }
+        }
+    }
+
+    fn connect_and_greet(port: u16) -> FakePlayer {
+        let mut p = FakePlayer::connect(port);
+        p.expect(b"setd", Duration::from_secs(5));
+        p.expect(b"audg", Duration::from_secs(5));
+        p.send(b"SETD", b"\0Kitchen\0");
+        std::thread::sleep(Duration::from_millis(300));
+        p
+    }
+}
+
+/// Play a fake radio station for 15s, let it drop, and refuse the server's re-stream:
+/// the server should now have a retry pending (`_RetryOrNext` -> `_willRetry`).
+fn radio_reconnect_refused(server: &Server, p: &mut FakePlayer) {
+    let radio = start_radio();
+    let url = format!("http://127.0.0.1:{}/stream", radio);
+    cli(server.cli, &format!("{} playlist play {}", MAC_S, url));
+    p.expect_strm(b's', Duration::from_secs(10));
+
+    // stream connects and plays for 15s
+    p.stat(b"STMc", 0);
+    p.send(
+        b"RESP",
+        b"HTTP/1.0 200 OK\r\nContent-Type: audio/mpeg\r\nicy-br: 128\r\n\r\n",
+    );
+    p.stat(b"STMs", 0);
+    p.stat(b"STMt", 15_000);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        cli(server.cli, &format!("{} mode ?", MAC_S))
+            .last()
+            .map(String::as_str),
+        Some("play")
+    );
+
+    // the station closes the connection; the decoder drains and asks for more
+    p.send(b"DSCO", &[0]);
+    p.stat(b"STMd", 15_500);
+
+    // server re-streams the station (played > 10s, live) ...
+    p.expect_strm(b's', Duration::from_secs(5));
+    // ... but this reconnect is refused
+    p.stat(b"STMc", 15_600);
+    p.send(b"RESP", b"HTTP/1.0 503 Service Unavailable\r\n\r\n");
+}
+
+/// When a radio reconnect fails, Lyrion schedules a retry through TRACKWAIT and tries
+/// again; a single player still playing out its buffer must get that retry.
+#[test]
+fn single_player_retries_failed_radio_reconnect() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect_and_greet(server.slim);
+    radio_reconnect_refused(&server, &mut p);
+
+    // first retry interval is 5s
+    let retry = p.try_expect_strm(b's', Duration::from_secs(10));
+    assert!(retry.is_some(), "no retry after a failed radio reconnect");
+}
+
+/// The retry timer goes through the state table, so a user `stop` while a retry is
+/// pending wins: the station must not come back by itself.
+#[test]
+fn stop_cancels_pending_radio_retry() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect_and_greet(server.slim);
+    radio_reconnect_refused(&server, &mut p);
+
+    // the user gives up on the station while the retry is pending
+    cli(server.cli, &format!("{} stop", MAC_S));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        cli(server.cli, &format!("{} mode ?", MAC_S))
+            .last()
+            .map(String::as_str),
+        Some("stop")
+    );
+
+    // past the first retry interval (5s): nothing may start streaming again
+    let again = p.try_expect_strm(b's', Duration::from_secs(8));
+    assert!(
+        again.is_none(),
+        "radio restarted by itself after the user pressed stop"
+    );
+}
