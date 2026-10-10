@@ -9,7 +9,6 @@ pub mod song;
 use crate::prefs::PrefStore;
 use crate::server::Server;
 use parking_lot::{Mutex, RwLock};
-use playlist::Playlist;
 use serde_json::json;
 use slimproto::client::{Helo, Stat};
 use slimproto::server::{setd_id, AudioGain, ServerFrame, StrmCommand, StrmHeader};
@@ -19,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::debug;
 
 pub use controller::Controller;
 pub use song::Song;
@@ -189,8 +188,6 @@ pub struct PlayerState {
     pub sleep_time: f64,
     pub sleep_at_end_of_song: bool,
 
-    pub playlist: Playlist,
-
     // Slimproto status tracking
     pub last_stat: Option<Stat>,
     pub last_stat_at: f64,
@@ -234,6 +231,10 @@ pub struct Player {
     stream_cancel: Mutex<CancellationToken>,
     /// Incremented for every `strm s`; the `/stream.mp3` handler refuses stale generations.
     pub stream_generation: AtomicU64,
+    /// Stream the player will fetch from `/stream.mp3` for the current generation.
+    pending_stream: Mutex<Option<(u64, crate::stream::StreamSpec)>>,
+    /// Per-stream password when `authorize` is on.
+    stream_password: Mutex<Option<String>>,
     pub server: Weak<Server>,
 }
 
@@ -274,7 +275,6 @@ impl Player {
             temp_volume: None,
             sleep_time: 0.0,
             sleep_at_end_of_song: false,
-            playlist: Playlist::default(),
             last_stat: None,
             last_stat_at: 0.0,
             last_heard: now,
@@ -306,10 +306,14 @@ impl Player {
             controller: RwLock::new(Arc::new(Mutex::new(Controller::placeholder(id)))),
             stream_cancel: Mutex::new(CancellationToken::new()),
             stream_generation: AtomicU64::new(0),
+            pending_stream: Mutex::new(None),
+            stream_password: Mutex::new(None),
             server: Arc::downgrade(server),
         });
         // a controller of its own, until synced
-        *player.controller.write() = Arc::new(Mutex::new(Controller::new(server, &player)));
+        let ctrl = Controller::new_shared(server, &player);
+        ctrl.lock().restore_playlist(&player, server);
+        *player.controller.write() = ctrl;
         player
     }
 
@@ -385,7 +389,7 @@ impl Player {
     pub fn send_volume(&self) {
         let (vol, dvc, preamp, balance, seq) = {
             let mut s = self.state.lock();
-            let effective = if s.muted || !s.power && false { 0 } else { s.temp_volume.unwrap_or(s.volume) };
+            let effective = if s.muted { 0 } else { s.temp_volume.unwrap_or(s.volume) };
             let dvc = self.prefs.get_i64("digitalVolumeControl") != 0;
             let preamp = self.prefs.get_f64("preampVolumeControl");
             s.sequence_number = s.sequence_number.wrapping_add(1);
@@ -574,45 +578,42 @@ impl Player {
         self.state.lock().buffer_ready
     }
 
-    /// Persist the current playlist and position so it survives a restart.
-    pub fn save_playlist_prefs(&self) {
-        let s = self.state.lock();
-        let urls: Vec<&str> = s.playlist.entries.iter().map(|e| e.url.as_str()).collect();
-        let order: Vec<usize> = s.playlist.order.clone();
-        let cur = s.playlist.current;
-        let shuffle = s.playlist.shuffle;
-        let repeat = s.playlist.repeat;
-        drop(s);
-        self.prefs.set("playlist", json!(urls));
-        self.prefs.set("playlistShuffledList", json!(order));
-        self.prefs.set("currentSong", json!(cur));
-        self.prefs.set("shuffle", json!(shuffle));
-        self.prefs.set("repeat", json!(repeat));
+    pub fn set_pending_stream(&self, generation: u64, spec: crate::stream::StreamSpec) {
+        *self.pending_stream.lock() = Some((generation, spec));
     }
 
-    /// Restore a persisted playlist (called once when the player object is created).
-    pub fn restore_playlist_prefs(&self) {
-        let urls = self.prefs.get_string_list("playlist");
-        if urls.is_empty() {
-            let mut s = self.state.lock();
-            s.playlist.shuffle = self.prefs.get_i64("shuffle").clamp(0, 2) as u8;
-            s.playlist.repeat = self.prefs.get_i64("repeat").clamp(0, 2) as u8;
-            return;
-        }
-        let order: Vec<usize> = self
-            .prefs
-            .get("playlistShuffledList")
-            .and_then(|v| serde_json::from_value(v).ok())
-            .unwrap_or_default();
-        let mut s = self.state.lock();
-        s.playlist.entries = urls.into_iter().map(playlist::Entry::new).collect();
-        let n = s.playlist.entries.len();
-        s.playlist.order = if order.len() == n && order.iter().all(|&i| i < n) { order } else { (0..n).collect() };
-        s.playlist.current = (self.prefs.get_i64("currentSong").max(0) as usize).min(n.saturating_sub(1));
-        s.playlist.shuffle = self.prefs.get_i64("shuffle").clamp(0, 2) as u8;
-        s.playlist.repeat = self.prefs.get_i64("repeat").clamp(0, 2) as u8;
-        s.playlist.timestamp = crate::util::now();
-        info!("{}: restored playlist with {} tracks", self.id, n);
+    pub fn clear_pending_stream(&self) {
+        *self.pending_stream.lock() = None;
+    }
+
+    /// The stream spec for the current generation, if the player has not fetched it yet.
+    pub fn pending_stream(&self) -> Option<(u64, crate::stream::StreamSpec)> {
+        let g = self.stream_generation.load(Ordering::SeqCst);
+        self.pending_stream.lock().clone().filter(|(gen, _)| *gen == g)
+    }
+
+    pub fn set_stream_password(&self, pw: Option<String>) {
+        *self.stream_password.lock() = pw;
+    }
+
+    pub fn stream_password(&self) -> Option<String> {
+        self.stream_password.lock().clone()
+    }
+
+    /// Set a temporary volume without touching prefs (used for fades).
+    pub fn set_volume_temp_silent(&self, v: i32) {
+        self.state.lock().temp_volume = Some(v);
+        self.send_volume();
+    }
+
+    /// Clear the temporary volume and resend the real one.
+    pub fn clear_temp_volume(&self) {
+        self.state.lock().temp_volume = None;
+        self.send_volume();
+    }
+
+    pub fn save_current_song(&self, index: usize) {
+        self.prefs.set("currentSong", json!(index));
     }
 }
 

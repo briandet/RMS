@@ -1,9 +1,11 @@
 //! Server-wide notification bus.
 //!
-//! Every state change that the reference server reports via `notifyFromArray` is published
-//! here as a [`Notification`].  CLI `listen`/`subscribe`, Cometd subscriptions and query
-//! subscriptions (`status subscribe:`) all consume this stream.
+//! Every state change that the reference server reports via `notifyFromArray`, and every
+//! successfully executed command, is published here as a [`Notification`].  CLI
+//! `listen`/`subscribe`, Cometd subscriptions and query subscriptions (`status subscribe:`)
+//! all consume this stream.
 
+use crate::control::request::{Request, Source};
 use slimproto::MacAddress;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -12,15 +14,15 @@ use tokio::sync::broadcast;
 pub struct Notification {
     /// Player the notification concerns, if any.
     pub player: Option<MacAddress>,
-    /// Command words, e.g. `["playlist", "newsong", "Title", "3"]` or `["client", "new"]`.
+    /// Rendered request (`renderAsArray`): verbs, params and results,
+    /// e.g. `["playlist", "newsong", "Title", "3"]` or `["mixer", "volume", "50"]`.
     pub words: Arc<Vec<String>>,
+    /// JSON rendering when the notification carries structured data (e.g. `menustatus`).
+    pub json: Option<Arc<Vec<serde_json::Value>>>,
+    pub source: Source,
 }
 
 impl Notification {
-    pub fn new(player: Option<MacAddress>, words: Vec<String>) -> Self {
-        Notification { player, words: Arc::new(words) }
-    }
-
     pub fn first(&self) -> &str {
         self.words.first().map(String::as_str).unwrap_or("")
     }
@@ -29,18 +31,13 @@ impl Notification {
         self.words.get(1).map(String::as_str).unwrap_or("")
     }
 
-    /// `"playlist newsong"` style key used for matching subscriptions.
-    pub fn matches(&self, filter: &[String]) -> bool {
-        if filter.is_empty() {
-            return true;
-        }
-        filter.iter().any(|f| {
-            let parts: Vec<&str> = f.split(',').collect();
-            parts.iter().all(|p| {
-                let p = p.trim();
-                self.first() == p || self.second() == p
-            }) || f == self.first()
-        })
+    pub fn word(&self, i: usize) -> &str {
+        self.words.get(i).map(String::as_str).unwrap_or("")
+    }
+
+    /// `subscribe a,b,c` CLI semantics: matches when the first verb is in the list.
+    pub fn first_in(&self, list: &[String]) -> bool {
+        list.iter().any(|f| f == self.first())
     }
 }
 
@@ -57,20 +54,31 @@ impl Default for Notifier {
 
 impl Notifier {
     pub fn new() -> Notifier {
-        let (tx, _) = broadcast::channel(4096);
+        let (tx, _) = broadcast::channel(8192);
         Notifier { tx }
     }
 
+    /// `notifyFromArray`.
     pub fn notify(&self, player: Option<MacAddress>, words: &[&str]) {
-        let n = Notification::new(player, words.iter().map(|s| s.to_string()).collect());
-        tracing::debug!("notify {:?} {:?}", player.map(|p| p.to_string()), n.words);
-        let _ = self.tx.send(n);
+        self.notify_owned(player, words.iter().map(|s| s.to_string()).collect());
     }
 
     pub fn notify_owned(&self, player: Option<MacAddress>, words: Vec<String>) {
-        let n = Notification::new(player, words);
-        tracing::debug!("notify {:?} {:?}", player.map(|p| p.to_string()), n.words);
-        let _ = self.tx.send(n);
+        tracing::debug!("notify {} {:?}", player.map(|p| p.to_string()).unwrap_or_default(), words);
+        let _ = self.tx.send(Notification { player, words: Arc::new(words), json: None, source: Source::Internal });
+    }
+
+    /// Notification of an executed command.
+    pub fn notify_request(&self, req: &Request) {
+        let words = req.render_as_array();
+        tracing::debug!("notify {} {:?}", req.client.map(|p| p.to_string()).unwrap_or_default(), words);
+        let _ = self.tx.send(Notification { player: req.client, words: Arc::new(words), json: None, source: req.source.clone() });
+    }
+
+    /// Notification with a structured JSON form (Cometd delivers `json`, the CLI `words`).
+    pub fn notify_json(&self, player: Option<MacAddress>, json: Vec<serde_json::Value>) {
+        let words = json.iter().map(|v| match v { serde_json::Value::String(s) => s.clone(), other => other.to_string() }).collect();
+        let _ = self.tx.send(Notification { player, words: Arc::new(words), json: Some(Arc::new(json)), source: Source::Internal });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Notification> {

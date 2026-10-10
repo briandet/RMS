@@ -151,3 +151,8 @@ mod tests {
         assert_eq!(format_duration(65.0), "1:05");
     }
 }
+
+/// Best guess of this host's LAN IP address (for `serverstatus ip`).
+pub fn server_ip() -> String {
+    local_ip_address::local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".to_string())
+}

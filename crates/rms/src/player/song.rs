@@ -102,6 +102,8 @@ pub struct Song {
     /// Replay gain applied when streaming (dB); 0 = none.
     pub replay_gain_db: f64,
     pub started_at: Option<f64>,
+    /// Resolved audio URL for remote entries (after playlist expansion / redirects).
+    pub stream_url: Option<String>,
 }
 
 impl Song {
@@ -121,6 +123,7 @@ impl Song {
             can_seek: true,
             replay_gain_db: 0.0,
             started_at: None,
+            stream_url: None,
         }
     }
 

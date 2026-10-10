@@ -1,0 +1,2096 @@
+AAC	AAC
+ABORT_SCAN	Abort scan
+ABOUT	Lyrion Music Server V.%s, written by:
+ADD	Add
+ADDEDTIME	Date Added
+ADDING_TO_PLAYLIST	Adding to end of playlist:
+ADDING_TO_PLAYLIST_DBL	Adding
+ADD_THIS_SONG_TO_PLAYLIST	Add this song
+ADD_TO_END	Add to End
+ADD_TO_PLAYLIST	Add to Current Playlist
+ADVANCEDSEARCH	Advanced Search
+ADVANCED_SETTINGS	Advanced
+AFTER	after
+AIF	AIFF
+ALARM	Alarm Clock
+ALARM_ADD	Add Alarm
+ALARM_ADD_DESC	You can add as many alarms as you like.  Each alarm can be set to go off every day, on particular days only, or just once.  Select "Add Alarm" to start adding a new alarm.
+ALARM_ALARM	Alarm
+ALARM_ALARMS_ENABLED_DESC	This setting allows you to turn on/off all alarms at once. If set to Off, no alarm will go off.
+ALARM_ALARM_ENABLED	Enabled
+ALARM_ALARM_ONETIME	One Time Alarm
+ALARM_ALARM_REPEAT	Repeat Alarm
+ALARM_ALARM_REPEAT_DESC	This setting lets you choose whether this alarm will go off more than once. If set to No, this alarm will automatically turn off after it has gone off. This alarm will not then go off again until you turn it on.
+ALARM_ALL_ALARMS	All Alarms
+ALARM_ALL_ALARMS_DISABLED	All Alarms Disabled
+ALARM_ALL_ALARMS_ENABLED	All Alarms Enabled
+ALARM_DAY0	Sunday
+ALARM_DAY1	Monday
+ALARM_DAY2	Tuesday
+ALARM_DAY3	Wednesday
+ALARM_DAY4	Thursday
+ALARM_DAY5	Friday
+ALARM_DAY6	Saturday
+ALARM_DELETE	Remove Alarm
+ALARM_DELETING	Removing Alarm...
+ALARM_EVERY_DAY	Every Day
+ALARM_FADE	Fade Alarms In
+ALARM_NEW	New Alarm
+ALARM_NEXT_ALARM	Next Alarm:
+ALARM_NOW_PLAYING	Alarm Clock Now Playing
+ALARM_OFF	Off
+ALARM_ON	On
+ALARM_SAVING	Saving Alarm...
+ALARM_SELECT_PLAYLIST	Alarm Sound
+ALARM_SET	Alarm Time
+ALARM_SET_DAYS	Choose Days
+ALARM_SET_TIME	Set Time
+ALARM_SHORT_DAY_0	Su
+ALARM_SHORT_DAY_1	Mo
+ALARM_SHORT_DAY_2	Tu
+ALARM_SHORT_DAY_3	We
+ALARM_SHORT_DAY_4	Th
+ALARM_SHORT_DAY_5	Fr
+ALARM_SHORT_DAY_6	Sa
+ALARM_SNOOZE	Snoozing Alarm...
+ALARM_SNOOZE_ENDED	Snooze Ended
+ALARM_STOPPED	Alarm Stopped
+ALARM_USE_CURRENT_PLAYLIST	Use Current Playlist
+ALARM_VOLUME	Alarm Volume
+ALARM_VOLUME_DESC	This setting allows you to choose the volume level that is used when an alarm goes off.
+ALBUM	Album
+ALBUMARTIST	Album Artist
+ALBUMLENGTH	Duration
+ALBUMREPLAYGAIN	Album Volume Adjustment
+ALBUMS	Albums
+ALBUMS_SORT_METHOD	Albums Sort Method
+ALBUM_DISPLAY_OPTIONS	Albumview options
+ALBUM_INFO	Album Info
+ALC	Apple Lossless
+ALCX	Apple Lossless leading audio
+ALL	all
+ALL_ALBUMS	All Albums
+ALL_ARTISTS	All Artists
+ALL_LIBRARY	All music library
+ALL_RELEASES	All Releases
+ALL_SONGS	All Songs
+ANALOGOUTMODE_ALWAYS_OFF	Always Off
+ANALOGOUTMODE_ALWAYS_ON	Always On
+ANALOGOUTMODE_HEADPHONE	Headphones
+ANALOGOUTMODE_SUBOUT	Subwoofer
+AND	and
+ANY_GENRE	Any Genre
+ANY_TYPE	Any File Format
+ANY_VALUE	Any Value
+APE	Monkey's Audio
+APPEARANCES	Appearances
+APPLY	Apply
+ARTIST	Artist
+ARTISTS	Artists
+ARTIST_INFO	Artist Info
+ARTWORK	Artwork
+ASF_UNABLE_TO_PARSE	Error: Unable to parse ASF audio stream
+ASX	ASX Playlist
+AS_VIRTUAL_LIBRARY	As Library View
+AUDIO_SETTINGS	Audio
+AUDIO_SOURCE_BALANCED_AES	Balanced AES/EBU
+AUDIO_SOURCE_BNC_SPDIF	BNC Coax S/PDIF
+AUDIO_SOURCE_OPTICAL_SPDIF	Optical S/PDIF (TOSLINK)
+AUDIO_SOURCE_RCA_SPDIF	RCA Coax S/PDIF
+BACKUP_ALARM	Backup Alarm
+BALANCE	Balance
+BAND	Band/Orchestra
+BASIC_PLAYER_SETTINGS	Basic Settings
+BASIC_SERVER_SETTINGS	Basic Settings
+BASS	Bass
+BEFORE	before
+BEHAVIOR_SETTINGS	My Music
+BITRATE	Bitrate
+BITS	Bits
+BLANK	Nothing
+BPM	Beats Per Minute
+BRIGHTNESS_AMBIENT	Automatic
+BRIGHTNESS_BRIGHTEST	Brightest
+BRIGHTNESS_DARK	Dark
+BRIGHTNESS_DIMMEST	Dimmest
+BROWSE	Browse
+BROWSE_ALBUMARTISTS	Browse Album Artists
+BROWSE_ALBUMS	Browse Albums
+BROWSE_ARTISTS	Browse Artists
+BROWSE_BY_ALBUM	Albums
+BROWSE_BY_ALBUMARTIST	Album Artists
+BROWSE_BY_ALL_ARTISTS	All Artists
+BROWSE_BY_ARTIST	Artists
+BROWSE_BY_ARTWORK	Artwork
+BROWSE_BY_GENRE	Genres
+BROWSE_BY_SONG	Songs
+BROWSE_BY_WORK	Works
+BROWSE_BY_YEAR	Years
+BROWSE_GENRES	Browse Genres
+BROWSE_MUSIC	Music Library
+BROWSE_MUSIC_FOLDER	Music Folder
+BROWSE_NEW_MUSIC	New Music
+BROWSE_ON_SERVICE	Browse on %s
+BROWSE_WORKS	Browse Works
+BROWSE_YEARS	Browse Years
+BUFFERING	Buffering
+BY	by
+BYTES	Bytes
+CANCEL	Cancel
+CANCEL_SLEEP	Sleep cancelled.
+CHANGE	Change
+CHECKVERSION_ERROR	There was an error while checking for updates to Lyrion Music Server:
+CHECKVERSION_PROBLEM	There was a problem while checking for updates to Lyrion Music Server. (Error code %s)
+CHOICE_OFF	Off
+CHOOSE_PLAYER	Choose Player
+CLEANUP	Cleanup
+CLEANUP1_PROGRESS	Database Cleanup #1
+CLEANUP2_PROGRESS	Database Cleanup #2
+CLEANUP_ALL	Wipe'em all - don't do this unless you know what you're doing!
+CLEANUP_CACHE	Clean cache folder, including media library database, artwork cache etc.
+CLEANUP_COMMAND_LINE	Command line options:
+CLEANUP_DB	Delete media information database
+CLEANUP_DELETING	Deleting
+CLEANUP_DRYRUN	Don't actually run the cleanup, but show which files and folders would be removed.
+CLEANUP_FILECACHE	Delete file cache for artwork, templates etc.
+CLEANUP_LOGS	Delete log files
+CLEANUP_PLEASE_RESTART_SC	Please restart Lyrion Music Server for the changes to take effect.
+CLEANUP_PLEASE_STOP_SC	Please Stop Lyrion Music Server before running the cleanup.
+CLEANUP_PREFS	Delete preference files
+CLEANUP_USAGE	Usage
+CLEAR	Clear
+CLEARING_PLAYLIST	Clearing Playlist...
+CLEAR_PLAYLIST	Clear Playlist
+CLICK_HERE	Click here
+CLOCK	Clock
+CLOCKSOURCE_INTERNAL	Internal Clock
+CLOCKSOURCE_WORD_CLOCK	Word Clock Input
+CLOSE	Close
+COLLAPSE	Collapse
+COLON	:
+COMMAND	Command
+COMMENT	Comment
+COMMUNITY_FORUM	Community Forums
+COMPILATION	Compilation
+COMPILATIONS	Compilations
+COMPLETE	Complete
+COMPOSER	Composer
+COMPOSERALBUMS	Composer Albums
+COMPOSITIONS	Compositions
+CONDUCTOR	Conductor
+CONFIRM_DELETE	Confirm Delete
+CONFIRM_OVERWRITE	Confirm Overwrite
+CONNECTING_FOR	Connecting...
+CONTINUE_TO_SQUEEZEBOX_SERVER	Continue to Lyrion Music Server to manage settings for accessing your personal media library.
+CONTRIBUTOR_PICTURE_PROGRESS	Looking for contributor pictures
+CONTROLPANEL_NO_UPDATE_AVAILABLE	There's no updated Lyrion Music Server version available.
+CONTROLPANEL_REFRESH	Refresh
+CONTROLPANEL_UPDATE_AVAILABLE	An updated version of Lyrion Music Server is available and ready to install.
+CONVERTED_TO	Converted to
+COPYRIGHT	© 2001-2026 Lyrion Version 9.2.0
+COVERART	Artwork
+CSRF_ERROR_INFO	In order to request this URL from a Bookmark/Favorite, or some means other than following a link from the Lyrion Music Server web interface, you will need to use a URL with a \"cauth\" security parameter. If you received this error when following a link from the Lyrion Music Server web interface, you will want to make sure your web browser software (including proxy servers and spyware/privacy software) is allowing \"Referer\" headers to be sent. Below is the appropriate URL for the URL you attempted.
+CSRF_ERROR_MEDIUM	<p>Because your CSRF protection level is set at 'MEDIUM', you can use the same &quot;;cauth=&quot; value for any URL; this means you should be more careful who you share your URLs with.</p>
+CURRENT_PLAYER	Current player:
+CURRENT_PLAYLIST	The current playlist
+DATABASE_VERSION	Database Version
+DATE	Date
+DBOPTIMIZE_PROGRESS	Database Optimize
+DEBUGGING_ADVANCED	Advanced Log Settings
+DEBUGGING_SETTINGS	Logging
+DEBUG_ARTWORK	Artwork Display & Matching
+DEBUG_ARTWORK_IMAGEPROXY	Artwork Resizing Proxy
+DEBUG_CONTROL_COMMAND	Internal Command Execution Logging (Advanced)
+DEBUG_CONTROL_QUERIES	Control Query Logging (Advanced)
+DEBUG_CONTROL_STDIO	Standard I/O Command Logging (Advanced)
+DEBUG_DATABASE_INFO	Metadata & Parsing Logging
+DEBUG_DATABASE_MYSQL	MySQL Initialization & Process Information
+DEBUG_DATABASE_SQL	SQL Logging (Advanced)
+DEBUG_DATABASE_VIRTUALLIBRARIES	Library Views (virtual libraries)
+DEBUG_DEFAULT	Reset logging preferences
+DEBUG_FACTORYTEST	Information used during factory testing
+DEBUG_FAVORITES	Favorites Saving & Playing
+DEBUG_FORMATS_AUDIO	File Metadata & Audio Parsing Information
+DEBUG_FORMATS_METADATA	Remote stream metadata information
+DEBUG_FORMATS_PLAYLISTS	Playlist Parsing Information
+DEBUG_FORMATS_XML	XML Parsing Information (Picks, SHOUTcast, etc)
+DEBUG_MENU_TRACKINFO	Track information menu
+DEBUG_NETWORK_ASYNCDNS	Asynchronous DNS Logging
+DEBUG_NETWORK_ASYNCHTTP	Asynchronous Remote HTTP Request Information
+DEBUG_NETWORK_COMETD	Cometd protocol logging
+DEBUG_NETWORK_HTTP	Internal HTTP Server Logging
+DEBUG_NETWORK_JSONRPC	JSON-RPC API Logging
+DEBUG_NETWORK_PROTOCOL	All Player Protocol Logging
+DEBUG_NETWORK_PROTOCOL_SLIMP3	SliMP3 Protocol
+DEBUG_NETWORK_PROTOCOL_SLIMPROTO	SlimProto (Squeezebox / Transporter) Protocol
+DEBUG_NETWORK_REPOSITORIES	Download repositories for extensions, update etc.
+DEBUG_NETWORK_UPNP	UPnP Server & Device Information
+DEBUG_NETWORK_WS	Web Sockets Client Information
+DEBUG_OS_FILES	Filesystem Level Information
+DEBUG_OS_PATHS	Filesystem Path Parsing
+DEBUG_PLAYER_ALARMCLOCK	Player Alarm Clock Logging
+DEBUG_PLAYER_DISPLAY	Player Display Information
+DEBUG_PLAYER_FIRMWARE	Player Firmware Upgrade Logging
+DEBUG_PLAYER_FONTS	Player Display (Font & Bitmap Information)
+DEBUG_PLAYER_IR	Infrared Activity & Map Parsing
+DEBUG_PLAYER_JIVE	Support for Squeezplay based devices
+DEBUG_PLAYER_MENU	Player Menu Logging
+DEBUG_PLAYER_PLAYLIST	High Level Player Playlist Control Information
+DEBUG_PLAYER_SOURCE	Player Source Audio & Conversion Logging
+DEBUG_PLAYER_STREAMING	All Player Streaming Logging
+DEBUG_PLAYER_STREAMING_DIRECT	Player Direct Streaming Logging
+DEBUG_PLAYER_STREAMING_REMOTE	Player Remote Streaming Logging
+DEBUG_PLAYER_SYNC	Multi-Player Synchronization Logging
+DEBUG_PLAYER_TEXT	Player Display (Character Display Information)
+DEBUG_PLAYER_UI	Player User Interface Information
+DEBUG_PLAYER_UI_SCREENSAVER	Player Screensaver Logging
+DEBUG_PLUGIN_ITUNES	iTunes Synchronization Information
+DEBUG_PLUGIN_MUSICIP	MusicIP Mix & Export Logging
+DEBUG_PREFS	Preference Setting & Saving
+DEBUG_RADIO	Internet Radio
+DEBUG_SCAN	All Scan Logging
+DEBUG_SCANNER_CHOOSE	Media Scanner
+DEBUG_SCAN_AUTO	Automatic Media & Playlist Scanning
+DEBUG_SCAN_IMPORT	File & Playlist Metadata Import Logging
+DEBUG_SCAN_SCANNER	Media & Playlist Folder Scanning
+DEBUG_SELECT_SET	Please select log set...
+DEBUG_SERVER	General Server Information
+DEBUG_SERVER_CHOOSE	Server
+DEBUG_SERVER_MEMORY	Server Memory Usage (Advanced)
+DEBUG_SERVER_PLUGINS	Plugin Module Loading
+DEBUG_SERVER_SCHEDULER	Internal Scheduler Logging
+DEBUG_SERVER_SELECT	Internal Select Loop Logging (Advanced)
+DEBUG_SERVER_TIMERS	Internal Timer Information
+DEBUG_SERVER_UPDATE	Information about automatic software update downloads
+DEBUG_TRANSCODING	Transcoder
+DEBUG_WIZARD	Setup Wizard activity logging
+DECODER	Decoder
+DECODE_ERROR_100	Too many channels
+DECODE_ERROR_101	Out of memory
+DECODE_ERROR_102	Invalid sample rate
+DECODE_ERROR_103	Not a Vorbis file
+DECODE_ERROR_104	Bad Vorbis header
+DECODE_ERROR_200	WMA superframes not supported
+DECODE_ERROR_201	WMA Lossless not supported
+DEFAULT_MAP	Standard
+DEFAULT_SKIN	Default
+DELETE	Delete
+DELETE_WARNING	Are you sure you want to delete? Check 'confirm delete' to delete your playlist.
+DESCRIPTION	Description
+DFF	DFF
+DIGITALOUTPUTENCODING_AESEBU	AES/EBU
+DIGITALOUTPUTENCODING_SPDIF	S/PDIF
+DIR	Directory
+DIRECTORY_CHANGED_PROGRESS	Scanning changed files
+DIRECTORY_DELETED_PROGRESS	Removing deleted files
+DIRECTORY_MEDIA_PROGRESS	Scanning new media files
+DIRECTORY_NEW_PROGRESS	Scanning new music files
+DIRECTORY_PROGRESS	Directory Scan
+DISABLE	Disable
+DISABLED	Disabled
+DISABLEDAC_ALWAYSON	Outputs always on
+DISABLEDAC_WHENOFF	Disable outputs when off
+DISC	Disc
+DISCOVERING_DIRECTORY_PROGRESS	Discovering files/directories
+DISCOVERING_FILES_PROGRESS	Discovering music files/directories
+DISCOVERING_PLAYLIST_PROGRESS	Discovering playlists
+DISCSUBTITLE	Set/Album Subtitle
+DISPLAY_SETTINGS	Display
+DONT_USE_MUSICMAGIC	Don't use MusicIP
+DOUBLE_LINE	Large Text
+DOWN	Down
+DOWNLOAD	Download
+DOWNLOADARTWORK_PROGRESS	Downloading Artwork
+DO_NOT_SYNC	No Sync
+DRM	This file is locked by Digital Rights Management
+DSF	DSF
+EDIT	Edit
+EDIT_PLAYLIST	Edit Playlist
+ELAPSED	Elapsed Time
+EMPTY	Empty
+ENABLE	Enable
+ENABLED	Enabled
+EN_SKIN	Light
+EQUALS	equals
+ERROR_PLAYLIST_ALMOST_FULL	Playlist full: %s of %s tracks added
+ERROR_PLAYLIST_FULL	Playlist full; no tracks added
+EVERYTHING	Everything
+EXECUTE	Execute
+EXPAND	Expand
+EXTERNAL_ID	External ID
+FAILURE_PROGRESS	Media scan terminated unexpectedly (%s)
+FAQ	Frequently Asked Questions
+FAVORITES	Favorites
+FAVORITES_ADDING	Saving favorites...
+FAVORITES_DELETING	Removing favorite...
+FAVORITES_RIGHT_TO_DELETE	Remove Favorite
+FEC	FLAC with embedded CUEsheet
+FFWD	Fast Forward
+FILELENGTH	File Length
+FILENAME_WARNING	Illegal characters in name, Please edit.
+FILE_FORMAT	File Format
+FIRMWARE_MISSING	Error: Missing Firmware
+FIRMWARE_MISSING_DESC	Server can't connect to Internet to obtain firmware update.
+FIRST	First
+FIRST_N_ALBUMS	(first %s albums)
+FIXED_VOLUME	Fixed Volume
+FIXED_VOLUME_100	Fixed Volume 100%
+FLC	FLAC
+FOLDER	Folder
+FOLDERS	Folders
+FOLDER_INFO	Folder Info
+FOR	for
+FORGET_PLAYER	Forget Player
+FORGET_PLAYER_DESC	If you no longer are using this player or this player appears twice in your list of players, you can choose to have Lyrion Music Server forget about this player.
+FORGET_PLAYER_LINK	Forget this player
+FORMATS_SETTINGS	File Types
+FORMATTING_SETTINGS	Formatting
+FOUND	found
+FREE_YOUR_MUSIC	Free your music
+FROM	from
+FULL	Full
+FULL_N	Full Narrow
+FXLOOPCLOCK_ASYNCHRONOUS	Asynchronous: External processor is master
+FXLOOPCLOCK_SYNCHRONOUS	Synchronous: Transporter is master
+FXLOOPSOURCE_DISABLED	Disabled
+GALLERY	Gallery
+GAMES	Games
+GENRE	Genre
+GENRES	Genres
+GENRE_INFO	Genre Info
+GETTING_STREAM_INFO	Getting stream info...
+GETTING_TRACK_DETAILS	Fetching track details...
+GLOBAL_SEARCH	Search
+GLOBAL_SEARCH_IN	Search %s in:
+GREATERTHAN	greater than
+HELP	Help
+HELP_REMOTE	Remote Control Reference
+HERE	here
+HIDE_ARTWORK	Hide Artwork
+HIGH	High
+HOME	Home
+HOMEMENU	Home
+HOME_SCAN_WARNING	Lyrion Music Server is still scanning your media library. Please be patient as this may take a while.
+HUGE	Huge
+IMPORTER_PROGRESS	Scanning Progress
+IMPORTER_PROGRESS_DESC	This page shows the progress of each phase of the scanning process.
+INFORMATION	Information
+INFORMATION_ALBUMS	Total Albums
+INFORMATION_ARCHITECTURE	Platform Architecture
+INFORMATION_ARCHITECTURE_ABBR	Platform
+INFORMATION_ARTISTS	Total Artists
+INFORMATION_BINDIRS	Helper Applications Folder
+INFORMATION_CACHEDIR	Cache Folder
+INFORMATION_CLIENTS	Total Players Recognized
+INFORMATION_DIAGSTRING	Version Info
+INFORMATION_DISABLED	DISABLED
+INFORMATION_FIRMWARE	Player Firmware Version
+INFORMATION_FIRMWARE_ABBR	Firmware
+INFORMATION_GENRES	Total Genres
+INFORMATION_HOSTNAME	Hostname
+INFORMATION_INSTALLED	Installed
+INFORMATION_MENU_LIBRARY	Library Statistics
+INFORMATION_MENU_MODULE	Plugin Modules
+INFORMATION_MENU_PERL	Perl and Module Versions
+INFORMATION_MENU_PLAYER	Player Information
+INFORMATION_MENU_SERVER	Lyrion Music Server
+INFORMATION_OPERATINGSYSTEM	Operating system
+INFORMATION_OPERATINGSYSTEM_ABBR	OS
+INFORMATION_PLAYER_IP	Player IP Address
+INFORMATION_PLAYER_IP_ABBR	IP
+INFORMATION_PLAYER_MAC	Player MAC Address
+INFORMATION_PLAYER_MAC_ABBR	MAC
+INFORMATION_PLAYER_MODEL	Player Model
+INFORMATION_PLAYER_MODEL_ABBR	Model
+INFORMATION_PLAYER_NAME	Squeezebox Name
+INFORMATION_PLAYER_NAME_ABBR	Name
+INFORMATION_PLAYER_PORT	Player Port Number
+INFORMATION_PLAYER_PORT_ABBR	Port
+INFORMATION_PLAYER_SIGNAL_STRENGTH	Wireless Signal Strength
+INFORMATION_PLAYER_SIGNAL_STRENGTH_ABBR	Wireless Signal
+INFORMATION_PLAYER_VOLTAGE	Voltage
+INFORMATION_PLAYER_VOLTAGE_ABBR	Voltage
+INFORMATION_PLAYLISTS	Total Playlists
+INFORMATION_PLUGINDIRS	Plugin Folders
+INFORMATION_PREFSDIR	Preferences Folder
+INFORMATION_SERVER_HTTP	Server HTTP Port Number
+INFORMATION_SERVER_HTTP_ABBR	HTTP Port
+INFORMATION_SERVER_IP	Server IP Address
+INFORMATION_SERVER_IP_ABBR	IP
+INFORMATION_SERVER_PORT	Server Port Number
+INFORMATION_SPECIFIC_PLAYER	%s Information
+INFORMATION_TIME	Total Playing Time
+INFORMATION_TRACKS	Total Tracks
+INFORMATION_VERSION	Version
+INSERT	Insert
+INSERT_TO_PLAYLIST	Adding to play next:
+INSERT_TO_PLAYLIST_DBL	Adding
+INSTALLERROR_FAILED_TO_LOAD	Plugin failed to load
+INSTALLERROR_INCOMPATIBLE_PLATFORM	Plugin is incompatible with your platform.
+INSTALLERROR_INVALID_VERSION	Plugin is incompatible with this version of Lyrion Music Server. Please update.
+INTERFACE_SETTINGS	Interface
+INTERNET_RADIO	Radio
+IS	is
+ITEMS	Items
+ITUNES	iTunes
+ITUNES_ARTWORK_PHASE_1_PROGRESS	iTunes Downloaded Artwork Import
+ITUNES_ARTWORK_PHASE_2_PROGRESS	iTunes User-Added Artwork Import
+ITUNES_DESC	iTunes integration
+ITUNES_IGNORED_PLAYLISTS_DEFAULTS	Library, Videos, Movies, TV Shows, Music, Purchased, Rented Movies, Downloaded
+ITUNES_PLAYLISTS_PROGRESS	iTunes Playlist Import
+ITUNES_PODCASTS	iTunes Podcasts
+ITUNES_PROGRESS	iTunes Import
+JIVE_ALARMSET_HELP	Use the scroll wheel to change clock digits, then press the center button to select that digit. Press the center button after time is entered to set the alarm time.
+JIVE_ALLOWEDCHARS_NOCAPS	 abcdefghijklmnopqrstuvwxyz!@#$%^&*()_+{}|:\"'<>?-=,./~`[];0123456789
+JIVE_ALLOWEDCHARS_WITHCAPS	 abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+{}|:\"'<>?-=,./~`[];0123456789
+JIVE_CHANGEPLAYERNAME_HELP	Use the scroll wheel to change letters, then press the center button to select that letter. Press the center button again to change the name of your player.
+JIVE_DELETE_FROM_FAVORITES	Delete Favorite
+JIVE_DELETE_PLAYLIST	Delete Playlist\n%s
+JIVE_OVERWRITE_PRESET_X	Replace %s?
+JIVE_PLAYER_DISPLAY_SETTINGS	Player Display
+JIVE_PLAY_ALL_SONGS	Play all songs
+JIVE_POPUP_ADDING	Adding
+JIVE_POPUP_ADDING_TO_PLAYLIST	Adding\n%s\nto Playlist...
+JIVE_POPUP_ADDING_TO_PLAY_NEXT	Adding\n%s\nto play next...
+JIVE_POPUP_NOW_PLAYING	Now Playing\n%s
+JIVE_POPUP_TO_PLAY_NEXT	to play next...
+JIVE_SAVEPLAYLIST_HELP	Use the scroll wheel to change letters, then press the center button to select that letter. Press the center button again to save the playlist.
+JIVE_SAVE_TO_FAVORITES	Save to Favorites
+JIVE_SEARCHFOR_HELP	Use the scroll wheel to change letters, then press the center button to select that letter. Press the center button again to start your search.
+JIVE_SET_PRESET_X	Set Preset %s
+JIVE_SQUEEZEBOX_INFORMATION	Squeezebox Information
+JIVE_TURN_PLAYER_OFF	Turn Off %s
+JIVE_TURN_PLAYER_ON	Turn On %s
+KBPS	kbps
+LAME0	Highest Quality, very slow
+LAME9	Poor Quality, but fast
+LANGUAGE	Language
+LANGUAGE_CHOICES	English
+LARGE	Large
+LAST	Last
+LASTPLAYED	Last Played
+LCALBUMS	albums
+LCARTISTS	artists
+LCMUTED	muted
+LCSONGS	songs
+LENGTH	Duration
+LESSTHAN	less than
+LIBRARY_CONTAINS	Your media library contains
+LIBRARY_NOT_READY	No music library configured or not ready to be used
+LIGHT	Light
+LIGHT_N	Light Narrow
+LINES	lines
+LINE_IN_ALWAYS_ON	Line In Always On
+LINE_IN_ALWAYS_ON_DESC	This option turns on the line input all the time, to let users who want to mix in the line in all the time (eg. for Karaoke)
+LINE_IN_LEVEL	Line In Level
+LINE_IN_LEVEL_DESC	Using this setting you can adjust the line in gain.
+LOADING	Loading...
+LOADING_SQUEEZEBOX_SERVER	Loading Lyrion Music Server...
+LOCALE	en_US
+LOCALE_WIN	enu_usa
+LOCAL_RATING_STORAGE	Lyrion Music Server Database
+LOCATION	Location
+LOGIC_SKIN	Logic Teal
+LOGIN	Sign In
+LOW	Low
+LYRICS	Lyrics
+M3U	M3U Playlist
+M4P	Protected AAC
+MEDIUM	Medium
+MENU_SETTINGS	Menus
+MERGEVA_PROGRESS	Merge Various Artists
+MIDWORDS_UPPER	0
+MINUTES	minutes
+MMMMIXTYPE_MBYTES	Number of MegaBytes
+MMMMIXTYPE_MIN	Number of Minutes
+MMMMIXTYPE_TRACKS	Number of Tracks
+MMS	Microsoft Media Server
+MODIFIED	Modified
+MODTIME	Date Modified
+MORE	More
+MOREINFO	More Info
+MORE_ON_GITHUB	Check out changes on Github...
+MOSTPLAYED	Most Played Songs
+MOV	QuickTime Movie
+MOVEDOWN	Move Down
+MOVEUP	Move Up
+MP2	MP2
+MP3	MP3
+MP3_STREAMING_DIRECT	Direct Streaming
+MP3_STREAMING_PROXIED	Proxied Streaming
+MP4	MPEG-4
+MP4X	MPEG-4 leading audio
+MPC	Musepack
+MUSIC	Music
+MUSICIP_CREATEMIX	Create MusicIP Mix
+MUSICIP_DUPLICATES	Duplicates (MusicIP)
+MUSICIP_MIXABLE_CHECK	Only read mixable status from MusicIP (faster)
+MUSICIP_PATH_CONVERSION	Path Conversion
+MUSICIP_PATH_CONVERSION_DESC	If MusicIP reports song paths that don't match what Lyrion Music Server expects (for example when MusicIP itself runs under Wine and reports Windows-style paths, or when running MusicIP on a different host with a different mount layout), enable this and configure a source and destination path to have them translated automatically.
+MUSICIP_PATH_CONVERSION_DEST	Lyrion path (destination)
+MUSICIP_PATH_CONVERSION_ENABLE	Enable Path Conversion
+MUSICIP_PATH_CONVERSION_SOURCE	MusicIP path (source)
+MUSICIP_PLAYTHISMIX	Play this mix
+MUSICIP_PROGRESS	MusicIP Import
+MUSICIP_READSONGDATA	Import all song data from MusicIP (slower)
+MUSICMAGIC	MusicIP
+MUSICMAGIC_DESC	MusicIP integration
+MUSICMAGIC_MIX	MusicIP Mix
+MUSICMAGIC_MIXING	MusicIP Mixing
+MUSICMAGIC_MIXRIGHT	(Go right to Mix)
+MUSICMAGIC_MOODS	MusicIP Mood Mix
+MUSICSOURCE	Music Source
+MUSICSOURCE_SWITCH	Please select the music source you'd like to connect your player to.
+MUSIC_PLAYER	Music Player
+MUSIC_SERVICES	Music Services
+MUSIC_STORES	Music Stores
+MUTE	Mute
+MUTED	Muted
+MY_MUSIC	My Music
+NAME	Name:
+NATIVE	Native
+NETWORK_SETTINGS	Network
+NEXT	Next
+NO	No
+NONE	None
+NOT	not
+NOTE	Note:
+NOTHING	Nothing
+NOTHING_CURRENTLY_PLAYING	Nothing currently playing
+NOT_IN_RANGE	not in range
+NOT_IN_TEXTSEARCH	not in text search
+NOW_PLAYING	Now Playing
+NOW_PLAYING_FROM	Now playing from:
+NOW_PLAYING_FROM_DBL	Playing
+NO_ALBUM	No Album
+NO_ARTIST	No Artist
+NO_GENRE	No Genre
+NO_LIBRARY	No media library configured
+NO_LIMIT	No Limit
+NO_PLAYER_DETAILS	<b>If you own a Squeezebox or Transporter:</b><ul><li>Make sure that your player is plugged in and its networking settings are correct. Click the Refresh button once your player is connected.</ul><p><b>If you do not own a Squeezebox or Transporter:</b><ul><li>You can listen to your music library using <a target="_top" href="/html/softsqueeze/index.html">SoftSqueeze</a>, a software version of Squeezebox.<li>You can use MP3 player software (such as Winamp or iTunes) to listen to your music library with Lyrion Music Server by connecting to this URL: <a target="stream" href="http://localhost:9000/stream.mp3">http://localhost:9000/stream.mp3</a></ul>
+NO_PLAYER_FOUND	Your player was not found.
+NO_PLAYLIST_DIR	Problem: No Saved Playlist folder.
+NO_PLAYLIST_DIR_MORE	Visit Server Settings to fix this.
+NO_SEARCH_RESULTS	No search results
+NO_TAGS_FOUND	No tags found
+NO_TITLE	No Title
+NUMBER_OF_LISTENERS	Number of listeners
+OF	of
+OFF	off
+OFFDISPLAYSIZE	Standby Text Size
+OGF	Ogg FLAC
+OGG	Ogg Vorbis
+ON	on
+ONE	one
+ONLINE_LIBRARY_DELETED_PROGRESS	Removing online library tracks
+OPS	Opus
+OUTPUT_CHANNELS_COMBINED	Both Channels (Mono)
+OUTPUT_CHANNELS_LEFT	Left Channel
+OUTPUT_CHANNELS_NORMAL	Both Channels (Stereo)
+OUTPUT_CHANNELS_RIGHT	Right Channel
+OUT_OF	of
+PAGES	Pages
+PATH	Path
+PAUSE	Pause
+PAUSED	Paused
+PAUSED_ON	Now paused on
+PCM	PCM
+PERFORMANCE_SETTINGS	Performance
+PERL_VERSION	Perl Version
+PERSIST_DEBUG_SETTINGS	Save logging settings for use at next application restart
+PICTURE	Picture
+PITCH	Pitch
+PLAY	Play
+PLAYCOUNT	Play Count
+PLAYER	Player
+PLAYERS	Players
+PLAYER_BRIGHTNESS	Player Brightness
+PLAYER_NEEDS_UPGRADE	Software Update Required
+PLAYER_NEEDS_UPGRADE_1	Software Update
+PLAYER_NEEDS_UPGRADE_2	Press and hold BRIGHTNESS to begin.
+PLAYER_NEEDS_UPGRADE_DETAILS	The software in your player needs to be updated to the latest version.  Please press and hold the BRIGHTNESS button until the display on your player indicates that the update has begun.  The update only takes a few seconds.
+PLAYER_SETTINGS	Player Settings
+PLAYER_TYPE	Player Type
+PLAYER_UPGRADE_INSTRUCTIONS	If the IP address of your player is not displayed on its screen, press and hold the BRIGHTNESS button until it is.  Then enter the IP address displayed on the screen here:
+PLAYING	Now Playing
+PLAYING_RANDOMLY_FROM	Playing shuffled from:
+PLAYING_RANDOMLY_FROM_DBL	Play shuffled
+PLAYLIST	Playlist
+PLAYLISTS	Playlists
+PLAYLIST_AS	Save current playlist as:
+PLAYLIST_CANT_WRITE	Playlist could not be saved.
+PLAYLIST_CHANGED_PROGRESS	Scanning changed playlists
+PLAYLIST_DELETED_PROGRESS	Removing deleted playlists
+PLAYLIST_EMPTY	Playlist Empty
+PLAYLIST_INFO	Playlist Info
+PLAYLIST_NEW_PROGRESS	Scanning new playlists
+PLAYLIST_NO_ITEMS_FOUND	Error: No items found in playlist
+PLAYLIST_OVERWRITE	Go right to replace existing playlist:
+PLAYLIST_PROGRESS	Playlist Scan
+PLAYLIST_SAVE	Right again to save playlist as:
+PLAYLIST_SAVING	Saving current playlist as:
+PLAYLIST_SHORT	Playlist
+PLAYTIME	Playtime
+PLAY_NEXT	Play Next
+PLAY_THIS_SONG	Play this Song
+PLS	PLS Playlist
+PLUGINS	Extras
+PLUGINS_CHANGED	Changes will take place at the next application restart for the following plugins:
+PLUGINS_CHANGED_NEED_RESTART	Changes will take place at the next application restart. <a href="%s">Please click here to restart the server now.</a>
+PLUGINS_RESTART_MSG	Plugins have been updated - Restart Required
+PLUGINS_UPDATES_AVAILABLE	Plugin updates are available
+PLUGIN_ACL_FILETEST	Enable ACL filetests
+PLUGIN_ACL_FILETEST_DESC	This plugin allows you to check file permissions based on ACLs on some systems. Do not enable this plugin unless you know your system does support ACLs and Perl's 'use filetest'.
+PLUGIN_ANALYTICS_MODULE_DESC	Share your server version, number of players, number of tracks, installed plugins, operating system, Perl version, skin used, and the hardware platform with the LMS Community. This will help us prioritize further development. Thanks for enabling this plugin! Learn more on <a href="https://lyrion.org/analytics/learn-more/" target="_blank">https://lyrion.org/analytics/learn-more/</a>.
+PLUGIN_ANALYTICS_MODULE_NAME	Report Analytics Data
+PLUGIN_ARTWORK_ADDED_TO_IGNORELIST	Will no longer search for artwork
+PLUGIN_ARTWORK_DONT_SEARCH_FOR_ARTWORK	Don't search for title artwork on this station
+PLUGIN_ARTWORK_REMOVED_FROM_IGNORELIST	Will search for track artwork
+PLUGIN_ARTWORK_SEARCH_FOR_ARTWORK	Search for title artwork if possible
+PLUGIN_ARTWORK_SETTINGS_IGNORELIST	Don't look up artwork for the following radio stations (one URL per line):
+PLUGIN_AUDIOSCROBBLER_BADAUTH	Invalid Last.fm username or password.
+PLUGIN_AUDIOSCROBBLER_BADTIME	Unable to handshake with Last.fm because your system clock is incorrect. Please update your clock and try again.
+PLUGIN_AUDIOSCROBBLER_BANNED	This version of Lyrion Music Server appears to have been banned by Last.fm, please upgrade to a newer version.
+PLUGIN_AUDIOSCROBBLER_IGNORE_ALBUMS	Ignore Album Titles
+PLUGIN_AUDIOSCROBBLER_IGNORE_ALBUMS_DESC	Define a comma separated list of album names. Tracks which match one of these strings will not be scrobbled.
+PLUGIN_AUDIOSCROBBLER_IGNORE_ARTISTS	Ignore Artists
+PLUGIN_AUDIOSCROBBLER_IGNORE_ARTISTS_DESC	Define a comma separated list list of artist names. Tracks which match one of these strings will not be scrobbled.
+PLUGIN_AUDIOSCROBBLER_IGNORE_GENRES	Ignore Genres
+PLUGIN_AUDIOSCROBBLER_IGNORE_GENRES_DESC	Define a comma separated list list of genres. Tracks which match one of these strings will not be scrobbled.
+PLUGIN_AUDIOSCROBBLER_IGNORE_TITLES	Ignore Titles
+PLUGIN_AUDIOSCROBBLER_IGNORE_TITLES_DESC	Define a comma separated list of titles or names. Tracks which match one of these strings will not be scrobbled.
+PLUGIN_AUDIOSCROBBLER_LASTFM	Last.fm
+PLUGIN_AUDIOSCROBBLER_LISTENBRAINZ	ListenBrainz
+PLUGIN_AUDIOSCROBBLER_LISTENBRAINZ_LABEL	ListenBrainz API (Experimental)
+PLUGIN_AUDIOSCROBBLER_LOVE_TRACK	Last.fm: Love this track
+PLUGIN_AUDIOSCROBBLER_MODULE_NAME	Audioscrobbler
+PLUGIN_AUDIOSCROBBLER_SCROBBLING_DISABLED	Do not scrobble
+PLUGIN_AUDIOSCROBBLER_TRACK_LOVED	This track has been loved.
+PLUGIN_AUDIOSCROBBLER_USE_ACCOUNT	Use account: %s
+PLUGIN_AUDIOSCROBBLER_VALID_LOGIN	Successfully verified Last.fm username and password.
+PLUGIN_AUDIO_ADDICT_DESC	AudioAddict - providing access to ClassicalRadio, DI.fm, JazzRadio, RadioTunes, RockRadio, ZenRadio
+PLUGIN_AUDIO_ADDICT_NAME	AudioAddict
+PLUGIN_CLASSICALRADIO_DESC	ClassicalRadio.com - Beautifully Curated Classical Music
+PLUGIN_CLASSICALRADIO_LINK	To create or manage your account please visit <a href="https://www.classicalradio.com" target="_blank">ClassicalRadio.com</a>.
+PLUGIN_CLASSICALRADIO_MISSING_CREDS	Please visit ClassicalRadio.com in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_CLASSICALRADIO_NAME	ClassicalRadio.com
+PLUGIN_CLI	Command Line Interface (CLI)
+PLUGIN_CLI_DESC	The Command Line Interface plugin allows Squeezebox software and the players to be controlled remotely over a TCP/IP connection, for example by a third party automation system like AMX or Crestron.
+PLUGIN_DIGITAL_INPUT	Digital Inputs
+PLUGIN_DIGITAL_INPUT_BALANCED_AES	Balanced AES/EBU
+PLUGIN_DIGITAL_INPUT_BNC_SPDIF	BNC Coax S/PDIF
+PLUGIN_DIGITAL_INPUT_CHOOSE_BELOW	Choose a Digital Input option below:
+PLUGIN_DIGITAL_INPUT_DESC	Digital Input for Transporter
+PLUGIN_DIGITAL_INPUT_OPTICAL_SPDIF	Optical S/PDIF (TOSLINK)
+PLUGIN_DIGITAL_INPUT_RCA_SPDIF	RCA Coax S/PDIF
+PLUGIN_DI_FM_DESC	DI.FM - Addictive Electronic Music
+PLUGIN_DI_FM_LINK	To create or manage your account please visit <a href="https://www.di.fm" target="_blank">DI.FM</a>.
+PLUGIN_DI_FM_MISSING_CREDS	Please visit DI.FM in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_DI_FM_NAME	DI.FM - Digitally Imported
+PLUGIN_DNDPLAY	Drag & drop music files to play
+PLUGIN_DNDPLAY_DESC	This plugin allows you do drag and drop audio files from your desktop's file manager (Finder, Explorer etc.) to the Lyrion Music Server web interface to play them back. Files which are not available from the Lyrion Music Server are temporarily transfered for the playback.
+PLUGIN_DNDPLAY_FILE_TOO_LARGE	File size (%s) exceeds maximum upload size (%s).
+PLUGIN_DNDPLAY_INVALID_DATA	Invalid request.
+PLUGIN_DNDPLAY_MAX_FILESIZE	Maximum Upload Size (in MB)
+PLUGIN_DNDPLAY_MAX_FILESIZE_DESC	Uploading files to the server will require considerable amounts of memory on the server. The maximum file size therefore is limited to 100MB by default. If you feel a need to be able to play larger files, and your server offers the additional resources, you can adjust the maximum accepted file size here.
+PLUGIN_DNDPLAY_NO_ITEMS	No playable items found. Only audio files can be played.
+PLUGIN_DNDPLAY_NO_PLAYER_CONNECTED	Cannot play music without a player connected.
+PLUGIN_DNDPLAY_SHORT	Drag & Drop Music Files
+PLUGIN_DSTM	Don't Stop The Music
+PLUGIN_DSTM_DESC	Don't Stop The Music will make sure you don't let the silence kill your flow. Once you reach the end of your playlist it will automatically add music similar to what you've been listening to.
+PLUGIN_DSTM_HELP	Select what you'd like to play once a playlist has come to an end. The choice can vary, depending on the plugins you've installed and configured.
+PLUGIN_EXTENDED_BROWSEMODES	Additional Browse Modes
+PLUGIN_EXTENDED_BROWSEMODES_ALL_LIBRARY	All Library (Default)
+PLUGIN_EXTENDED_BROWSEMODES_APPLY_TO	Apply to:
+PLUGIN_EXTENDED_BROWSEMODES_ARTISTS_RECENTLY_PLAYED	Recently Played Artists
+PLUGIN_EXTENDED_BROWSEMODES_AUDIOBOOKS	Audiobooks
+PLUGIN_EXTENDED_BROWSEMODES_AUDIOBOOKS_DESC	Create an Audiobooks library view and a view without audio books based on the following genres:
+PLUGIN_EXTENDED_BROWSEMODES_AUDIOBOOK_GENRES	Audiobook, Audiobooks, Spoken, Speech, Comedy, Spoken & Audio, Books & Spoken, Cabaret, Humour, Podcast
+PLUGIN_EXTENDED_BROWSEMODES_AUTHORS	Authors
+PLUGIN_EXTENDED_BROWSEMODES_BROWSEFS	Disks and folders
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY	Browse by:
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY_ALBUMARTIST	Album Artists
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY_CLASSICAL_MUSIC_BY_CONDUCTOR	Classical Music by Conductor
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY_COMPOSERS	Composers
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY_JAZZ_COMPOSERS	Jazz Composers
+PLUGIN_EXTENDED_BROWSEMODES_BROWSE_BY_PLAYLIST_FOLDER	Playlists Folder
+PLUGIN_EXTENDED_BROWSEMODES_COMPILATIONS	Compilations
+PLUGIN_EXTENDED_BROWSEMODES_CONTRIBUTOR_HINT	Contributor roles:
+PLUGIN_EXTENDED_BROWSEMODES_DELETED	Library View Deleted
+PLUGIN_EXTENDED_BROWSEMODES_DESC	Create additional browse modes to browse your music library by Album Artists, Composers, select Genres and more.
+PLUGIN_EXTENDED_BROWSEMODES_FLOP_TRACKS	Flop Tracks
+PLUGIN_EXTENDED_BROWSEMODES_LOSSLESS_PREFERRED	Hide lossy duplicates if lossless track is available
+PLUGIN_EXTENDED_BROWSEMODES_LOSSLESS_PREFERRED_DESC	Create a library view which tries to suppress duplicate tracks by hiding lossy versions if a lossless version of the same recording is available. This is particularly helpful if you keep a collection of tracks for use at home (lossless) and on the road (lossy).
+PLUGIN_EXTENDED_BROWSEMODES_NEW_ARTISTS	New Artists
+PLUGIN_EXTENDED_BROWSEMODES_NO_AUDIOBOOKS	All Music without Audiobooks
+PLUGIN_EXTENDED_BROWSEMODES_POPULAR_ALBUMS	Popular Albums
+PLUGIN_EXTENDED_BROWSEMODES_RANDOM_ALBUMS	Random Albums
+PLUGIN_EXTENDED_BROWSEMODES_RECENTLY_CHANGED	Recently Updated Albums
+PLUGIN_EXTENDED_BROWSEMODES_RELEASE_TYPE	Release type:
+PLUGIN_EXTENDED_BROWSEMODES_RELEASE_TYPE_HINT	Release Types:
+PLUGIN_EXTENDED_BROWSEMODES_ROLES	Contributor Roles:
+PLUGIN_EXTENDED_BROWSEMODES_TOP_ARTISTS	Popular Artists
+PLUGIN_EXTENDED_BROWSEMODES_TOP_TRACKS	Top Tracks
+PLUGIN_EXTENDED_BROWSEMODES_USE_X	Use '%s'
+PLUGIN_EXTENDED_BROWSEMODES_USING_X	Now using '%s'
+PLUGIN_FAVORITES_ADD	Save
+PLUGIN_FAVORITES_CANCEL	Cancel
+PLUGIN_FAVORITES_CANCELLING	Cancelling...
+PLUGIN_FAVORITES_CUT	Cut
+PLUGIN_FAVORITES_DESC	Save and edit your favorites
+PLUGIN_FAVORITES_DONT_BROWSEDB	Local music items behavior
+PLUGIN_FAVORITES_DONT_BROWSEDB_OFF	When you select a favorite contributor, genre or album, drill down to its content
+PLUGIN_FAVORITES_DONT_BROWSEDB_ON	Don't browse items when selected, just play them (old behavior)
+PLUGIN_FAVORITES_IMPORT	Import
+PLUGIN_FAVORITES_IMPORTERROR	Error Importing Playlist
+PLUGIN_FAVORITES_IMPORTFILE	URL or File Name
+PLUGIN_FAVORITES_LOAD	Load
+PLUGIN_FAVORITES_LOADERROR	Error Loading File
+PLUGIN_FAVORITES_LOADFILE	URL or File Name
+PLUGIN_FAVORITES_LOADING	Loading Favorites...
+PLUGIN_FAVORITES_NAME	Name
+PLUGIN_FAVORITES_NEWENTRY	New Entry
+PLUGIN_FAVORITES_NEWFAVORITE	New Favorite
+PLUGIN_FAVORITES_NEWFOLDER	New Folder
+PLUGIN_FAVORITES_NOFILE	File Not Found
+PLUGIN_FAVORITES_NOTITLE	No Title
+PLUGIN_FAVORITES_PASTE	Paste
+PLUGIN_FAVORITES_PLAYLIST_EDITOR	OPML Playlist Browser & Editor
+PLUGIN_FAVORITES_PLAYLIST_EDITOR_DESC	The favorites plugin will also allow you to browse opml based playlists and edit opml playlists stored on your server. Select the option below to add this mode under 'Extras' on the server home page.
+PLUGIN_FAVORITES_REMOTELOADERROR	Error Loading URL
+PLUGIN_FAVORITES_REMOVE	Remove from Favorites
+PLUGIN_FAVORITES_SAVE	Save to Favorites
+PLUGIN_FAVORITES_SAVEERROR	Error Saving File
+PLUGIN_FAVORITES_SAVEFILE	File Name
+PLUGIN_FAVORITES_URL	URL
+PLUGIN_FAVORITES_USE_DSTM	Don't Stop The Music
+PLUGIN_FAVORITES_USE_DSTM_DESC	Register favorites as options for "Don't Stop The Music".
+PLUGIN_FULLTEXT	Full text search
+PLUGIN_FULLTEXT_DESC	This extension replaces the rather simplistic title search with a full text search. This would eg. find playlists with a track of the searched title, or filter out lossy files by adding "flac" to the search term. Disabling this plugin restores the old, simple title search. Powerusers please note: full text search is not available when using MySQL.
+PLUGIN_FULLTEXT_PROGRESS	Building full text index
+PLUGIN_INFOBROWSER	Info Browser
+PLUGIN_INFOBROWSER_DESC	Retrieve information from internet sources and displaying via Remote, Server or Player displays.  See the settings section for information about adding additional information sources.
+PLUGIN_INTERNET_RADIO_MODULE_NAME_DESC	Internet Radio Directories
+PLUGIN_JAZZRADIO_DESC	JAZZRADIO.com - Enjoy Great Jazz Music
+PLUGIN_JAZZRADIO_LINK	To create or manage your account please visit <a href="https://www.jazzradio.com" target="_blank">JAZZRADIO.com</a>.
+PLUGIN_JAZZRADIO_MISSING_CREDS	Please visit JAZZRADIO.com in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_JAZZRADIO_NAME	JAZZRADIO.com
+PLUGIN_JIVEEXTRAS	Customize Device
+PLUGIN_JIVEEXTRAS_CUSTOM	Custom #
+PLUGIN_JIVEEXTRAS_DESC	You may customize your Squeezebox Controller by selecting additional wallpaper images and sound effects which will become available on the settings menus for your Squeezebox Controller, Radio or Touch device.
+PLUGIN_JIVEEXTRAS_FILEORURL	Enter File or URL
+PLUGIN_JIVEEXTRAS_SOUNDS	Sounds
+PLUGIN_JIVEEXTRAS_SOUNDS_DESC	Select local or remote sound files to use as optional sounds effects for actions such as menu selections on your Squeezebox controller.  These optional sounds will be available from the Settings->Advanced->Sound Effects menu from your controller.  Sound effect files should be .wav files containing 1 channel (mono) 16 bit 44.1KHz data.
+PLUGIN_JIVEEXTRAS_UNKNOWN_SIZE	Unknown Size
+PLUGIN_JIVEEXTRAS_WALLPAPERS	Wallpapers
+PLUGIN_JIVEEXTRAS_WALLPAPERS_DESC	Select local or remote image files for using as the wallpaper on your controller.  These images will be available as options for the wallpaper from the Settings->Screen->Wallpaper menu from your controller.  Wallpaper files should be 240x320 (Controller), 320x240 (Squeezebox Radio) or 480x272 (Squeezebox Touch) pixel .jpeg, .jpg, .png or .bmp files.
+PLUGIN_LIBRARY_DEMO	Sub-Library demo
+PLUGIN_LIBRARY_DEMO_ALBUMS	Albums with outros and other longish tracks
+PLUGIN_LIBRARY_DEMO_ARTISTS	Artists loving long tracks
+PLUGIN_LIBRARY_DEMO_DESC	Plugin to demonstrate support for multiple (or virtual) libraries. This plugin will create some (partly useless) virtual libraries. It's mostly intended as an inspiration for plugin developers.
+PLUGIN_LINE_IN	Line In
+PLUGIN_LINE_IN_DESC	Line In for Boom
+PLUGIN_LINE_IN_IN_USE	Line In is active
+PLUGIN_LINE_IN_LINE_IN	Line In
+PLUGIN_LINE_OUT	Line Out
+PLUGIN_LINE_OUT_DESC	Toggle between sub woofer, headphone, and line out mode on Boom
+PLUGIN_MY_APPS_MODULE_NAME	My Apps
+PLUGIN_MY_APPS_NO_APPS	No App installed
+PLUGIN_NETTEST	Network Test
+PLUGIN_NETTEST_DESC	Network Test
+PLUGIN_NETTEST_NOT_SUPPORTED	Not Supported on this Player
+PLUGIN_NETTEST_SELECT_RATE	Press Up/Down to select rate
+PLUGIN_NETTEST_TESTING_TO	Testing To
+PLUGIN_ONLINE_LIBRARY_DEDUPE_PREFER_LOCAL	Music without online duplicates
+PLUGIN_ONLINE_LIBRARY_DEDUPE_PREFER_LOCAL_DESC	Show only local album if you have another copy in your online music collection.
+PLUGIN_ONLINE_LIBRARY_FULL_INTEGRATION	Integrate online library and automatically check for changes
+PLUGIN_ONLINE_LIBRARY_GENRE_REPLACEMENT	Genre Replacement
+PLUGIN_ONLINE_LIBRARY_GENRE_REPLACEMENT_ADVANCED	Advanced genre and release type replacement
+PLUGIN_ONLINE_LIBRARY_GENRE_REPLACEMENT_BASIC	Back to the basic settings
+PLUGIN_ONLINE_LIBRARY_GENRE_REPLACEMENT_DESC	Unfortunatelly not all streaming services support genres. This setting allows you to map tracks to genres based on their title or artist name. This obviously doesn't scale for real collections. But it eg. allows you to tag certain tracks with a specific genre to be applied in a library view.
+PLUGIN_ONLINE_LIBRARY_GENRE_REPLACEMENT_PROGRESS	Online Genre and Release Type Replacement
+PLUGIN_ONLINE_LIBRARY_INFORMATION_PLAYLISTTRACKS	Total Tracks in Playlists
+PLUGIN_ONLINE_LIBRARY_INTEGRATE_NO_POLL	Integrate online library but do not automatically check for changes
+PLUGIN_ONLINE_LIBRARY_LOCAL_MUSIC_ONLY	Local tracks only (no music service)
+PLUGIN_ONLINE_LIBRARY_LOCAL_MUSIC_ONLY_DESC	Create library view with local tracks only (no music services)
+PLUGIN_ONLINE_LIBRARY_MATCHING	Matching Text:
+PLUGIN_ONLINE_LIBRARY_MODULE_NAME	Online Music Library Integration
+PLUGIN_ONLINE_LIBRARY_MODULE_NAME_DESC	Get more control over how your online music libraries are integrated with your local music.
+PLUGIN_ONLINE_LIBRARY_NO_INTEGRATION	Do not integrate online music collection
+PLUGIN_ONLINE_LIBRARY_NO_PLAYLIST_IMPORT	Don't import playlists.
+PLUGIN_ONLINE_LIBRARY_POLL_UPDATES_NOT_AVAILABLE	There's no supported streaming service implementation available.
+PLUGIN_ONLINE_LIBRARY_RELEASE_TYPE	Release Type
+PLUGIN_ONLINE_LIBRARY_SERVICE_LOGO	Music Service Logo
+PLUGIN_ONLINE_LIBRARY_SERVICE_LOGO_DESC	Put streaming service logo on top of album artwork (if available).
+PLUGIN_ONLINE_LIBRARY_SETUP_RESCAN	Only rescan online music library
+PLUGIN_ONLINE_LIBRARY_TAG	Tag:
+PLUGIN_PODCAST	Podcasts
+PLUGIN_PODCAST_AUTHOR	Author:
+PLUGIN_PODCAST_COUNTRY	Country
+PLUGIN_PODCAST_COUNTRY_DESC	Limit search to a country (optional)
+PLUGIN_PODCAST_DESC	Access to Podcasts
+PLUGIN_PODCAST_DONE	Subscribed/Unsubscribed from show...
+PLUGIN_PODCAST_MAXNEW	Number of new episodes per feed
+PLUGIN_PODCAST_NEWSINCE	Number of history days
+PLUGIN_PODCAST_PLAY_FROM_BEGINNING	Play from the beginning
+PLUGIN_PODCAST_PLAY_FROM_POSITION_X	Play from last position (%s)
+PLUGIN_PODCAST_PROVIDER	Podcast provider
+PLUGIN_PODCAST_PROVIDER_DESC	Set the Podcast feeds provider (aggregator).
+PLUGIN_PODCAST_RECENTLY_PLAYED	Recently played
+PLUGIN_PODCAST_SEARCH	Search feeds
+PLUGIN_PODCAST_SEARCH_FAILED	Search failed
+PLUGIN_PODCAST_SKIP_BACK	Jump back %s seconds
+PLUGIN_PODCAST_SKIP_BACK_DESC	The podcasts context menu offers an option to jump back quickly within the podcast. By default this option skips back by 15 seconds.
+PLUGIN_PODCAST_SKIP_BACK_SECS	Jump back seconds
+PLUGIN_PODCAST_SUBSCRIBE	Subscribe to '%s'
+PLUGIN_PODCAST_UNSUBSCRIBE	Unsubscribe from '%s'
+PLUGIN_PODCAST_WHATSNEW	New episodes of the last %s days
+PLUGIN_PODCAST_WHATSNEW_DESC	Set how many days to look back for new episodes and maximum number of episodes per flow. Note that manually added feeds might not be tracked by provider
+PLUGIN_PRESETS_EDITOR	Presets Editor
+PLUGIN_PRESETS_EDITOR_DESC	This plugin allows you to visually edit the configuration of your Squeezebox preset keys.
+PLUGIN_PRESETS_EDITOR_NEED_WEBUI	You need to enable the web UI in order to use the Presets Editor.
+PLUGIN_PREVENTSTANDBY	Prevent System Standby
+PLUGIN_PREVENTSTANDBY_DESC	This plugin monitors your SqueezeBox players and prevents the system from going into power saving standby mode while music is playing, Lyrion Music Server is scanning, players are updating, etc. It will also prevent the system from prematurely going into standby two minutes after wake-on-lan.
+PLUGIN_PREVENTSTANDBY_IDLETIME	Allow standby after how many idle minutes?
+PLUGIN_PREVENTSTANDBY_IDLETIME_DESC	Enter the number of minutes (after playing stops or after the system resumes) at the end of which the plugin will again allow the system to go into standby. Enter 0 (zero) to completely prohibit automatic standby on this system.
+PLUGIN_PREVENTSTANDBY_PLAYERSON	Prohibit standby if players are on?
+PLUGIN_PREVENTSTANDBY_PLAYERSON_DESC	Enable this setting to prohibit system standby while players are turned on, i.e. not displaying the clock.
+PLUGIN_RADIOTIME_LOADING	Loading TuneIn Radio...
+PLUGIN_RADIOTIME_MODULE_NAME	TuneIn Radio
+PLUGIN_RADIOTIME_MODULE_TITLE	TuneIn Radio
+PLUGIN_RADIOTIME_OPTIONS	TuneIn Radio Options
+PLUGIN_RADIOTIME_USERNAME	TuneIn Username
+PLUGIN_RADIOTUNES_DESC	RadioTunes.com - Your daily music fix
+PLUGIN_RADIOTUNES_LINK	To create or manage your account please visit <a href="https://www.radiotunes.com" target="_blank">RadioTunes.com</a>.
+PLUGIN_RADIOTUNES_MISSING_CREDS	Please visit RadioTunes.com in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_RADIOTUNES_NAME	RadioTunes.com
+PLUGIN_RADIO_ARTWORK	Find Artwork for Radio Stations
+PLUGIN_RADIO_ARTWORK_DESC	Try to find artwork for tracks played from radio stations which don't provide their own artwork. It's based on the widely used title format passed as "artist - title".
+PLUGIN_RANDOMPLAY	Random Mix
+PLUGIN_RANDOM_AFTER_NUM_OLD_TRACKS	recently played songs.
+PLUGIN_RANDOM_AFTER_NUM_TRACKS	upcoming songs and
+PLUGIN_RANDOM_ALBUM	Album Mix
+PLUGIN_RANDOM_ALBUM_DISABLE	stop adding albums
+PLUGIN_RANDOM_ALBUM_ITEM	Random Album
+PLUGIN_RANDOM_ALBUM_MIX_KEEP_GENRES	Random Album (keep genre selection)
+PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES	Random Album (limited to current genres)
+PLUGIN_RANDOM_ALBUM_PLAYING	Playing Random Albums
+PLUGIN_RANDOM_ALBUM_WEB	Random albums
+PLUGIN_RANDOM_BEFORE_NUM_TRACKS	Now Playing will show
+PLUGIN_RANDOM_CHOOSE_BELOW	Choose a random mix of music from your library:
+PLUGIN_RANDOM_CHOOSE_GENRES	Choose Genres
+PLUGIN_RANDOM_CONTINUOUS_MODE	Add new items when old ones finish
+PLUGIN_RANDOM_CONTRIBUTOR	Artist Mix
+PLUGIN_RANDOM_CONTRIBUTOR_DISABLE	stop adding artists
+PLUGIN_RANDOM_CONTRIBUTOR_ITEM	Random Artist
+PLUGIN_RANDOM_CONTRIBUTOR_PLAYING	Playing Random Artists
+PLUGIN_RANDOM_CONTRIBUTOR_WEB	Random artists
+PLUGIN_RANDOM_DESC	Jukebox For your Music
+PLUGIN_RANDOM_DISABLE	Stop Random Mix
+PLUGIN_RANDOM_DISABLED	Random Mix Stopped
+PLUGIN_RANDOM_GENERAL_HELP	You can add or remove songs from your mix at any time. To stop a random mix, clear your playlist or click to
+PLUGIN_RANDOM_GENRE_FILTER	Include Genres
+PLUGIN_RANDOM_GENRE_FILTER_WEB	Genres to include in your mix:
+PLUGIN_RANDOM_LIBRARY_FILTER	Use library view
+PLUGIN_RANDOM_PRESS_RIGHT	Press RIGHT to
+PLUGIN_RANDOM_SELECT_ALL	Select All
+PLUGIN_RANDOM_SELECT_NONE	Select None
+PLUGIN_RANDOM_TITLEMIX_KEEP_GENRES	Song Mix (keep genre selection)
+PLUGIN_RANDOM_TITLEMIX_WITH_GENRES	Song Mix (limited to current genres)
+PLUGIN_RANDOM_TRACK	Song Mix
+PLUGIN_RANDOM_TRACK_DISABLE	stop adding songs
+PLUGIN_RANDOM_TRACK_PLAYING	Playing Random Songs
+PLUGIN_RANDOM_TRACK_WEB	Random songs
+PLUGIN_RANDOM_WORK	Work Mix
+PLUGIN_RANDOM_WORK_DISABLE	stop adding works
+PLUGIN_RANDOM_WORK_ITEM	Random Work
+PLUGIN_RANDOM_WORK_PLAYING	Playing Random Works
+PLUGIN_RANDOM_WORK_WEB	Random works
+PLUGIN_RANDOM_YEAR	Year Mix
+PLUGIN_RANDOM_YEAR_DISABLE	stop adding years
+PLUGIN_RANDOM_YEAR_ITEM	Random Year
+PLUGIN_RANDOM_YEAR_PLAYING	Playing Random Years
+PLUGIN_RANDOM_YEAR_WEB	Random years
+PLUGIN_REMOTE_LIBRARY_ENTER_PASSWORD	Please enter the password for the other Lyrion Music Server.
+PLUGIN_REMOTE_LIBRARY_IGNORE_MENU	UPnP/DLNA Ignore Menus
+PLUGIN_REMOTE_LIBRARY_IGNORE_MENU_DEFAULT	Movies, Video, Pictures, Images
+PLUGIN_REMOTE_LIBRARY_IGNORE_MENU_DESC	Define a comma separated list of menu names, which should be ignored when browsing UPnP/DLNA sources. This can include eg. menus providing pictures, videos, or other media not applicable on the Squeezebox. Leave that field empty if you don't want to skip any folder.
+PLUGIN_REMOTE_LIBRARY_INVALID_USERNAME_PASSWORD	Invalid username or password.
+PLUGIN_REMOTE_LIBRARY_LMS_DESC	Should this server look for other Lyrion Music Servers on your network?
+PLUGIN_REMOTE_LIBRARY_LMS_DISABLE	Disabled, do not look for other Lyrion Music Servers.
+PLUGIN_REMOTE_LIBRARY_LMS_ENABLE	Enabled, look for other Lyrion Music Servers.
+PLUGIN_REMOTE_LIBRARY_LMS_TRANSCODING	File type conversion
+PLUGIN_REMOTE_LIBRARY_LMS_TRANSCODING_DESC	You can have the remote Lyrion Music Server convert to a format which can be played without further processing.
+PLUGIN_REMOTE_LIBRARY_LOGIN_FAILURE	Unable to verify your account, please try again.
+PLUGIN_REMOTE_LIBRARY_LOGIN_SUCCESS	Login Success
+PLUGIN_REMOTE_LIBRARY_MODULE_NAME	Remote Music Libraries
+PLUGIN_REMOTE_LIBRARY_MODULE_NAME_DESC	Allow music playback from other Lyrion Music Server or UPnP/DLNA servers without switching the player.
+PLUGIN_REMOTE_LIBRARY_NOT_FOUND	No other media server was found in your network. Please make sure it's up and running and reachable. Then try again in a minute or two.
+PLUGIN_REMOTE_LIBRARY_PASSWORD	Password
+PLUGIN_REMOTE_LIBRARY_PASSWORD_PROTECTED	This Lyrion Music Server is password protected. Please enter username and password for this server.
+PLUGIN_REMOTE_LIBRARY_REMOTE_LMS	Remote Lyrion Music Servers
+PLUGIN_REMOTE_LIBRARY_REMOTE_LMS_DESC	Under certain circumstances remote Lyrion Music Servers can't be discovered automatically (eg. when using a VPN connection). You can manually enter server addresses to cover for these cases. You can use IP addresses or fully qualified domain names. The port usually is 9000, but can be different. Please check on your remote server.
+PLUGIN_REMOTE_LIBRARY_REMOTE_LMS_PROMPT	http://yourserver:<Port> or http://<IP address>:9000
+PLUGIN_REMOTE_LIBRARY_SERVERS_FOUND	In case the desired instance was missing, make sure the software is up and running, and try again in a minute or two.
+PLUGIN_REMOTE_LIBRARY_SETUP_UPNP	UPnP/DLNA Client
+PLUGIN_REMOTE_LIBRARY_UPNP_DESC	Should Lyrion Music Server look for other UPnP/DLNA media servers on your network?
+PLUGIN_REMOTE_LIBRARY_UPNP_DISABLE	Disabled, do not look for other UPnP/DLNA media servers.
+PLUGIN_REMOTE_LIBRARY_UPNP_ENABLE	Enabled, look for other UPnP/DLNA media servers.
+PLUGIN_REMOTE_LIBRARY_UPNP_REQUEST_FAILED	UPnP/DLNA request failed, please check the UPnP/DLNA server.
+PLUGIN_REMOTE_LIBRARY_USERNAME	Username
+PLUGIN_RESCAN_MUSIC_LIBRARY	Rescan Music Library
+PLUGIN_RESCAN_MUSIC_LIBRARY_DESC	Automatic Library Scanning
+PLUGIN_RESCAN_PLEASE_WAIT	Please Wait
+PLUGIN_RESCAN_PRESS_PLAY	Press PLAY to rescan now.
+PLUGIN_RESCAN_RESCANNING	Server now rescanning...
+PLUGIN_RESCAN_TIMER_DESC	You can choose to allow a scheduled rescan of your music library every 24 hours.  Set the time, and set the Rescan Timer to ON to use this feature.
+PLUGIN_RESCAN_TIMER_NAME	Rescan Timer
+PLUGIN_RESCAN_TIMER_OFF	Rescan Timer OFF
+PLUGIN_RESCAN_TIMER_ON	Rescan Timer ON
+PLUGIN_RESCAN_TIMER_SAVED	Saving Time...
+PLUGIN_RESCAN_TIMER_SET	Set Rescan Time
+PLUGIN_RESCAN_TIMER_TURNING_OFF	Turning rescan timer off...
+PLUGIN_RESCAN_TIMER_TURNING_ON	Turning rescan timer on...
+PLUGIN_RESCAN_TIMER_TYPE	Rescan Type
+PLUGIN_ROCKRADIO_DESC	ROCKRADIO.COM | rock music for life
+PLUGIN_ROCKRADIO_LINK	To create or manage your account please visit <a href="https://www.rockradio.com" target="_blank">ROCKRADIO.COM</a>.
+PLUGIN_ROCKRADIO_MISSING_CREDS	Please visit ROCKRADIO.COM in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_ROCKRADIO_NAME	ROCKRADIO.COM
+PLUGIN_RS232_NAME	RS232
+PLUGIN_RS232_NAME_DESC	RS232 access for Transporter
+PLUGIN_RSSNEWS	RSS News Ticker
+PLUGIN_RSSNEWS_ADD_NEW	Add new feed -->
+PLUGIN_RSSNEWS_DESC	Access to RSS News Feeds
+PLUGIN_RSSNEWS_ERROR	Failed to retrieve RSS feed
+PLUGIN_RSSNEWS_ERROR_IN_FEED	Error parsing RSS feed
+PLUGIN_RSSNEWS_LOADING_FEED	Loading RSS feed...
+PLUGIN_RSSNEWS_NAME	RSS News Ticker
+PLUGIN_RSSNEWS_NO_TITLE	Title not available
+PLUGIN_RSSNEWS_RESETTING	Resetting to default RSS Feeds.
+PLUGIN_RSSNEWS_SCREENSAVER	RSS News Ticker
+PLUGIN_RSSNEWS_SCREENSAVER_ACTIVATE	Select Current Screensaver
+PLUGIN_RSSNEWS_SCREENSAVER_ACTIVATED	Use RSS News as current screensaver
+PLUGIN_RSSNEWS_SCREENSAVER_ACTIVATE_TITLE	Current Screensaver
+PLUGIN_RSSNEWS_SCREENSAVER_DEFAULT	Use default screensaver (not RSS News)
+PLUGIN_RSSNEWS_SCREENSAVER_DISABLE	Returning to default screensaver
+PLUGIN_RSSNEWS_SCREENSAVER_ENABLE	Activating ticker as current screensaver
+PLUGIN_RSSNEWS_SCREENSAVER_SETTINGS	RSS News Screensaver Settings
+PLUGIN_RSSNEWS_WAIT	Please wait, requesting feed...
+PLUGIN_SCREENSAVER_DATETIME	Date and Time
+PLUGIN_SCREENSAVER_DATETIME_DESC	Date and Time Screensaver
+PLUGIN_SCREENSAVER_SNOW	Snow Screensaver
+PLUGIN_SCREENSAVER_SNOW_NUMBER_OF_WORDS	5
+PLUGIN_SCREENSAVER_SNOW_QUANTITY	Quantity of snow
+PLUGIN_SCREENSAVER_SNOW_QUANTITY_0	Light flurries
+PLUGIN_SCREENSAVER_SNOW_QUANTITY_1	Christmassy
+PLUGIN_SCREENSAVER_SNOW_QUANTITY_2	Blizzard
+PLUGIN_SCREENSAVER_SNOW_QUANTITY_3	Whiteout
+PLUGIN_SCREENSAVER_SNOW_QUANTITY_TITLE	Snow Screensaver: Quantity of snow
+PLUGIN_SCREENSAVER_SNOW_SETTINGS	Snow Screensaver settings
+PLUGIN_SCREENSAVER_SNOW_STYLE	Style of snow when on
+PLUGIN_SCREENSAVER_SNOW_STYLE_1	Now Playing, snow falling behind
+PLUGIN_SCREENSAVER_SNOW_STYLE_2	Now Playing, snow falling in front
+PLUGIN_SCREENSAVER_SNOW_STYLE_3	Date/Time
+PLUGIN_SCREENSAVER_SNOW_STYLE_4	Just snow
+PLUGIN_SCREENSAVER_SNOW_STYLE_5	Automatic
+PLUGIN_SCREENSAVER_SNOW_STYLE_6	Season's Greetings
+PLUGIN_SCREENSAVER_SNOW_STYLE_OFF	Style of snow when off
+PLUGIN_SCREENSAVER_SNOW_STYLE_TITLE	Snow Screensaver: Style of snow
+PLUGIN_SCREENSAVER_SNOW_WORD_0	MERRY
+PLUGIN_SCREENSAVER_SNOW_WORD_1	CHRISTMAS
+PLUGIN_SCREENSAVER_SNOW_WORD_2	AND A VERY
+PLUGIN_SCREENSAVER_SNOW_WORD_3	HAPPY
+PLUGIN_SCREENSAVER_SNOW_WORD_4	NEW YEAR !
+PLUGIN_SCREENSAVER_VISUALIZER	Visualizer Screensaver
+PLUGIN_SCREENSAVER_VISUALIZER_DEFAULT	Default screensaver
+PLUGIN_SCREENSAVER_VISUALIZER_NEEDS_SQUEEZEBOX2	Needs Squeezebox2
+PLUGIN_SONGSCANNER	Song Scanner
+PLUGIN_SONGSCANNER_DESC	Player interface for jumping to arbitrary positions within the currently playing song (Squeezebox Classic, Squeezebox Boom, Transporter only)
+PLUGIN_SONGSCANNER_ERR_NOTRACK	No track
+PLUGIN_SONGSCANNER_ERR_UNKNOWNSIZE	Cannot scan through track because duration unknown
+PLUGIN_SONGSCANNER_MAX_RATE_FWD	Maximum fast-forward rate reached
+PLUGIN_SONGSCANNER_MAX_RATE_REW	Maximum rewind rate reached
+PLUGIN_SONGSCANNER_SET	Time:
+PLUGIN_SOUNDS_ALARMS	Alarm Sounds
+PLUGIN_SOUNDS_ALARM_ACCELERATING	Accelerating beep
+PLUGIN_SOUNDS_ALARM_BEDSIDE	Quadrupel beep
+PLUGIN_SOUNDS_ALARM_BUZZER	Alarm Buzzer
+PLUGIN_SOUNDS_ALARM_DIGITAL	Low beep
+PLUGIN_SOUNDS_ALARM_DISTORTED	Distorted beep
+PLUGIN_SOUNDS_ALARM_DUAL_TONE	Alternating beep
+PLUGIN_SOUNDS_ALARM_ELECTRONICAL	Electronical beep 2
+PLUGIN_SOUNDS_ALARM_ELECTRONIC_BEEP	Electronical beep
+PLUGIN_SOUNDS_ALARM_FUTURISTIC	Futuristic alarm
+PLUGIN_SOUNDS_ALARM_HIGH_BEEP	High beep
+PLUGIN_SOUNDS_ALARM_PHONE	Ringing phone
+PLUGIN_SOUNDS_ALARM_RINGING	Ringing alarm
+PLUGIN_SOUNDS_ALARM_RINGTONE	Ringtone
+PLUGIN_SOUNDS_ALARM_SIMPLE_CLOCK	Simple beep
+PLUGIN_SOUNDS_ALARM_TICKING	Ticking clock
+PLUGIN_SOUNDS_ALARM_TIC_TAC	Tic-Tac
+PLUGIN_SOUNDS_AMBULANCE	Ambulance
+PLUGIN_SOUNDS_BABBLING_BROOK	Babbling Brook
+PLUGIN_SOUNDS_BARN_FIRE	Barn Fire
+PLUGIN_SOUNDS_BLENDER	Blender
+PLUGIN_SOUNDS_BLUE_HENRY	Blue Henry
+PLUGIN_SOUNDS_BLUE_ORCHID	Blue Orchid
+PLUGIN_SOUNDS_BONGO_TECH	Bongo Tech
+PLUGIN_SOUNDS_BRAINFLUID	Brainfluid
+PLUGIN_SOUNDS_BUBBLES	Bubbles
+PLUGIN_SOUNDS_BUTTERY	Buttery
+PLUGIN_SOUNDS_CAPPUCINO	Cappucino
+PLUGIN_SOUNDS_CITY	City
+PLUGIN_SOUNDS_COINS	Coins
+PLUGIN_SOUNDS_COOL_CATS	Cool Cats
+PLUGIN_SOUNDS_CORNFLOWER	Cornflower
+PLUGIN_SOUNDS_CRICKETS	Crickets
+PLUGIN_SOUNDS_CROSSING_BELLS	Crossing Bells
+PLUGIN_SOUNDS_CRYSTALIZE	Crystalize
+PLUGIN_SOUNDS_EFFECTS	Sound Effects
+PLUGIN_SOUNDS_ELECTRO_FUZZ	Electro Fuzz
+PLUGIN_SOUNDS_ERROR	Sounds & Effects Error
+PLUGIN_SOUNDS_EXPERIMENTAL	Experimental
+PLUGIN_SOUNDS_FIRE	Fire
+PLUGIN_SOUNDS_FOGHORN	Foghorn
+PLUGIN_SOUNDS_FREIGHT_TRAIN	Freight Train
+PLUGIN_SOUNDS_FREIGHT_TRAIN_PASSING	Freight Train Passing
+PLUGIN_SOUNDS_HAIR_DRYER	Hair Dryer
+PLUGIN_SOUNDS_HARD_RAIN_THUNDER	Hard Rain & Thunder
+PLUGIN_SOUNDS_HEARTBEAT	Heartbeat
+PLUGIN_SOUNDS_HEARTBEAT_FAST	Heartbeat Fast
+PLUGIN_SOUNDS_HIBISCUS	Hibiscus
+PLUGIN_SOUNDS_HORSE_WALKING	Horse Walking
+PLUGIN_SOUNDS_HORSE_WHINNY	Horse Whinny
+PLUGIN_SOUNDS_JUNK_ARMOR	Junk Armor
+PLUGIN_SOUNDS_LAPPING_WAVES	Lapping Waves
+PLUGIN_SOUNDS_MAGNETO_VAPOR	Magneto Vapor
+PLUGIN_SOUNDS_MEADOWLARK	Meadowlark
+PLUGIN_SOUNDS_MELANCHOLY_DAY	Melancholy Day
+PLUGIN_SOUNDS_MODULE_NAME	Sounds & Effects
+PLUGIN_SOUNDS_MOTORCYCLES	Motorcycles
+PLUGIN_SOUNDS_MUSICAL	Musical Sounds
+PLUGIN_SOUNDS_NATURAL	Natural Sounds
+PLUGIN_SOUNDS_OCEAN_SURF	Ocean Surf
+PLUGIN_SOUNDS_RAIN_OUTSIDE	Rain Outside
+PLUGIN_SOUNDS_RAIN_SPLASHING	Rain Splashing
+PLUGIN_SOUNDS_RAIN_THUNDER	Rain & Thunder
+PLUGIN_SOUNDS_RIVER	River
+PLUGIN_SOUNDS_ROBINS	Robins
+PLUGIN_SOUNDS_ROOSTER_CROW	Rooster Crow
+PLUGIN_SOUNDS_RURAL	Rural
+PLUGIN_SOUNDS_SCUBA_DIVER	Scuba Diver
+PLUGIN_SOUNDS_SHORE_SEAGULLS	Shore & Seagulls
+PLUGIN_SOUNDS_SLICKBABY	Slickbaby
+PLUGIN_SOUNDS_SLOG_IT_OUT	Slog It Out
+PLUGIN_SOUNDS_SOFT_HORIZON	Soft Horizon
+PLUGIN_SOUNDS_SPOOKY_FEEDBACK	Spooky Feedback
+PLUGIN_SOUNDS_SPRING_PEEPERS	Spring Peepers
+PLUGIN_SOUNDS_SRI_LAMA	Sri Lama
+PLUGIN_SOUNDS_STARGAZER	Stargazer
+PLUGIN_SOUNDS_STEAM_TRAIN_WHISTLE	Steam Train & Whistle
+PLUGIN_SOUNDS_STREAM	Stream
+PLUGIN_SOUNDS_STREAM_BIRDS	Stream & Birds
+PLUGIN_SOUNDS_SUB_ALERT	Sub Alert
+PLUGIN_SOUNDS_SUPER_CHEESE	Super Cheese
+PLUGIN_SOUNDS_TAIL_HONKER	Tail Honker
+PLUGIN_SOUNDS_TEA_KETTLE	Tea Kettle
+PLUGIN_SOUNDS_TONGUE_CHEEK	Tongue & Cheek
+PLUGIN_SOUNDS_TRAFFIC	Traffic
+PLUGIN_SOUNDS_TRANSLAB	TransLab
+PLUGIN_SOUNDS_TROPICAL_AMBIENCE	Tropical Ambience
+PLUGIN_SOUNDS_TWEEDLEDUM	Tweedledum
+PLUGIN_SOUNDS_TWENSA	Twensa
+PLUGIN_SOUNDS_WAVES	Waves
+PLUGIN_SOUNDS_WIND	Wind
+PLUGIN_SOUNDS_WIND_CHIME	Wind Chime
+PLUGIN_SOUNDS_WIND_CHIME_FLOURISH	Wind Chime Flourish
+PLUGIN_SOUNDS_WIND_WHISTLE	Wind Whistle
+PLUGIN_UPNP_MODULE_NAME	UPnP/DLNA Media Interface
+PLUGIN_UPNP_MODULE_NAME_DESC	Adds a UPnP/DLNA AV MediaServer and MediaRenderer, enabling access by other devices on the local network.
+PLUGIN_VIEW_TAGS	Advanced Tag View
+PLUGIN_VIEW_TAGS_CUSTOM_TAGS	Additional tags to show
+PLUGIN_VIEW_TAGS_CUSTOM_TAGS_DESC	"Tag name" refers to the actual tag, as stored in the file, eg. "WEBSITE". The "View Tags" menu shows these. The "Name to be displayed" is a more user friendly name to be used in the UI. "URL" defines whether the field contains a URL. In this case UIs able to link to URLs can render the content with a link.
+PLUGIN_VIEW_TAGS_LEVEL	Level at which to show these tags
+PLUGIN_VIEW_TAGS_MOREINFO	Show tags in "More Info"
+PLUGIN_VIEW_TAGS_STD_URL	Standard URL tags
+PLUGIN_VIEW_TAGS_TAG_HUMAN_READABLE	Tag name to be displayed
+PLUGIN_VIEW_TAGS_TAG_NAME	Tag name
+PLUGIN_VIEW_TAGS_TOPLEVEL	Show tags at the top level
+PLUGIN_VIEW_TAGS_URL	URL
+PLUGIN_VIEW_TAGS_WCOM	Commercial information (WCOM)
+PLUGIN_VIEW_TAGS_WCOP	Copyright/Legal information (WCOP, LICENSE)
+PLUGIN_VIEW_TAGS_WOAF	Official audio file webpage (WOAF)
+PLUGIN_VIEW_TAGS_WOAR	Official artist webpage (WOAR, WEBSITE)
+PLUGIN_VIEW_TAGS_WOAS	Official audio source webpage (WOAS)
+PLUGIN_VIEW_TAGS_WORS	Radio station homepage (WORS)
+PLUGIN_VIEW_TAGS_WPUB	Publishers webpage (WPUB)
+PLUGIN_WEBSOCKET	WebSocket Interface
+PLUGIN_WEBSOCKET_DESC	Provides a WebSocket endpoint (/ws) allowing clients to send commands and subscribe to server notifications, similar to the classic CLI but over a browser-friendly WebSocket connection.
+PLUGIN_XPL	xPL Interface
+PLUGIN_ZENRADIO_DESC	Zen Radio - Entspannungs- und Meditationsmusik
+PLUGIN_ZENRADIO_LINK	To create or manage your account please visit <a href="https://www.zenradio.com" target="_blank">Zen Radio</a>.
+PLUGIN_ZENRADIO_MISSING_CREDS	Please visit Zen Radio in the Lyrion Music Server Settings to add your credentials.
+PLUGIN_ZENRADIO_NAME	Zen Radio
+PODCAST_GROUP_DESC	The Podcast Browser plugin allows you to view and listen to podcasts.
+POLARITYINVERSION_INVERTED	Inverted polarity
+POLARITYINVERSION_NORMAL	Normal polarity
+POWER	Power
+POWEROFFDAC_ALWAYSON	Audio always on
+POWEROFFDAC_WHENOFF	Power down audio when off
+PRECACHEARTWORK_PROGRESS	Pre-caching Artwork
+PRESET	Preset #%s
+PRESETS_NOT_DEFINED	Preset #%s not defined.
+PRESET_ADDING	Saving preset #%s...
+PRESET_HOLD_TO_SAVE	Preset #%s (hold to save)
+PREV	Prev
+PREVIOUS	Previous
+PROBLEM_CONNECTING	Problem: Can't connect to server for:
+PROBLEM_CONVERTING_STREAM	Error: DRM in file:
+PROBLEM_CONVERT_FILE	Problem: Unable to play file type for:
+PROBLEM_CONVERT_FILE_WMA_LOSSLESS	Problem: WMA Lossless requires Windows
+PROBLEM_CONVERT_STREAM	Problem: Unable to convert stream:
+PROBLEM_OPENING	Problem: Can't open file for:
+PROBLEM_OPENING_REMOTE_URL	Error: Can't open remote URL
+PROBLEM_UNKNOWN_TYPE	Error: Unrecognized file type for:
+PROGRESS_BAR	Progress Bar
+PROGRESS_IMPORTER_COMPLETE_DESC	The server has finished scanning your media library.
+PROGRESS_IMPORTER_NO_INFO	Progress information from the previous scan is not available.
+RADIO	Radio
+RADIOTIME_LANGUAGE	By Language
+RADIOTIME_LOCAL	Local Radio
+RADIOTIME_LOCATION	By Location
+RADIOTIME_MUSIC	Music
+RADIOTIME_MY_PRESETS	My Presets
+RADIOTIME_NEWS	News
+RADIOTIME_PODCAST	Podcasts
+RADIOTIME_SEARCH	Search TuneIn
+RADIOTIME_SPORTS	Sports
+RADIOTIME_TALK	Talk
+RADIOTIME_WORLD	By Location
+RADIO_TUNED_IN	Tuned into station:
+RADIO_TUNEIN	Tune In URL
+RADIO_TUNEIN_CHOOSE	Tune In
+RADIO_TUNEIN_DESC	If you already know the URL of the station you would like to listen to, enter it here and click on the "Tune In" button. You can enter the URL of either the radio stream itself (e.g. http://62.49.59.50:8000) or the playlist file that is pointing to the stream (e.g. http://www.hitzradio.com/hitzradio.pls).
+RADIO_TUNEIN_RADIOURL	Radio URL:
+RANGE	range
+RATING	Rating
+REBUFFERING	Rebuffering...
+REBUFFERING_FAILED	Rebuffering failed
+RECENT_SEARCHES	Recent Searches
+REDUCED_TO_PREVENT_CLIPPING	%s to prevent clipping
+RELEASETYPES_PROGRESS	Update Album release types
+RELEASE_TYPE	Release type
+RELEASE_TYPE_AUDIOBOOK	Audiobook
+RELEASE_TYPE_AUDIOBOOKS	Audiobooks
+RELEASE_TYPE_BESTOF	Best Of
+RELEASE_TYPE_BESTOFS	Best Of Albums
+RELEASE_TYPE_BONUS	Bonus Albums
+RELEASE_TYPE_BOOTLEG	Bootleg
+RELEASE_TYPE_BOOTLEGS	Bootlegs
+RELEASE_TYPE_BOXSET	Box Set
+RELEASE_TYPE_BOXSETS	Box Sets
+RELEASE_TYPE_BROADCAST	Broadcast
+RELEASE_TYPE_BROADCASTS	Broadcasts
+RELEASE_TYPE_COLLECTION	Collection
+RELEASE_TYPE_COLLECTIONS	Collections
+RELEASE_TYPE_COMPILATION	Compilation
+RELEASE_TYPE_COMPILATIONS	Compilations
+RELEASE_TYPE_DEMO	Demo
+RELEASE_TYPE_DEMOS	Demos
+RELEASE_TYPE_EP	EP
+RELEASE_TYPE_EPS	EPs
+RELEASE_TYPE_INTERVIEW	Interview
+RELEASE_TYPE_INTERVIEWS	Interviews
+RELEASE_TYPE_LIVE	Live Recording
+RELEASE_TYPE_LIVES	Live Recordings
+RELEASE_TYPE_MIXTAPE	Mixtape
+RELEASE_TYPE_MIXTAPES	Mixtapes
+RELEASE_TYPE_OTHER	Other
+RELEASE_TYPE_REMIX	Remix
+RELEASE_TYPE_REMIXES	Remixes
+RELEASE_TYPE_SINGLE	Single
+RELEASE_TYPE_SINGLES	Singles
+RELEASE_TYPE_SOUNDTRACK	Soundtrack
+RELEASE_TYPE_SOUNDTRACKS	Soundtracks
+RELEASE_TYPE_SPOKENWORD	Spokenword
+REMAINING	Remaining Time
+REMOTE_SETTINGS	Remote
+REMOTE_STREAMING	Remote Streaming
+REMOVE_FROM_PLAYLIST	Remove from playlist
+REMOVE_THIS_SONG_FROM_PLAYLIST	Remove this song from playlist
+REMOVING_FROM_PLAYLIST	Removing from playlist:
+RENAME	Rename
+RENAME_WARNING	The name you chose is already taken. Please choose another name for your playlist, or check 'confirm overwrite' to replace your existing playlist.
+REPEAT	Repeat
+REPEAT_ALL	Repeat playlist
+REPEAT_OFF	Repeat off
+REPEAT_ONE	Repeat current song
+REPEAT_ONE_ABBR	Repeat Song
+REPLAYGAIN	Volume Adjustment
+REPLAYGAIN_ALBUM_GAIN	Album Gain
+REPLAYGAIN_DISABLED	No Volume Adjustment
+REPLAYGAIN_DISABLED_ABBR	None
+REPLAYGAIN_SMART_GAIN	Smart Gain
+REPLAYGAIN_TRACK_GAIN	Track Gain
+RESCANNING	Rescanning Media Library...
+RESCAN_ALBUM	Rescan Album
+RESTARTING_PLEASE_WAIT	Lyrion Music Server is being restarted. Please wait a minute before you continue...
+RESTART_LATER	Restart later
+RESTART_NOW	Restart now
+RETRYING	Connection lost, retrying...
+RETRY_LIMIT_EXCEEDED	Connection retries failed
+REW	Rewind
+ROLLOFFSLOW_DISABLED	Sharp Roll-off Filter
+ROLLOFFSLOW_ENABLED	Slow Roll-off Filter
+RUNNING	Running
+SAMPLERATE	Sample Rate
+SAMPLESIZE	Sample Size
+SAVE	Save
+SAVED_PLAYLISTS	Playlists
+SAVED_SEARCH	Saved Search
+SAVED_THIS_PLAYLIST_AS	Saved this playlist as:\n\n%s
+SAVE_AS	Save as
+SAVE_PLAYLIST	Save Playlist
+SAVE_PLAYLIST_NAME	Save Playlist
+SAVE_PLAYLIST_NAME_DESC	Save Playlists from the Player UI
+SAVE_SETTINGS	Save Settings
+SAVE_THIS_PLAYLIST_AS	Save this playlist as:
+SAVE_TO_FAVORITES	Save to Favorites
+SCANNER_PROGRESS	Media Scan Details
+SCANNER_REMOTE_INVALID_URL	Unable to scan: Invalid URL
+SCANNER_REMOTE_NESTED_TOO_DEEP	Unable to scan: Playlist nested too deep
+SCANNER_REMOTE_NO_URL_PROVIDED	Unable to scan: No URL found
+SCAN_ABORTED	The scan has been aborted. Please note that you'll have to re-run a scan to get full access to your media library.
+SCAN_ABORTED_PROGRESS	Scan was manually aborted by the user
+SCAN_CLICK	To browse your media folder directly, click
+SCAN_WARNING	Lyrion Music Server is still scanning your media library, so some items may not appear in this area yet.
+SCREENSAVERS	Screensavers
+SCREENSAVER_JUMP_BACK_NAME	Now Playing
+SCREENSAVER_JUMP_TO_NOW_PLAYING	Jump To Now Playing
+SCREENSAVER_NONE	None
+SD	SD Card
+SEARCH	Search
+SEARCHFOR	Search For
+SEARCHFOR_ALBUM	Search For Album
+SEARCHFOR_ALBUMS	Search For Albums
+SEARCHFOR_ARTIST	Search For Artist
+SEARCHFOR_ARTISTS	Search For Artists
+SEARCHFOR_PLAYLISTS	Search for playlists
+SEARCHFOR_SONGS	Search For Songs
+SEARCHFOR_SONGTITLE	Search For Song Title
+SEARCHING	Searching...
+SEARCHMUSIC	Search Music
+SEARCH_CONTAINS	contains
+SEARCH_DOESNT_CONTAIN	doesn't contain
+SEARCH_DOESNT_START_WITH	does not start with
+SEARCH_STARTS_WITH	starts with
+SEARCH_STREAMS	Search
+SECONDS	seconds
+SECURITY_SETTINGS	Security
+SEEK_ERROR_LIVE	Cannot seek in live stream
+SEEK_ERROR_MMS	Cannot seek in this WMA stream
+SEEK_ERROR_MP3	Cannot seek in this MP3 stream
+SEEK_ERROR_MP3_UNKNOWN_BITRATE	Cannot seek with unknown bitrate
+SEEK_ERROR_MP3_UNKNOWN_DURATION	Cannot seek with unknown duration
+SEEK_ERROR_REMOTE	Cannot scan through remote tracks
+SEEK_ERROR_TRANSCODED	Cannot scan through transcoded track
+SEEK_ERROR_TYPE_NOT_SUPPORTED	Cannot seek in streams of type %s
+SELECT_ITEM	Select item:
+SERVER	Server
+SERVER_LINUX_UPDATE_AVAILABLE	A new version of Lyrion Music Server is available (%s). <a href="/updateinfo.html?installerFile=%s" target="update">Click here for further information</a>.
+SERVER_SETTINGS	Server Settings
+SERVER_STATUS	Lyrion Music Server Status
+SERVER_STATUS_DESC	Information on all identified devices connected to Lyrion Music Server
+SERVER_UPDATE_AVAILABLE	A new version of Lyrion Music Server is available (%s). <a href="%s" target="update">Click here to download</a>.
+SERVER_UPDATE_AVAILABLE_SHORT	A new version of Lyrion Music Server is available.
+SERVER_WINDOWS_UPDATE_AVAILABLE	<ul><li>Version %s - %s is available for installation.</li><li>Log in to your computer running Lyrion Music Server (%s).</li><li>Execute <code>%s</code> and follow the instructions.</li></ul>
+SETTINGS	Settings
+SETTINGS_CHANGED_CONFIRM	Some settings were changed. Do you want to save them?
+SETTINGS_INVALIDVALUE	Invalid value "%s" for %s
+SETUP_ACTIVEFONT	Font
+SETUP_ACTIVEFONT_DESC	You can use the SIZE button on the remote or the radio buttons below to switch between fonts on the player display. You may choose the order that they appear using the menus below.
+SETUP_ADDITIONAL_PLAYLIST_BUTTONS	Additional Playlist Buttons
+SETUP_ADDITIONAL_PLAYLIST_BUTTONS_DESC	Some skins optionally can display additional buttons for playable items, like eg. "Play next" or "Remove from playlist".
+SETUP_ALARMSAVER	Screensaver when alarm is playing
+SETUP_ALARMSAVER_ABBR	During Alarm
+SETUP_ALARM_TIMEOUT	Alarm Timeout (in minutes)
+SETUP_ALARM_TIMEOUT_DESC	This setting allows you to choose how long alarms will play for before they stop automatically. If set to 0, alarms will continue playing until they are stopped manually.
+SETUP_ALBUMLINKROLES	Artist links in album lists
+SETUP_ALBUMLINKROLES_DESC	You can choose which roles to show as links in album listings. The main album contributor as identified by the music scanner will always be shown. Also, when browsing albums/releases by role, the Contributors for the role being browsed will be shown.
+SETUP_ANALOGOUTMODE	Line Out
+SETUP_ANALOGOUTMODE_DESC	Choose the function of Boom headphone/sub out port.  Headphone option will shut off the internal speakers. "Always On" will keep the internal speakers enabled, even while headphones are plugged in.
+SETUP_ARTFOLDER	Artwork Folder
+SETUP_ARTFOLDER_DESC	You may choose to store all your artwork (album covers, contributor portraits) in a single folder, using the variable filenames option above.  Enter the location of the Artwork files here. Regardless of this location, Lyrion Music Server will still look for artwork in the same path as each audio file if no matching artwork is found in the Artwork Folder.
+SETUP_ARTISTS_BROWSE_MODES	Browse Artists
+SETUP_ARTISTS_BROWSE_MODES_DESC	Choose whether you want to use a single, configurable artists list, or two lists for Album Artists and All Artists. Album Artists is a list where Album Artist is the sole artist on an album or is the artist specified in the ALBUMARTIST tag. All Artists is a list of every artist that appears in a contributor role tag (ARTIST, COMPOSER etc.). The single, configurable list of artists on the other hand lets you define which contributor roles should be part of the Artists menu.
+SETUP_ARTISTS_BROWSE_MODES_UNIFIED_OFF	Use two separate lists for Album Artists and All Artists
+SETUP_ARTISTS_BROWSE_MODES_UNIFIED_ON	Use single, configurable list of artists
+SETUP_AUDIODIR	Music Folder
+SETUP_AUDIOSCROBBLER_VALID_CREDENTIALS	Successfully validated your account information.
+SETUP_AUTHORIZE	Password Protection
+SETUP_AUTHORIZE_DESC	You can choose to password protect Lyrion Music Server Remote Control. Choose "Password protection" below and enter a username and password, then click Change. From that point on when you use Lyrion Music Server Remote Control, you'll need to enter this username and password in your web browser.
+SETUP_AUTO_DOWNLOAD	Automatic Download
+SETUP_AUTO_DOWNLOAD_0	Do not automatically download updates
+SETUP_AUTO_DOWNLOAD_1	Automatically download updates when they're available.
+SETUP_AUTO_DOWNLOAD_DESC	Automatically download Lyrion Music Server updates when they're available. You'll then be prompted to install the update as soon as the download has finished.
+SETUP_AUTO_RESCAN	Automatically detect changes
+SETUP_AUTO_RESCAN_DESC	Lyrion Music Server can watch your media folders and automatically detect changes.  New and changed files should appear in your library within several minutes.
+SETUP_AUTO_RESCAN_DISABLE	Disabled, manually scan for new media files
+SETUP_AUTO_RESCAN_ENABLE	Enabled, watch for changes automatically
+SETUP_AUTO_RESCAN_STAT_INTERVAL	Network share detection interval
+SETUP_AUTO_RESCAN_STAT_INTERVAL_DESC	To detect changes on remote network shares or on some operating systems with no native change detection support, the files must be polled for changes at regular intervals. Select the interval to use for this check, in minutes. The default value is 10 minutes.
+SETUP_BAD_DIRECTORY	Oops - "%s" doesn't seem to be a valid directory. Try again.
+SETUP_BAD_FILE	Oops - "%s" doesn't seem to be a valid file. Try again.
+SETUP_BROWSEAGELIMIT	New Music Limit
+SETUP_BROWSEAGELIMIT_DESC	Choose the number of recent albums to display when browsing for new music. Default is 100
+SETUP_BUFFERSECS	Radio Station Buffer Seconds
+SETUP_BUFFERSECS_DESC	When playing an Internet stream, the player buffers a small amount of data before beginning playback.  Specify the amount of audio data to buffer, in seconds from 3 to 30.  The default value is 3 seconds.  If you experience stuttering audio, increasing this value may help.
+SETUP_CHANGES_SAVED	Changes have been saved.
+SETUP_CHECKVERSION	Software Updates
+SETUP_CHECKVERSION_0	Don't check for server software updates
+SETUP_CHECKVERSION_1	Automatically check for software updates
+SETUP_CHECKVERSION_DAILY	Daily
+SETUP_CHECKVERSION_DESC	Lyrion Music Server can automatically check to see if an updated version of the software is available.  If it is, then a message will appear in Lyrion Music Server's web interface. Please note that Lyrion Music Server will always check for plugin updates according to the selected intervals, even if software checks are disabled.
+SETUP_CHECKVERSION_HOURLY	Hourly
+SETUP_CHECKVERSION_MONTHLY	Monthly
+SETUP_CHECKVERSION_WEEKLY	Weekly
+SETUP_CHECK_NOW	Check for updates now
+SETUP_CLEANUP_RELEASE_TYPES	Try to recognize EPs and singles automatically when release type information is "album" or is missing.
+SETUP_CLIPORT	Command Line Interface Port Number
+SETUP_CLIPORT_DESC	You can change the port number that is used to by a command line interface to control the player.
+SETUP_CLI_OVER_RS232	CLI interface over RS232
+SETUP_CLI_OVER_RS232_ENABLE	Enable
+SETUP_CLOCKSOURCE	Clock Source
+SETUP_CLOCKSOURCE_DESC	Transporter's outputs can be synchronized with internal or external sources. Choose a clock source below.
+SETUP_CORS_ALLOWED_HOSTS	CORS Allowed Hosts
+SETUP_CORS_ALLOWED_HOSTS_DESC	Cross-Origin Resource Sharing (CORS) is a mechanism that uses additional HTTP headers to tell a browser to let a web application running at one origin (domain) have permission to access selected resources from a server at a different origin.<br><br>Enter a comma separated list of hostnames you want to give access to your Lyrion Music Server. The entries need to have the protocol (eg. "http"), full host name ("www.example.com"), plus the port number, should the latter be non-standard. In most cases something like "https://www.example.com" should be good enough.
+SETUP_COVERART	Artwork
+SETUP_COVERART_DESC	Images of album artwork, when available, are displayed when viewing an album or song information.  Artwork images are found in the ID3 tags for individual songs or can reside in the same folder as song files.  By default, images named "cover.jpg", "folder.jpg", "album.jpg", or "thumb.jpg" are used.  You can specify an additional file name to use for album art images. You can specify different file names for thumbnail or full size images. Prefix the option with % and you can follow it with any string made up of the same elements available for Title Formats (eg %ARTIST - ALBUM, will look for Artist - Album.jpg to fit the artist and album information found).
+SETUP_CSRFPROTECTIONLEVEL	CSRF Protection Level
+SETUP_CSRFPROTECTIONLEVEL_DESC	To protect against &quot;Cross Site Request Forgery&quot; (CSRF) security threats, Lyrion Music Server applies special scrutiny to HTTP requests for functions that can make changes to your system or manipulate playlists or players.  You may choose the level of scrutiny for Lyrion Music Server to use.  The default is None. <a href="/html/docs/http.html#csrf">See Help Section</a> for more details.
+SETUP_DBHIGHMEM	Database Memory Config
+SETUP_DBHIGHMEM_DESC	If your server has enough memory, you can obtain better performance by increasing the amount of memory available to the database. Changing this option requires a server restart.
+SETUP_DBHIGHMEM_HIGH	High (recommended for machines with 1+ GB RAM)
+SETUP_DBHIGHMEM_MAX	Maximum (recommended for libraries with more than 50,000 tracks and machines with 2+ GB RAM)
+SETUP_DBHIGHMEM_NORMAL	Normal
+SETUP_DEBUG_LEVEL_DEBUG	Debug
+SETUP_DEBUG_LEVEL_ERROR	Error
+SETUP_DEBUG_LEVEL_FATAL	Fatal
+SETUP_DEBUG_LEVEL_INFO	Info
+SETUP_DEBUG_LEVEL_OFF	Off
+SETUP_DEBUG_LEVEL_WARN	Warn
+SETUP_DEBUG_PERFMON_LOG	Performance Log File
+SETUP_DEBUG_PERFMON_LOG_DESC	Lyrion Music Server keeps a log file for performance monitoring here:
+SETUP_DEBUG_SCANNER_LOG	Scanner Log File
+SETUP_DEBUG_SCANNER_LOG_DESC	Lyrion Music Server keeps a log file for all scanning related activities, including iTunes & MusicIP here:
+SETUP_DEBUG_SERVER_LOG	Lyrion Music Server Log File
+SETUP_DEBUG_SERVER_LOG_DESC	Lyrion Music Server keeps a log file for all application related activities (Audio Streaming, Infrared, etc) here:
+SETUP_DEFEAT_DESTRUCTIVE_TTP	Defeat destructive Touch-To-Play
+SETUP_DEFEAT_DESTRUCTIVE_TTP_0	Do not defeat
+SETUP_DEFEAT_DESTRUCTIVE_TTP_1	Always ask before playing your selection
+SETUP_DEFEAT_DESTRUCTIVE_TTP_2	Defeat if current playlist has more than one track
+SETUP_DEFEAT_DESTRUCTIVE_TTP_3	Defeat only if playing and current playlist has more than one track
+SETUP_DEFEAT_DESTRUCTIVE_TTP_4	Defeat only if playing and current item is not a radio stream
+SETUP_DEFEAT_DESTRUCTIVE_TTP_DESC	When touching/selecting a playable item on your Squeezebox, you can accidentally replace what is currently playing. This destructive behavior can be controlled using this parameter.
+SETUP_DIGITALOUTPUTENCODING	Digital Output Encoding
+SETUP_DIGITALOUTPUTENCODING_DESC	You can choose between S/PDIF and AES/EBU encoding for the digital outputs.
+SETUP_DIGITALVOLUMECONTROL	Volume Control
+SETUP_DIGITALVOLUMECONTROL_DESC	You can fix the volume control at 100% if you are using the volume control on your amplifier to control loudness or need perfect digital passthrough. This affects both digital and analog volume.
+SETUP_DIGITALVOLUMECONTROL_OFF	Output level is fixed at 100%
+SETUP_DIGITALVOLUMECONTROL_ON	Volume controls adjust outputs
+SETUP_DISABLEDAC	Turn Off Audio
+SETUP_DISABLEDAC_DESC	When Squeezebox is turned off the digital-to-analog converter and digital outputs can be disabled.  Disabling the outputs may cause an audible pop or noise in some receivers.
+SETUP_DISABLEDEXTENSIONSAUDIO	Disabled Audio File Extensions
+SETUP_DISABLEDEXTENSIONSAUDIO_DESC	Lyrion Music Server will look in the Media Folders for all supported file types (audio files and cue sheets). To disable specific file types from being processed when scanning the Music Folder, enter a comma separated list of file extensions below. E.g.: cue, mp4, aac
+SETUP_DISABLEDEXTENSIONSPLAYLIST	Disabled Playlist File Extensions
+SETUP_DISABLEDEXTENSIONSPLAYLIST_DESC	Lyrion Music Server will look in the Playlist Folder for all supported file types (playlist files and cue sheets). To disable specific file types from being processed when scanning the Playlist Folder, enter a comma separated list of file extensions below. E.g.: m3u, pls, cue
+SETUP_DISABLESTATISTICS	Library Statistics
+SETUP_DISABLESTATISTICS_DESC	When the Lyrion Music Server front page comes up, it scans your media library to figure out your library statistics and displays them on the front page.  You can choose to disable this behavior, which will shorten the time it takes to initially open up the web interface, especially with a large library.
+SETUP_DISABLE_ENHANCEDHTTP	Normal streaming
+SETUP_DISABLE_STATISTICS	Disable library statistics
+SETUP_DISPLAYTEXTTIMEOUT	Text Entry Timing
+SETUP_DISPLAYTEXTTIMEOUT_DESC	When you are entering text for a search, the player will move on to the next letter after some amount of time. You can change the duration (in seconds) of this wait.
+SETUP_DOUBLESIZE	Text Size
+SETUP_DOUBLESIZE_DESC	Choose the size of text for player display
+SETUP_ENABLE_BUFFEREDHTTP	Cache HTTP(S) streams on disk
+SETUP_ENABLE_PERSISTENTHTTP	Persistent mode
+SETUP_ENABLE_STATISTICS	Enable library statistics
+SETUP_ENHANCEDHTTP	Streaming mode for HTTP(S)
+SETUP_ENHANCEDHTTP_DESC	When a HTTP(S) connection to a server fails, Lyrion Music Server terminates playback. It can also try to re-open it (Persistent mode) or it can buffer streams (Cache mode) of defined length (podcasts, single tracks) on disk files. These will be removed once the stream has been played. This can improve the reliability with some servers that expect tracks to be downloaded, not streamed and thus close long connections. But it also does cause more writing to the file system, which could potentially wear out e.g. SD cards. If you have enough space for buffering files, then "Cache" mode is the way to go.
+SETUP_EXTENSIONS_ACTIVE	Active plugins
+SETUP_EXTENSIONS_AUTHOR	Author
+SETUP_EXTENSIONS_AUTO	Update plugins automatically
+SETUP_EXTENSIONS_AUTO_DESC	Allow the Lyrion Music Server to automatically check for updates to installed plugins and download them ready to be used when the server is next restarted.  If this option is not selected you may manually update plugins through this settings page.
+SETUP_EXTENSIONS_CATEGORY_ALL	All Categories
+SETUP_EXTENSIONS_CATEGORY_DATABASE	Music library
+SETUP_EXTENSIONS_CATEGORY_HARDWARE	Hardware
+SETUP_EXTENSIONS_CATEGORY_INFORMATION	Information, Metadata
+SETUP_EXTENSIONS_CATEGORY_MISC	Miscellaneous
+SETUP_EXTENSIONS_CATEGORY_MUSICSERVICES	Streaming Services
+SETUP_EXTENSIONS_CATEGORY_PLAYLISTS	Playlists
+SETUP_EXTENSIONS_CATEGORY_RADIO	Internet Radio
+SETUP_EXTENSIONS_CATEGORY_SCANNING	Media Scanner
+SETUP_EXTENSIONS_CATEGORY_SKIN	Skins
+SETUP_EXTENSIONS_CATEGORY_TOOLS	Tools
+SETUP_EXTENSIONS_CATEGORY_TOP	Most Popular (not installed)
+SETUP_EXTENSIONS_INACTIVE	Inactive plugins
+SETUP_EXTENSIONS_OTHER_REPOSITORIES	3rd party plugins
+SETUP_EXTENSIONS_RECOMMENDED_REPOSITORIES	Recommended 3rd party plugins
+SETUP_EXTENSIONS_REPOS	Additional Repositories
+SETUP_EXTENSIONS_REPOS_DESC	You may add additional third-party extension repositories by entering the URL for the repository below.
+SETUP_EXTENSIONS_REPOS_WARNING	<b>Warning:</b> As the server will automatically download software from the repositories you define, please verify that you trust the owner of the repository.
+SETUP_EXTENSIONS_REPO_ERROR	Bad repository
+SETUP_EXTENSIONS_RESTART_MSG	Please restart Lyrion Music Server for the changes to take effect.
+SETUP_EXTENSIONS_TOGGLE_VIEW	Toggle between grid and list view
+SETUP_EXTENSIONS_UPDATES	Updated plugins available
+SETUP_EXTENSIONS_USE_UNSUPPORTED	Use unsupported extensions
+SETUP_EXTENSIONS_USE_UNSUPPORTED_DESC	WARNING - These are 3rd Party Plugins not guaranteed to work under the current version of Lyrion Music Server. They've been abandoned by their authors and are no longer maintained. Worst case they could break your Lyrion Music Server. Use at your own risk.
+SETUP_EXTENSIONS_WARNING_POPUP	You are about to install:
+SETUP_EXTENSIONS_WARNING_POPUP2	Only install extensions from authors whom you trust. Malicious software can damage your computer or violate your privacy.
+SETUP_EXTENSIONS_WARNING_POPUP_OTHERREPO	Please note that 3rd party plugins should be used at your own risk.  Please contact plugin authors for support.
+SETUP_FADEINDURATION	Play or Resume fade-in duration
+SETUP_FADEINDURATION_DESC	When a track is played or resumed, volume can be progressively increased. This is not like crossfade which only happen between tracks.
+SETUP_FILTERRULE_DESC	If you have turned on blocking you can enter the addresses that you'd like to allow to connect to Lyrion Music Server.<br><br>This field accepts a list of specific IP addresses, * style wildcards, and IP address ranges in a comma separated list. For example:<BR><BR><B>10.1.2.2</B> will allow only 10.1.2.2 to connect<BR><BR><B>10.1.2.*</B> will allow anything with an IP address that be the 10.1.2.x addresses.<BR><BR><B>10.1.2.2-50</B> will allow IP addresses in the range 10.1.2.2 - 10.1.2.50 to connect.<BR><BR>Finally, multiple entries can be combined with commas, like this <B>10.1.2.2,172.16.1.*,192.168.1-254</B><BR><BR>The special IP address 127.0.0.1 allows a web browser to connect to Lyrion Music Server running on that same computer.
+SETUP_FILTERRULE_HEAD	Allowed IP Addresses
+SETUP_FORMATSLIST_MISSING_BINARY	Required binary was not found:
+SETUP_FORMATS_PREFER_NATIVE	Prefer native format (decoding on the player) whenever possible
+SETUP_FXLOOPCLOCK	Effects Loop Clock Mode
+SETUP_FXLOOPCLOCK_DESC	Preferably, the external processor's output will be synchronized to its input. Choose synchronous clock mode in this case, and the incoming signal will be reclocked by Transporter's internal oscillator for minimal jitter. In asynchronous mode, Transporter will recover the clock from the incoming signal, so it is not required to be synchronized.
+SETUP_FXLOOPSOURCE	Effects Loop Input
+SETUP_FXLOOPSOURCE_DESC	An external digital processor, such as an EQ,  may be connected via s/pdif to process the signal before it reaches Transporter's internal DAC. If this option is enabled, then the external processor must be connected and operating in order for Transporter's analog outputs to function.
+SETUP_GROUPDISCS	Group Discs
+SETUP_GROUPDISCS_0	Treat multi-disc sets as multiple albums
+SETUP_GROUPDISCS_1	Treat multi-disc sets as a single album
+SETUP_GROUPDISCS_DESC	You can specify if multiple disc sets are treated as a single album (with a single name) or as multiple albums, each with a unique name per disc, for example "Album Title (Disc 2 of 3)".  Changing this setting will start a rescan of your music library.
+SETUP_GROUP_BRIGHTNESS	Brightness
+SETUP_GROUP_BRIGHTNESS_DESC	The brightness of the player's display can be set for when it's on, off, or sitting idle (screensaver). It can also be adjusted automatically when you press a button, start playing a song, or leave it alone for a while.  You can choose to disable this automatic behavior.
+SETUP_GROUP_BY_RELEASE_TYPES_0	Don't group releases
+SETUP_GROUP_BY_RELEASE_TYPES_1	Group an artist's lists by release type
+SETUP_GROUP_BY_RELEASE_TYPES_2	Group all lists by release type
+SETUP_GROUP_DATETIME_DEFAULTDATE	Server Default
+SETUP_GROUP_DATETIME_DEFAULTTIME	Server Default
+SETUP_GROUP_DATETIME_DESC	These settings control the behavior of the Date and Time Screensaver
+SETUP_GROUP_DEBUG_DESC	Lyrion Music Server has a number of logging settings that can be used to record detailed information about server and scanner operation. Each logging category has a severity for logging. With "Debug" being the most verbose, and "Off" being the least.
+SETUP_GROUP_FORMATS_CONVERSION	File Format Conversion Setup
+SETUP_GROUP_FORMATS_CONVERSION_DESC	Lyrion Music Server can convert audio file formats on-the-fly for playback on your player.  You can disable specific formats below by unchecking them.  Only the name of the binary is shown here. To see/edit the entire command line, you will need to open convert.conf.  Click Change to save your changes.
+SETUP_GROUP_GUESSFILEFORMATS_DESC	For files that do not have reasonable tags, you can have Lyrion Music Server guess at tags using the path and filename. Using the same variables as Title Format, you can create a pattern to match your file naming conventions so that the application can make a good guess at what the tags should be.  Priority goes in the order listed below.  The first valid pattern match is used.
+SETUP_GROUP_IRSETS	Remote Controls
+SETUP_GROUP_IRSETS_DESC	You can choose to have this player respond to or ignore certain infrared remote signals. To enable a remote control code set, put a check next to the name below. To disable a remote control code set, clear the check mark.
+SETUP_GROUP_MENUITEMS	Home Menu Customization
+SETUP_GROUP_MENUITEMS_DESC	You can customize the choices that are available on the top-level Home menu on the player's display. Click to move items up and down or to remove menu items. Click on "Add" to add a removed item back to the menu.
+SETUP_GROUP_NONMENUITEMS_INTRO	Inactive Menu Items:
+SETUP_GROUP_PLUGINS	Plugins
+SETUP_GROUP_PLUGIN_RSSNEWS_DESC	The RSS News Ticker plugin can be used to browse and display items from RSS Feeds. The preferences below can be used to determine which RSS Feeds to use and control how they are displayed. Click on the Change button when you are done.
+SETUP_GROUP_TCP_PARAMS	TCP parameters
+SETUP_GROUP_TCP_PARAMS_DESC	These settings adjust the parameters of the TCP/IP networking in Lyrion Music Server.
+SETUP_GROUP_TITLEFORMATS_DESC	These are the formats available for selection both in the web interface and on players. To remove a format, clear the text box, to enter a new format, place it in the empty one. Available data elements are: CT (content type), TITLE, GENRE, TRACKNUM (tracknumber as an int), FS (file size), ARTIST, COMPOSER, CONDUCTOR, BAND, ALBUM, WORK, GROUPING, SUBTITLE, COMMENT, YEAR, SECS (total seconds), DURATION (minutes and seconds), BITRATE, LONGDATE (current date, long), SHORTDATE (current date, short), CURRTIME(current time). Elements can be separated by anything (or nothing). The separators are only used if the data elements are present.<br>The Current selection is the format that will be used on the web pages.
+SETUP_GROUP_XPL	xPL Settings
+SETUP_GROUP_XPL_DESC	These settings control the behavior of the xPL protocol
+SETUP_GUESSFILEFORMATS	Guess Tags Formats
+SETUP_HTTPPORT	Web Server Port Number
+SETUP_HTTPPORT_DESC	You can change the port number that is used to access the server from a web browser. (The default is 9000.)
+SETUP_HTTPPORT_OK	Now using port:
+SETUP_IDLEBRIGHTNESS	Idle Brightness
+SETUP_IDLEBRIGHTNESS_ABBR	Idle
+SETUP_IDLEFONT	Standby Font
+SETUP_IDLEFONT_DESC	When the player is standby, you can use the SIZE button on the remote or the radio buttons below to switch between fonts for the clock display. You may choose the order that they appear using the menus below.
+SETUP_IDLESAVER	Screensaver when stopped
+SETUP_IDLESAVER_ABBR	When Stopped
+SETUP_IGNOREDARTICLES	Articles to Ignore When Sorting
+SETUP_IGNOREDARTICLES_DESC	A list of articles ("the", "les", "los", etc.) to ignore at the beginning of artist, song or album names when sorting. Separate multiple articles by spaces or leave this list blank to disable this behavior.  Changing this setting will start a rescan of your music library.
+SETUP_IGNOREDISABLEDITUNESTRACKS	Unchecked Songs in iTunes
+SETUP_IGNOREDISABLEDITUNESTRACKS_0	Don't include unchecked songs
+SETUP_IGNOREDISABLEDITUNESTRACKS_1	Include all songs
+SETUP_IGNOREDISABLEDITUNESTRACKS_DESC	By default, when you remove the check mark next to a song in iTunes, that song won't appear when you browse your music with Lyrion Music Server. You can change that behavior below.
+SETUP_IGNORE_RELEASE_TYPES_0	Enable release type support for albums
+SETUP_IGNORE_RELEASE_TYPES_1	Ignore album release types
+SETUP_IMAGEPROXY	Artwork resizing
+SETUP_IMAGEPROXY_DESC	In order to get best quality artwork and performance on the devices, artwork files are resized before being sent to the client. By default this is handled by Lyrion Music Server itself. The helper can offload some of the heavy lifting to a separate process managed by the server application.
+SETUP_IMAGEPROXY_HELPER	Use Lyrion Music Server resizing helper to resize artwork
+SETUP_IMAGEPROXY_LOCAL	Use Lyrion Music Server to resize artwork
+SETUP_INPUTTYPE	From
+SETUP_INSECURE_HTTPS	Insecure HTTPS
+SETUP_INSECURE_HTTPS2	Switch off certificate verification on HTTPS connections.
+SETUP_INSECURE_HTTPS_DESC	Enabling "Insecure HTTPS" switches off certificate verification when Lyrion Music Server acts as an HTTPS client. <b>Enabling this option is discouraged!</b> It is bad practice to disable certificate verification, but can be necessary under certain circumstances, eg. when the libraries can't be updated.
+SETUP_INSTALL	Install
+SETUP_IPFILTER	Block
+SETUP_IPFILTER_DESC	This option allows you to enable blocking of incoming CLI and HTTP requests by source IP address.
+SETUP_IPFILTER_HEAD	Block Incoming Connections
+SETUP_IRMAP	Remote Button Functions
+SETUP_IRMAP_DESC	You can choose between button function sets. These sets map particular buttons on the infrared remote to particular functions. The "Standard" set is the one that is described in the documentation.
+SETUP_ITEMSPERPAGE	Items Per Page
+SETUP_ITEMSPERPAGE_DESC	This option controls the number of items displayed on each page.
+SETUP_ITUNES	iTunes
+SETUP_ITUNESPLAYLISTFORMAT	iTunes Playlist Format
+SETUP_ITUNESPLAYLISTFORMAT_DESC	This option determines the format used when importing iTunes playlists.
+SETUP_ITUNESSCANINTERVAL	iTunes Reload Interval
+SETUP_ITUNESSCANINTERVAL_DESC	When your iTunes Music Library changes Lyrion Music Server will automatically import the library information.  You can specify the minimum amount of time (in seconds) that the server will wait before reloading your iTunes Music Library again. A value of zero disables the reload.
+SETUP_ITUNES_ARTWORK	iTunes Artwork
+SETUP_ITUNES_ARTWORK_DESC	Enable this option to extract artwork stored within iTunes. Note that this operation may take a long time as the interface with iTunes is slow.
+SETUP_ITUNES_DESC	Lyrion Music Server can use your iTunes music library and playlists. Any changes that you make in iTunes will be reflected on your player. Check the box below if you want to import your iTunes Music Library information.
+SETUP_ITUNES_EXTRACT_ARTWORK	Extract iTunes Artwork (experimental)
+SETUP_ITUNES_IGNORED_PLAYLISTS	Ignored playlists
+SETUP_ITUNES_IGNORED_PLAYLISTS_DESC	Define a comma separated list of iTunes playlists you don't want to be imported (eg. "Videos, Purchased").
+SETUP_ITUNES_LIBRARY_MUSIC_PATH	iTunes Media Folder
+SETUP_ITUNES_LIBRARY_MUSIC_PATH_DESC	If you are running iTunes on a different computer than Lyrion Music Server, you may specify an explicit path to the iTunes Media folder here.  Leave this blank if you are running iTunes on the same computer as Lyrion Music Server.
+SETUP_ITUNES_LIBRARY_XML_PATH	iTunes Music Library.xml Location
+SETUP_ITUNES_LIBRARY_XML_PATH_DESC	If you are running iTunes on a different computer than Lyrion Music Server, you may specify an explicit path to the iTunes Music Library.xml file here.  Leave this blank if you are running iTunes on the same computer as Lyrion Music Server.
+SETUP_LAMEQUALITY	LAME Quality Level
+SETUP_LAMEQUALITY_DESC	The LAME MP3 encoder may be used to convert your music to MP3 format for streaming.  You can adjust the quality setting for LAME in the range 0 to 9.  9 is the default setting, which sounds very good at high bit rates and uses the least amount of computing power. 0 is the highest quality, but may slow your computer down.  Some computers running Lyrion Music Server may not be able to convert fast enough with higher quality settings.
+SETUP_LAME_FOUND	The LAME encoder appears to be installed correctly on your system.
+SETUP_LAME_NOT_FOUND	(<b>Note</b>: You do not appear to have LAME installed. Lyrion Music Server will need the LAME MP3 encoder installed on your system to do conversion to MP3.  You can find out more about LAME <a href="http://lame.sourceforge.net/" target="_blank">here</a>.)
+SETUP_LANGUAGE	Language
+SETUP_LANGUAGE_DESC	Choose the language that you'd like to use with Lyrion Music Server. If you find problems or would like to contribute, contact the developers at <a href="https://lyrion.org/contributing/adding-translations/">Lyrion.org</a>.
+SETUP_LARGETEXTFONT	Large Text Font
+SETUP_LARGETEXTFONT_0	Classic
+SETUP_LARGETEXTFONT_1	Modern
+SETUP_LARGETEXTFONT_DESC	Choose which font you would like to use when displaying large text.
+SETUP_LIBRARY_NAME	Media Library Name
+SETUP_LIBRARY_NAME_DESC	This is how your media library will be named in your Squeezebox's "My Media" menu.
+SETUP_LIBRARY_VIEWS_DESC	Library views allow you to use the My Music menu on a filtered selection of tracks. When views are enabled, you'll be able to switch between them from a sub-menu in My Music.
+SETUP_LOG_ZIPPED	ZIP archive
+SETUP_LONGDATEFORMAT	Long Date Format
+SETUP_LONGDATEFORMAT_DEFAULT	%A, %B |%d, %Y
+SETUP_LONGDATEFORMAT_DEFAULT_N	%a, %b |%d, %Y
+SETUP_LONGDATEFORMAT_DESC	This option determines the format used for long dates (such as displayed when the player is off). The following conventions are used in the choices presented below:<br>WWWW is the full day of the week (Saturday, Sunday, etc)<br>WWW is the abbreviated day of the week (Sat, Sun, etc)<br>DD is the day of the month (leading zero removed)<br>MM is the month of the year<br>YY is the two digit year<br>YYYY is the four digit year
+SETUP_MAINTAINSYNC	Maintain Synchronization
+SETUP_MAINTAINSYNC_DESC	Even when several players start playing a track in perfect synchronization, they can drift apart over time (usually after a few minutes). A difference of more than about 30ms (milliseconds) will be noticeable if you can hear the output from multiple players simultaneously. Lyrion Music Server deals with this by continuously tracking how much each player has played and making small adjustments as necessary. You can turn this behavior on or off.
+SETUP_MAINTAINSYNC_OFF	Don't maintain synchronization
+SETUP_MAINTAINSYNC_ON	Maintain synchronization while playing
+SETUP_MAXBITRATE	Bitrate Limiting
+SETUP_MAXBITRATE_DESC	Lyrion Music Server can automatically convert your music files to WAV/AIFF or MP3 on-the-fly to lower the bitrate of the data streamed to your player.  This is useful if you are connecting your player to the server across the Internet or are having intermittent problems using a wireless network.  You can choose the maximum bitrate that Lyrion Music Server will stream to your player.  MP3 songs encoded at a bitrate lower than the maximum bitrate won't be converted.  If you choose No Limit, the server will stream your MP3 files without conversion and your other file types as uncompressed PCM audio.
+SETUP_MAXPLAYLISTLENGTH	Maximum Playlist Length
+SETUP_MAXPLAYLISTLENGTH_DESC	In order to protect the server against excessive memory use the maximum length of a playlist, including the Now-Playing playlist, can be restricted. A value of 0 means no restriction. If set then the minimum value is 10.
+SETUP_MAXWMARATE	Maximum WMA Stream Bitrate
+SETUP_MAXWMARATE_DESC	Some WMA streams have multiple bitrates available for streaming.  By default, Lyrion Music Server will select the highest bitrate stream available, but if you have a slower Internet connection, you may set a lower value here to limit the maximum rate that can be chosen from these multiple rate streams.
+SETUP_MAX_REDIRECTS	Maximum number of redirects
+SETUP_MAX_REDIRECTS_DESC	The maximum number of HTTP redirects to follow. Should more redirects be required, then the request is considered failure.
+SETUP_MEDIADIRS	Media Folders
+SETUP_MEDIADIRS_DESC	You can specify one or more folders containing media files that Lyrion Music Server will scan and add to your media library.  Enter the paths to the folder below.
+SETUP_MINAUTOBRIGHTNESS	Minimal Brightness (Automatic)
+SETUP_MINAUTOBRIGHTNESS_ABBR	Min. Brightness (Auto)
+SETUP_MINAUTOBRIGHTNESS_DESC	Adjust the minimal brightness level for automatic brightness settings.
+SETUP_MINSYNCADJUST	Minimum Synchronization Adjustment (ms)
+SETUP_MINSYNCADJUST_DESC	When Lyrion Music Server detects that two synchronized players have gotten a little bit out of synchronization with each other, it makes a small adjustment, usually to the player that has gotten behind. You can configure the minimum size of such adjustments for this player. The larger this interval, the less frequent will be the adjustments but the more the players will be allowed to drift apart.
+SETUP_MISSING_USERNAME	You can't enable authorization without a password.
+SETUP_MIX_FILTER	Mix Filter
+SETUP_MIX_FILTER_DESC	You can create named sets of filter conditions in MusicIP and choose from the list here to apply those filters to MusicIP Mixes in Lyrion Music Server.
+SETUP_MIX_GENRE	Mix Genre
+SETUP_MIX_GENRE_DESC	Restrict mix to the genre of the seed (Default: no)
+SETUP_MIX_GENRE_FILTER	Excluded Genres
+SETUP_MIX_GENRE_FILTER_DESC	Select one or more genres from your music library to exclude from MusicIP Mixes. Leave nothing selected to allow all genres.
+SETUP_MIX_SIZE	Mix Size
+SETUP_MIX_SIZE_DESC	Choose Mix Size
+SETUP_MIX_STYLE	Mix Style
+SETUP_MIX_STYLE_DESC	How much like the artist style ( 0 = ignore (default), 200 = strict )
+SETUP_MIX_TYPE	Mix Type
+SETUP_MIX_VARIETY	Mix Variety
+SETUP_MIX_VARIETY_DESC	How much variety in the mix ( 0 = less (default), 9 = more )
+SETUP_MMMPLAYERSETTINGS	Player settings for each mix
+SETUP_MMMPLAYERSETTINGS_DESC	You may choose to give each player access to the MusicIP mix settings before generating a mix.  Any player-chosen settings will override the server settings and remain, until they are changed again from the player. If you wish to skip directly to creating a mix, using existing player/server settings only, then choose no.
+SETUP_MMMSETTINGS	MusicIP Mix Settings
+SETUP_MMSHOST	MusicIP Host
+SETUP_MMSHOST_DESC	The hostname or IP address of the MusicIP server. Change this if MusicIP is running on a different host than Lyrion Music Server (e.g. in a separate Docker container or VM). Defaults to localhost. Note: file paths to your music must be identical on both hosts. Docker users should ensure this by using matching volume mount paths in both containers.
+SETUP_MMSPORT	MusicIP HTTP Port
+SETUP_MMSPORT_DESC	The MusicIP Service API allows the selection of an http port to use for queries to the MusicIP API. Enter the port number here to match the setting you have chosen in MusicIP Mixer settings.
+SETUP_MP3BITRATE_DESC	Lyrion Music Server can automatically convert your music files to MP3 on-the-fly to play back other formats than MP3.  It can also recompress your MP3 files to lower the bitrate of the data streamed to your player.  This is useful if you are connecting your player to the server across the Internet or are having intermittent problems using a wireless network.  You can choose the maximum bitrate that Lyrion Music Server will stream to your player.  MP3 songs encoded at a bitrate lower than the maximum bitrate won't be converted.
+SETUP_MP3SILENCEPRELUDE	Audio Startup Time
+SETUP_MP3SILENCEPRELUDE_DESC	Some audio receivers and D/A converters need a little extra time to start decoding audio from the player when playing back MP3 audio.  You can specify how much time, in seconds, to wait after pressing play to start sending MP3 audio.  The default value is 0, a value of 0.25 seconds works for many receivers.
+SETUP_MP3STREAMINGMETHOD	Streaming Method
+SETUP_MP3STREAMINGMETHOD_DESC	When playing an Internet stream, the streaming can be done in one of two ways.  Direct Streaming causes the player to make a direct connection to the audio streaming server, reducing the load on Lyrion Music Server slightly and allowing the stream to continue playing if the Lyrion Music Server connection is lost.  Proxied Streaming causes Lyrion Music Server to handle the connection, passing the audio through to the player.  Direct Streaming is the default, but if you experience problems with streams, try changing this setting to Proxied Streaming.  Note that if two or more players are synchronized to an stream, proxied streaming is always used to reduce bandwidth usage.
+SETUP_MUSICMAGIC	MusicIP
+SETUP_MUSICMAGICPLAYLISTFORMAT	MusicIP Playlist Format
+SETUP_MUSICMAGICPLAYLISTFORMAT_DESC	This option determines the format used when importing MusicIP playlists.
+SETUP_MUSICMAGICSCANINTERVAL	MusicIP Reload Interval
+SETUP_MUSICMAGICSCANINTERVAL_DESC	When your MusicIP Database changes, Lyrion Music Server will automatically import the library information.  You can specify the minimum amount of time (in seconds) that Lyrion Music Server will wait before reloading your MusicIP Database again. A value of zero disables the reload.
+SETUP_MUSICMAGIC_DESC	Lyrion Music Server can use your MusicIP program as source for title and genre information. Or you can use it to only generate instant mixes on genre, artist and song level. Reading title and genre information is much slower than reading the mixable status only, especially when scanning for new and changed songs only.
+SETUP_MYCLASSICALGENRES	My work and composer album genres
+SETUP_MYCLASSICALGENRES_DESC	Use these genres for works and composer albums. Separate with commas.
+SETUP_NOGENREFILTER	Filter Genres at the Album & Track Level
+SETUP_NOGENREFILTER_0	Only show tracks or albums matching the selected genre for an artist
+SETUP_NOGENREFILTER_1	Show all albums and tracks for an artist
+SETUP_NOGENREFILTER_DESC	Filtering can be done when Browsing Genres to only show the albums & tracks that match the selected genre.
+SETUP_NOROLEFILTER	Filter Contributor Roles at the Album & Track Level
+SETUP_NOROLEFILTER_0	Only show tracks or albums matching the selected role for an artist
+SETUP_NOROLEFILTER_1	Show all albums and tracks for an artist
+SETUP_NOROLEFILTER_DESC	Filtering can be done when Browsing Artists to only show the albums & tracks that match the selected role (eg. ALBUMARTIST, COMPOSER etc.).
+SETUP_NO_AUTHORIZE	No password protection
+SETUP_NO_IPFILTER	Do not block
+SETUP_NO_JAVASCRIPT	In order to access Lyrion Music Server, please make sure you are using a recent browser (Firefox&reg;, Apple Safari&reg;, Microsoft&reg; Internet Explorer 10, Opera 25 or later), and JavaScript is enabled in your browser. Alternatively you can use a simpler skin, such as <a href="/Classic/?skipWizard=1">Classic</a>.
+SETUP_NO_PORTRAITS	Artist Portraits
+SETUP_NO_PORTRAITS_OFF	Show pictures when browsing artists
+SETUP_NO_PORTRAITS_ON	Don't show pictures when browsing artists
+SETUP_NO_PREFS	There are no settings for this player on this page
+SETUP_NO_SCREENSAVERS	There seem to be no screensavers installed. Do you want to install the Date and Time screensaver?
+SETUP_NO_SYNCHRONIZATION	No Synchronization
+SETUP_OFFDISPLAYSIZE	Standby Text Size
+SETUP_OFFSAVER	Screensaver when off
+SETUP_OFFSAVER_ABBR	When Off
+SETUP_OUTPUT_CHANNELS	Output Channel Mode
+SETUP_OUTPUT_CHANNELS_DESC	You can configure this player to play only the left or right channel. This can be used to create a stereo image from 2 synced Squeezebox Radios, for example. Both channels can also be combined to mono.
+SETUP_PACKETLATENCY	Network Packet Latency (ms)
+SETUP_PACKETLATENCY_DESC	Lyrion Music Server automatically measures the network latency between it and the player. This is important when maintaining synchronization. Occasionally these measurements can be too inconsistent to be useful, in which case you can specify a typical value here.
+SETUP_PASSWORD	Password
+SETUP_PASSWORD_MISMATCH	The passwords you entered do not match.
+SETUP_PASSWORD_REPEAT	Confirm Password
+SETUP_PERSISTPLAYLISTS	Maintain Client Playlists
+SETUP_PERSISTPLAYLISTS_0	Do not remember playlist
+SETUP_PERSISTPLAYLISTS_1	Remember playlist
+SETUP_PERSISTPLAYLISTS_DESC	Lyrion Music Server can remember the last playlist of songs that were Now Playing when the application starts.
+SETUP_PLAYDELAY	Player Audio Delay (ms)
+SETUP_PLAYDELAY_DESC	There can be a noticeable difference between how much of a track that the player reports it has played to Lyrion Music Server and how much audio has been heard. This can be the case when using digital outputs (depending upon the connected equipment) or with software players on some platforms. In these cases, this delay can be set here so that Lyrion Music Server can take it into account when adjusting synchronization.
+SETUP_PLAYERNAME	Player Name
+SETUP_PLAYERNAME_DESC	You can give this player a name that will be used to identify the player on these web pages.
+SETUP_PLAYER_TIMEZONE	Player Timezone
+SETUP_PLAYER_TIMEZONE_DESC	The player timezone. Used for clock display and alarms.
+SETUP_PLAYER_TIMEZONE_DESC_MANAGED	Change the timezone via the settings on the device.
+SETUP_PLAYER_TIMEZONE_SERVER	Server timezone
+SETUP_PLAYER_TITLEFORMATS_DESC	These are the formats available for selection on this player. To add an additional format for selection at the player, select one from the drop-down and save the settings.<br>The Current selection is the format that will be used on the player.<br>If you want to add new formats not available in the drop-down, go to Server Settings > Interface > Title Format.
+SETUP_PLAYINGDISPLAYMODE	Now Playing Information
+SETUP_PLAYINGDISPLAYMODE_ABBR	Now Playing Info
+SETUP_PLAYINGDISPLAYMODE_DESC	The player can display information on the progress of a song as it's playing. You can select the information that you wish to be displayed by default, and can enable or disable the modes that you wish to be made available. You can cycle through these modes by pressing Now Playing on the remote repeatedly.
+SETUP_PLAYLISTDIR	Playlists Folder
+SETUP_PLAYLISTDIR_DESC	You can enter the path to a directory where your saved playlist files are stored on your hard disk. (You can leave this blank if you don't want to save playlists.)
+SETUP_PLAYLISTPREFIX	Prefix:
+SETUP_PLAYLISTRESCAN	Only rescan playlists
+SETUP_PLAYLISTSUFFIX	Suffix:
+SETUP_PLAYTRACKALBUM	Play Other Songs In Album
+SETUP_PLAYTRACKALBUM_0	Play only selected song
+SETUP_PLAYTRACKALBUM_1	Play other songs in album or directory
+SETUP_PLAYTRACKALBUM_DESC	When you select a single song and press PLAY on the remote, while browsing albums or folders, you can choose to play just that song or all the songs in that album or directory, starting with that song.
+SETUP_PLUGINS	Manage Plugins
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS	Last.fm / ListenBrainz Account(s)
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_API_TYPE	Select the API type (and enter the custom API base URL if needed).
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_CUSTOM_URL	Custom API base URL:
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_DELETE	To delete an existing account, check the box next to it.
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_DESC	Enter your Last.fm username and password or API key/token for ListenBrainz.</br>Multiple accounts may be entered if you wish to submit tracks from different players to different accounts. You can also set a custom API URL for alternative configurations, otherwise leave this setting empty.</br> </br>Examples of custom base URLs:</br> </br>Maloja (with Last.fm v1.2 API) (http):</br><i>http://localhost:42010/apis/audioscrobbler_legacy</i></br> </br>Maloja (with ListenBrainz API):</br><i>https://maloja.yourdomain.com/apis/listenbrainz</i></br> </br>Koito (with ListenBrainz API):</br><i>https://koito.yourdomain.com/apis/listenbrainz</i></br> </br>Multi-Scrobbler (with ListenBrainz API):</br><i>https://scrobble.yourdomain.com</i>
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_PASSWORD	Password / API key:
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_USERNAME	Username:
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNTS_USERNAME_PASSWORD	Enter your Last.fm username and password or credentials for ListenBrainz.
+SETUP_PLUGIN_AUDIOSCROBBLER_ACCOUNT_NOTE	Note: To configure your Last.fm account, click on the Advanced tab and then select the Last.fm Audioscrobbler item.
+SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLE_NO	No, do not report tracks played to Last.fm / ListenBrainz.
+SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLE_YES	Yes, report tracks played to Last.fm / ListenBrainz.
+SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLING	Submit (scrobble) all tracks played.
+SETUP_PLUGIN_AUDIOSCROBBLER_ENABLE_SCROBBLING_DESC	Enable this option to update your Last.fm / ListenBrainz music profile with all music you have listened to.
+SETUP_PLUGIN_AUDIOSCROBBLER_INCLUDE_RADIO	Scrobble Internet Radio.
+SETUP_PLUGIN_AUDIOSCROBBLER_INCLUDE_RADIO_DESC	Scrobbling Internet Radio tracks may cause your Last.fm profile to include unwanted data.  You can disable scrobbling of all radio tracks by changing this option.  Radio tracks may still be loved, however.
+SETUP_PLUGIN_AUDIOSCROBBLER_INCLUDE_RADIO_NO	No, do not scrobble Internet Radio tracks.
+SETUP_PLUGIN_AUDIOSCROBBLER_INCLUDE_RADIO_YES	Yes, scrobble Internet Radio tracks.
+SETUP_PLUGIN_AUDIOSCROBBLER_LOGIN_ERROR	There was an error verifying your account with Last.fm. Please try again later. (%s)
+SETUP_PLUGIN_AUDIOSCROBBLER_OVERVIEW	Last.fm a music service that builds up your personal music profile by tracking the music you listen to. Based on your taste, Last.fm provides customized radio stations, music and event recommendations, free downloads and more. Join for free at <a href="https://www.last.fm/join" target="_blank">www.last.fm/join</a> or find out more at <a href="https://www.last.fm/about" target="_blank">www.last.fm/about</a>.
+SETUP_PLUGIN_AUDIOSCROBBLER_PLAYER	Last.fm Audioscrobbler Player Settings
+SETUP_PLUGIN_AUDIOSCROBBLER_PLAYER_DESC	To enable Audioscrobbler for this player, select an account to use.
+SETUP_PLUGIN_AUDIOSCROBBLER_PLAYER_DISABLED	Disabled, do not submit tracks played on this player.
+SETUP_PLUGIN_AUDIOSCROBBLER_PLAYER_NOTE	Note: You must also enable Audioscrobbler for each player.  Click on the Player tab and then select the Audioscrobbler item for each player you want to scrobble.
+SETUP_PLUGIN_AUDIOSCROBBLER_VALIDATION_ERROR	There was an error validating your account information. Please try again later. (%s)
+SETUP_PLUGIN_AUDIOSCROBBLER_WARNING_SCROBBLE_DISABLED	Warning: Submit all tracks is globally disabled.  To submit track information for this player, enable the Submit all tracks setting by going to Advanced -> Last.fm Audioscrobbler.
+SETUP_PLUGIN_INFOBROWSER_ADDONS	Other information sources may be displayed by adding Information Browser addons.  More details of Information Browser addons can be found at: <a href="https://wiki.lyrion.org/index.php/Information_Browser" target="wiki">https://wiki.lyrion.org/index.php/Information_Browser</a>.
+SETUP_PLUGIN_INFOBROWSER_DESC	Information Browser allows you to read information from internet sources on your Squeezebox remote, server or player display. More information sources can be added using the web interface under Extras/Information Browser.
+SETUP_PLUGIN_INFOBROWSER_RESET	Reset
+SETUP_PLUGIN_INFOBROWSER_RESET_DESC	Reset the top level Info Browser menu to all default feeds plus all Addon feeds you have installed.
+SETUP_PLUGIN_PODCAST_ADD_FEED	Add a new feed:
+SETUP_PLUGIN_PODCAST_EXISTING_FEEDS	Existing feeds:
+SETUP_PLUGIN_PODCAST_INVALID_FEED	Invalid Feed - %s
+SETUP_PLUGIN_RSSNEWS_EXISTING_FEEDS	Existing feeds:
+SETUP_PLUGIN_RSSNEWS_INVALID_FEED	Invalid Feed - %s
+SETUP_PLUGIN_RSSNEWS_ITEMS_PER_FEED	Items displayed per channel
+SETUP_PLUGIN_RSSNEWS_ITEMS_PER_FEED_DESC	The maximum number of items displayed for each feed while the screensaver is active. A larger value implies that the screensaver will display more items before switching to the next feed.
+SETUP_PLUGIN_RSSNEWS_RESET	Reset default RSS feeds
+SETUP_POLARITYINVERSION	Polarity Inversion
+SETUP_POLARITYINVERSION_DESC	The player can invert the polarity of the audio signal.
+SETUP_POWEROFFBRIGHTNESS	Power Off Brightness
+SETUP_POWEROFFBRIGHTNESS_ABBR	While Off
+SETUP_POWEROFFDAC	Power Off AUDIO
+SETUP_POWEROFFDAC_DESC	When Transporter is turned off the audio section can be completely powered down.  Powering down the audio section may cause an audible pop.
+SETUP_POWERONBRIGHTNESS	Power On Brightness
+SETUP_POWERONBRIGHTNESS_ABBR	While Active
+SETUP_POWERONRESUME	Power On Resume
+SETUP_POWERONRESUME_DESC	You can choose how your player should resume the current playlist when you press the POWER button to turn the player off and then again to turn it on again later.  This setting applies to this player and other players while they are synchronized to this player.
+SETUP_POWERONRESUME_PAUSEOFF_NONEON	Pause at power off / Remain paused at power on
+SETUP_POWERONRESUME_PAUSEOFF_PLAYON	Pause at power off / Resume at power on
+SETUP_POWERONRESUME_STOPOFF_NONEON	Stop at power off / Remain stopped at power on
+SETUP_POWERONRESUME_STOPOFF_PLAYON	Stop at power off / Restart song at power on
+SETUP_POWERONRESUME_STOPOFF_RESETON	Stop at power off / Reset playlist at power on
+SETUP_POWERONRESUME_STOPOFF_RESETPLAYON	Stop at power off / Restart playlist at power on
+SETUP_PREAMPVOLUMECONTROL	Preamp Volume Control
+SETUP_PREAMPVOLUMECONTROL_DESC	This is a secondary volume control which applies only to the analog outputs on Squeezebox. Enter the amount of attenuation in decibels. Range is 0.0 to 63.0 in 0.5 db steps. The default is 0 (for full volume). WARNING: if your amplifier is powerful enough to blow your speakers, a receiver, preamp, or line attenuator should still be used as a safety measure!
+SETUP_PRECACHEARTWORK	Artwork Pre-caching
+SETUP_PRECACHEARTWORK_CUSTOM_SPECS	Custom pre-caching specifications
+SETUP_PRECACHEARTWORK_DESC	By default, all cover art found during the scanning phase is automatically resized and cached to improve performance when using Squeezebox Controller or the web interface.  This does slow down the scan process, so it can be disabled here.
+SETUP_PRECACHEARTWORK_DISABLED	Do not pre-cache artwork
+SETUP_PRECACHEARTWORK_ENABLED	Pre-cache album artwork
+SETUP_PRIORITY_ABOVE_NORMAL	Above Normal
+SETUP_PRIORITY_BELOW_NORMAL	Below Normal
+SETUP_PRIORITY_CURRENT	Current Server Priority
+SETUP_PRIORITY_HIGH	High
+SETUP_PRIORITY_LOW	Low
+SETUP_PRIORITY_NORMAL	Normal
+SETUP_RATINGIMPLEMENTATION	Rating storage
+SETUP_RATINGIMPLEMENTATION_DESC	Rating storage to use when storing or viewing ratings
+SETUP_REFRESHRATE	Browser Refresh Timing
+SETUP_REFRESHRATE_DESC	Set the time between browser reloads in seconds.  While playing a song, Lyrion Music Server will set the refresh near a song end if it is less than this value. (Default is 30, minimum is 2)
+SETUP_REJECT_SIZE	Reject Size
+SETUP_REJECT_SIZE_DESC	Set the number of items to skip before repeating a type. (Default: 12)
+SETUP_REJECT_TYPE	MusicIP Reject Type
+SETUP_RELEASE_TYPES	Release types for Albums
+SETUP_RELEASE_TYPES_COMPOSER_ALBUM_GROUP_OPTIONS	Composer album options
+SETUP_RELEASE_TYPES_COMPOSER_ALBUM_GROUP_OPTIONS_DESC	Create a Composer Albums group - always, never, or for certain genres. If due to this setting, certain composer roles are not included in the Composer Albums group, they will appear in a separate "Compositions" group instead, which will list individual tracks, not albums. The genre list should be comma separated.
+SETUP_RELEASE_TYPES_COMPOSER_ROLE_GROUPING_0	Do not create a Composer Album group
+SETUP_RELEASE_TYPES_COMPOSER_ROLE_GROUPING_1	Always create a Composer Album group
+SETUP_RELEASE_TYPES_COMPOSER_ROLE_GROUPING_2	Create a Composer Album group for "My work and composer album genres" (above)
+SETUP_RELEASE_TYPES_DESC	You can specify what release types you want to include in the albums list (see <a href="https://musicbrainz.org/doc/Release_Group/Type">MusicBrainz</a>). If a release doesn't have a type defined, "Album" is assumed. Albums can't be excluded from that list.
+SETUP_RELEASE_TYPES_INCLUDE	Release types to include in Albums list
+SETUP_REMOTESTREAMTIMEOUT	Radio Station Timeout
+SETUP_REMOTESTREAMTIMEOUT_DESC	You can set the length of time that Lyrion Music Server will try to connect to an internet radio station or other source before giving up. Enter the amount of time, in seconds, below.
+SETUP_REPLAYGAINMODE	Volume Adjustment/Replay Gain
+SETUP_REPLAYGAINMODE_DESC	Some audio tracks contain volume adjustment, or "Replay Gain", information that can be used during playback to make sure that tracks and albums sound equally loud. The player can use this information if it is present. "Track gain" can be used to make sure that all tracks sound equally loud. "Album gain" can be used to make sure that all albums sound equally loud, but that volume differences between tracks within an album are preserved. "Smart" gain selection uses album gain if successive songs are from the same album or track gain for a mixed playlist.
+SETUP_REPLAYGAIN_LOCAL	Default Adjustment for Local Tracks
+SETUP_REPLAYGAIN_LOCAL_DESC	All local tracks may not contain "Replay Gain" information. When using "Track gain" or "Smart gain" mode to play a mixture of tracks that do and do not contain this information, large volume changes may occur between tracks. Define a default adjustment value which should be applied to tracks without "Replay Gain" information in order to mitigate this behavior.
+SETUP_REPLAYGAIN_REMOTE	Default Adjustment for Remote Streams
+SETUP_REPLAYGAIN_REMOTE_DESC	Remote streaming services often don't support any form of volume adjustment. If you're playing remote tracks mixed in with local tracks, this can lead to undesired volume changes. Define a default value which should be applied to any remote stream not defining a volume adjustment value itself.
+SETUP_RESCAN	Rescan Media Library
+SETUP_RESCAN_BUTTON	Rescan
+SETUP_RESCAN_DESC	Click Rescan to have Lyrion Music Server scan through your media library and add new media or update files that have changed.
+SETUP_RESET_PLAYER	Reset player preferences
+SETUP_RESET_PLAYER_CONFIRM	Do you really want to reset your player to factory defaults?
+SETUP_RESET_PLAYER_DESC	You can reset a player's settings like player name, title format, menus etc. to factory defaults. Please note that this will not reset the player's hardware settings like eg. networking parameters.
+SETUP_RESHUFFLEONREPEAT	Reshuffle on Repeat
+SETUP_RESHUFFLEONREPEAT_0	Leave in same order
+SETUP_RESHUFFLEONREPEAT_1	Reshuffle each time
+SETUP_RESHUFFLEONREPEAT_DESC	Lyrion Music Server can reshuffle shuffled playlists after each complete pass through the list, if desired.
+SETUP_ROLESINARTISTS	Select roles to include with Artists
+SETUP_ROLESINARTISTS_DESC	Song information about track artists, composers, bands and orchestras, etc, can be included in the artists list for browsing and search.
+SETUP_ROLLOFFSLOW	DAC Roll-off Filter
+SETUP_ROLLOFFSLOW_DESC	The AK4396 DAC defaults to using a sharp roll-off filter, with an option to use a slow roll-off filter instead. This option only affects the analog outputs.
+SETUP_SAVESHUFFLED	Save Shuffled Playlist
+SETUP_SAVESHUFFLED_0	Save playlists in order songs were added
+SETUP_SAVESHUFFLED_1	Save playlists in shuffled order
+SETUP_SAVESHUFFLED_DESC	When you choose to save a playlist, and it's been shuffled, you can choose to save it in the original order the songs were added or in the shuffled order.
+SETUP_SCANNERPRIORITY	Scanner Priority
+SETUP_SCANNERPRIORITY_DESC	You can specify the priority for the scanning process.
+SETUP_SCAN_ON_PREF_CHANGE	Trigger Scan on Preference Changes
+SETUP_SCAN_ON_PREF_CHANGE_DESC	Some preferences need a full wipe & rescan of your media library to take effect. This scan can be triggered automatically if you wish. But it could cause multiple scans to be queued up if you change several preferences at once.
+SETUP_SCAN_ON_PREF_CHANGE_OFF	Prompt to scan, but don't trigger it automatically
+SETUP_SCAN_ON_PREF_CHANGE_ON	Trigger scan automatically
+SETUP_SCAN_ON_PREF_CHANGE_PROMPT	Some settings require a rescan of your library to take effect. <a href="%s">Click here to start the scan.</a>
+SETUP_SCREENSAVER	Screensaver when playing
+SETUP_SCREENSAVERTIMEOUT	Screensaver delay time in seconds
+SETUP_SCREENSAVER_ABBR	When Playing
+SETUP_SCREENSAVER_DESC	After a period of inactivity from the remote control, the player can display various information as "screensavers". You can choose different screensavers to show, depending on whether the player is playing or not, or if it is powered off. You can also choose the amount of time to wait before enabling these screensavers.
+SETUP_SCROLLMODE	Scroll Mode
+SETUP_SCROLLMODE_DEFAULT	Standard scrolling
+SETUP_SCROLLMODE_DESC	You can select how a player will display text on the second line of the display which is too long to fit on the screen.  The standard horizontal scrolling mode will wait for the Scroll Pause interval and then scroll the text to show the whole line.  Scrolling will continue for as long as the player is displaying this screen.  The alternative modes support scrolling the text once and then stopping, or not scrolling the text at all.
+SETUP_SCROLLMODE_NOSCROLL	Do not scroll
+SETUP_SCROLLMODE_SCROLLONCE	Scroll once and stop
+SETUP_SCROLLPAUSE	Scroll Pause
+SETUP_SCROLLPAUSE_DESC	You can adjust the amount of time that the player waits before starting horizontal scrolling of the text on the display.  Enter a value, in seconds, for the amount of time to wait before scrolling or between scrolling.  Enter zero to not pause at all and scroll immediately. 3.6 seconds is the default.
+SETUP_SCROLLPIXELS	Scroll Pixels
+SETUP_SCROLLPIXELS_DESC	On a player with a graphical display you can adjust the number of pixels (dots) that the player scrolls in each interval defined above.  Adjust this in conjunction with the Scroll Rate to adjust scrolling speed and quality.  If in doubt leave as the default of 2 or 3 pixels.  (Min 1, Max 20).
+SETUP_SCROLLRATE	Scroll Rate
+SETUP_SCROLLRATE_DESC	You can adjust the rate at which scrolling text moves across the screen. The Scroll Rate defines the length of time between display updates.  On a player with a graphical display this can be adjusted in combination with Scroll Pixels to set the speed and quality of scrolling (the text will move by Scroll Pixels once every Scroll Rate seconds).  On a player with a character display this defines the length of time before scrolling to the next character.  Enter a value, in seconds, for the amount of time between updates.  Lower numbers make scrolling faster.  0.033 seconds is the default.
+SETUP_SEARCHSUBSTRING	Search Within Words
+SETUP_SEARCHSUBSTRING_0	Search Beginning of Words
+SETUP_SEARCHSUBSTRING_1	Search Within Words
+SETUP_SEARCHSUBSTRING_DESC	When you search for media files, you can have your server find matches for items that contain words that begin with the same letters in your search string or contain words that have the search string anywhere in the word.  For example, searching the beginnings of words for "RAIN" in would find items with the word "RAINBOW".  Searching within words would also return item containing the word "TRAIN". PLEASE NOTE: if you're using the Fulltext Search plugin, this flag does not apply.
+SETUP_SELECT_FILE	Please select a file
+SETUP_SELECT_FOLDER	Please select a folder
+SETUP_SENSAUTOBRIGHTNESS	Brightness Sensitivity (Automatic)
+SETUP_SENSAUTOBRIGHTNESS_ABBR	Sens. Brightness (Auto)
+SETUP_SENSAUTOBRIGHTNESS_DESC	Adjust the sensitivity for automatic brightness settings.
+SETUP_SERVERPRIORITY	Server Priority
+SETUP_SERVERPRIORITY_DESC	You can specify the priority for Lyrion Music Server.
+SETUP_SHORTDATEFORMAT	Short Date Format
+SETUP_SHORTDATEFORMAT_DEFAULT	%m/%d/%Y
+SETUP_SHORTDATEFORMAT_DESC	This option determines the format used for short dates. The following conventions are used in the choices presented below:<br>YYYY is the four digit year<br>YY is the two digit year<br>MM is the month of the year<br>DD is the day of the month<br>Anything at the end in parentheses is just a comment and is not displayed.
+SETUP_SHOWARTIST	Show Artist with Albums
+SETUP_SHOWARTIST_DESC	You may choose to show the artist when browsing by Albums.  When enabled, the album's artist will be shown next to the album title.
+SETUP_SHOWBUFFERFULLNESS	Show Buffer Fullness
+SETUP_SHOWCOUNT	Show Menu Count
+SETUP_SHOWCOUNT_ALWAYS	Show Always
+SETUP_SHOWCOUNT_DESC	You can select whether to always show the position in the menu or to only show it while you are scrolling through menu items. The position is displayed in the format 1 of 6, indicating the first item of a menu list of 6 items.
+SETUP_SHOWCOUNT_TEMP	While Scrolling
+SETUP_SHOWYEAR	Show Year with Albums
+SETUP_SHOWYEAR_DESC	You may choose to show the album year when browsing by Albums or by Artwork.  When enabled, the album year will be shown next to the album title.
+SETUP_SHUFFLE_METHOD	Shuffle method
+SETUP_SIGNOUT	Sign out
+SETUP_SKIN	Web Interface
+SETUP_SKIN_DESC	You can choose a look or "skin" for the web interface from the list below.
+SETUP_SKIN_OK	To apply your changes please close the Lyrion Music Server window and reload it.
+SETUP_SKIPSENTINEL	Skip Sentinel Filename
+SETUP_SKIPSENTINEL_DESC	Media (sub)folders that contain a file with this name are skipped.
+SETUP_SNOOZE_MINUTES	Snooze Length (in minutes)
+SETUP_SNOOZE_MINUTES_DESC	This setting allows you to choose how long an alarm pauses for when you hit the snooze button.
+SETUP_SPLITLIST	Separator for Multiple Items in Tags
+SETUP_SPLITLIST_DESC	Lyrion Music Server can extract multiple artist, album titles and genres from the tags inside your music files.  If it finds any of the words or characters below in your tags, it will create individual listings for each item.  For example, if you put a semicolon in the list below, a song with an artist tag of "J. S. Bach;Michael Tilson Thomas" will appear in the artists area for both "J. S. Bach" and "Michael Tilson Thomas".  Changing this setting will start a rescan of your music library.
+SETUP_STANDARDRESCAN	Look for new and changed media files
+SETUP_STARTDELAY	Player Start Delay (ms)
+SETUP_STARTDELAY_DESC	A player can take a noticeable time to start playing (before you begin to hear the audio) after it processes the start command from Lyrion Music Server. This can be the case when using digital outputs (depending upon the connected equipment) or with software players on some platforms. In these cases, this delay can be set here so that Lyrion Music Server knows how much in advance to start this player so that the audio from all the synchronized players starts at the same time. Note: this is in addition to any ongoing "Player Audio Delay" (below).
+SETUP_SYNCHRONIZE	Synchronize
+SETUP_SYNCHRONIZE_DESC	The player can be synchronized with other players, enabling them to play the same music simultaneously. Choose the players you would like to synchronize with from the list of available synchronization groups. Choose No Synchronization to stop synchronization.
+SETUP_SYNCPOWER	Synchronize Power
+SETUP_SYNCPOWER_DESC	You can choose to have this player turn off on its own, or turn off as a group with all other players in the group. Make a selection below and click Change.
+SETUP_SYNCPOWER_OFF	Power off/on separately
+SETUP_SYNCPOWER_ON	Power off/on with group
+SETUP_SYNCSTARTDELAY	Synchronized Players Startup Delay (ms)
+SETUP_SYNCSTARTDELAY_DESC	When multiple players are synchronized, Lyrion Music Server tells each player to start the track at the same time. It needs to make sure that each player has time to receive the start command before they all start together and so it sends the start command ahead of time and the players each wait until the right moment to start. If there is excessive network congestion, which can happen particularly when there are many players on the network and with wireless networks, then the default delay of 200ms may not be sufficient. You can change the default here if necessary.
+SETUP_SYNCVOLUME	Synchronize Volume
+SETUP_SYNCVOLUME_DESC	You can choose to have the volume levels for the synced players track each other or be independent.  Make a selection below and click Change.
+SETUP_SYNCVOLUME_OFF	Don't sync player's volume
+SETUP_SYNCVOLUME_ON	Sync player's volume
+SETUP_TCPREADMAXIMUM	Maximum number of TCP sockets to read per pass
+SETUP_TCPWRITEMAXIMUM	Maximum number of TCP sockets to write per pass
+SETUP_THUMBSIZE	Thumbnail Size
+SETUP_THUMBSIZE_DESC	Choose the size in pixels (25-250) for the default thumbnail image when browsing by artwork. Default is 100.
+SETUP_TIMEFORMAT	Time Format
+SETUP_TIMEFORMAT_DEFAULT	|%I:%M %p
+SETUP_TIMEFORMAT_DESC	This option determines the format used for times. The following conventions are used in the choices presented below:<br>hh is the hour<br>h is the hour (leading zero removed)<br>mm is the minute<br>ss is the second<br>pm is either AM or PM<br>Anything at the end in parentheses is just a comment and is not displayed.
+SETUP_TITLEFORMAT	Title Format
+SETUP_TRANSITIONDURATION	Crossfade Duration
+SETUP_TRANSITIONDURATION_DESC	Enter the amount of time to take to crossfade between songs, in seconds.  The maximum is 10 seconds.
+SETUP_TRANSITIONSAMPLERESTRICTION	Crossfade Across Different Sample Rates
+SETUP_TRANSITIONSAMPLERESTRICTION_DESC	It may be appropriate to disable crossfading between tracks with different sample rates. This may be required if this player produces a burst of noise during such transitions.
+SETUP_TRANSITIONSMART	Smart Crossfade
+SETUP_TRANSITIONSMART_DESC	If Smart Crossfade is enabled, successive tracks played from the same album will not use the Crossfade setting.
+SETUP_TRANSITIONSMART_OFF	Disable Smart Crossfade
+SETUP_TRANSITIONSMART_ON	Enable Smart Crossfade
+SETUP_TRANSITIONTYPE	Crossfade
+SETUP_TRANSITIONTYPE_DESC	The player can gradually transition between songs, either by crossfading between them, or by fading songs in or out. Choose the type of crossfade you would like.
+SETUP_UDPCHUNKSIZE	Maximum UDP Data Size
+SETUP_USERDEFINEDROLES	User Defined Roles
+SETUP_USERDEFINEDROLES_DESC	Tell LMS about any custom contributor role tags used in the music library. For example, SOLOIST, DRUMMER, PRODUCER, etc. Role tag changes will trigger a rescan of your music library.
+SETUP_USERDEFINEDROLES_TAG	Role tag
+SETUP_USERDEFINEDROLES_TEXT	Display text
+SETUP_USERDEFINEDROLES_TEXT_PLURAL	Display text (plural)
+SETUP_USERNAME	Username
+SETUP_USETIT1ASWORK_0	Treat MP3 tag TIT1 as Grouping (create a user-defined tag of WORK if you also need Work)
+SETUP_USETIT1ASWORK_1	Treat MP3 tag TIT1 as Work and MP3 tag GRP1 as Grouping
+SETUP_USETIT1ASWORK_DESC	For files using ID3 tags, set this to match your tagger's behaviour. Some will use TIT1 for Work, some for Grouping (and in some it is configurable).
+SETUP_USETPE2ASALBUMARTIST_0	Treat TPE2 MP3 tag as Band
+SETUP_USETPE2ASALBUMARTIST_1	Treat TPE2 MP3 tag as Album Artist (create a user-defined tag of BAND if you also need band/orchestra)
+SETUP_USETPE2ASALBUMARTIST_DESC	The MP3 tag format does not provide a standard way of defining an Album Artist.  Some MP3 tagging tools use the TPE2 field for Album Artist (iTunes, Winamp, Windows Media Player) while others may use it for the intended meaning of "Band/orchestra".  Select the meaning you would like Lyrion Music Server to use.  Changing this setting will start a rescan of your music library.
+SETUP_USE_BALANCED_SHUFFLE	Use more balanced, but slower shuffle
+SETUP_USE_FASTER_SHUFFLE	Use faster, but less balanced shuffle
+SETUP_VARIOUSARTISTAUTOIDENTIFICATION_0	List compilation albums under each artist
+SETUP_VARIOUSARTISTAUTOIDENTIFICATION_1	Group compilation albums together
+SETUP_VARIOUSARTISTAUTOIDENTIFICATION_DESC	You can choose to have compilation albums appear together under "Various Artists" or have them appear under each artist in the compilation.
+SETUP_VARIOUSARTISTS	Compilations
+SETUP_VARIOUSARTISTSSTRING_DESC	When compilation albums are grouped together, they appear under "Various Artists" by default.  You can change that name below.
+SETUP_VIEW_NOT_SCANNING	View Previous Scan Details
+SETUP_VIEW_SCANNING	Scanning - View Progress
+SETUP_VISUALIZERMODE	Visualizer Screen
+SETUP_VISUALIZERMODE_DESC	The player can display visualizers or extended text information on the right hand screen. Choose which you wish to be displayed. The Visual button on the player will cycle through each of the options selected below.
+SETUP_WEBPROXY	Web Proxy
+SETUP_WEBPROXY_DESC	You can specify the IP address and port for an HTTP/Web proxy to use when Lyrion Music Server connects to servers outside your local network.  Use the format xx.xx.xx.xx:yyyy where xx.xx.xx.xx is the IP address of the proxy, and yyyy is the port number.  Leave this field blank if you don't use a HTTP web proxy.
+SETUP_WIPEDB	Clear library and rescan everything
+SETUP_WIZARD_AUDIODIR	Local Music Folder
+SETUP_WIZARD_AUDIODIR_DESC	Please navigate to the folder where your music collection is stored.
+SETUP_WIZARD_CLOSE	Close
+SETUP_WIZARD_DONE	Lyrion Music Server Setup Done!
+SETUP_WIZARD_DONE_DESC	Your settings have been saved. You're now ready to use your Squeezebox.<br/><br/>If you selected a local music source, Lyrion Music Server will now start indexing your collection. Please be patient &mdash; you'll soon have access to all of your music files.<br/><br/>You can now close this window or <a href="/">click here</a> to proceed to Lyrion Music Server Remote Control.
+SETUP_WIZARD_FINISH	Finish
+SETUP_WIZARD_NEXT	Next
+SETUP_WIZARD_PLAYLISTDIR	Playlist Folder
+SETUP_WIZARD_PLAYLISTDIR_DESC	Please select the path to your playlist folder.
+SETUP_WIZARD_PLUGINS_INTRO	We recommend the installation of the following 3rd party plugins. <a href="https://lyrion.org/plugins/directory/" target="lyrion">Many other plugins</a> can be installed any time in Settings/Manage Plugins after the installation has completed.
+SETUP_WIZARD_PREVIOUS	Previous
+SETUP_WIZARD_SHARE_OTHERS	<br/><br/>If you want to access any of your media stored on another computer or a shared network volume, please make sure that the shared volume is mounted and available to your file system. Once the volume is available, it will appear in the selection window to the left. If you know the path of the volume you wish to access you can enter it below.
+SETUP_WIZARD_SHARE_WIN	<br/><br/>If you want to access any of your media stored on another computer or a shared network drive, please make sure that the shared drive is mounted and available to your file system. Once the drive is available, it will appear in the selection window to the left. If you know the path of the drive you wish to access you can enter it below.
+SETUP_WIZARD_SKIP	Skip
+SETUP_WIZARD_SUMMARY_DESC	Lyrion Music Server is now using the following settings
+SETUP_WIZARD_SUMMARY_MUSICSOURCE	Music Source
+SETUP_WIZARD_WELCOME	Welcome to the initial Lyrion Music Server setup
+SETUP_WIZARD_WELCOME_INTRO	This assistant will guide you through the initial setup of your Lyrion Music Server.
+SETUP_WORDCLOCKOUTPUT	Word Clock on S/PDIF Outputs
+SETUP_WORDCLOCKOUTPUT_DESC	When using the digital inputs, Transporter can be the clock master, and transmit a word clock signal on its S/PDIF outputs. This feature must only be enabled if the source device provides a word clock input and the cable is connected.
+SETUP_WORKSSCAN	Works scanning
+SETUP_WORKSSCAN_0	Do not scan for Works
+SETUP_WORKSSCAN_1	Scan whole library for works
+SETUP_WORKSSCAN_2	Limit works scan to "My work and composer album genres" (above)
+SETUP_XPLINTERVAL	Heartbeat Interval
+SETUP_XPLIR	Infra-red Processing
+SETUP_XPLIR_BOTH	Both
+SETUP_XPLIR_BUTTONS	Buttons
+SETUP_XPLIR_NONE	None
+SETUP_XPLIR_RAW	Raw
+SETUP_YEARMENU	Year Menu
+SETUP_YEARMENU_0	Show album years only
+SETUP_YEARMENU_1	Show album and track years
+SETUP_YEARMENU_DESC	Should the Year menu show album years only, or album and track years?
+SHN	Shorten
+SHOW_ARTWORK	Show Artwork
+SHOW_ARTWORK_SINGLE	Show Artwork
+SHUFFLE	Shuffle
+SHUFFLE_OFF	Don't Shuffle Playlist
+SHUFFLE_ON	Shuffle Playlist
+SHUFFLE_ON_ALBUMS	Shuffle by Album
+SHUFFLE_ON_SONGS	Shuffle by Song
+SKIP	Skip
+SLEEP	Sleep
+SLEEPING_AT	Sleeping at
+SLEEPING_AT_END_OF_SONG	Sleeping at end of song
+SLEEPING_IN	Sleeping in
+SLEEPING_IN_X_MINUTES	Sleeping in %s minutes
+SLEEP_AT_END_OF_SONG	Sleep at end of song
+SLEEP_CANCEL	Cancel sleep
+SLIMP3	SLIMP3
+SLIMP3_HOME	SLIMP3 Home
+SLIMP3_MUSIC_PLAYER	SLIMP3 Music Player
+SLIMTRIS	SlimTris
+SLIMTRIS_DESC	Tetris for your Squeezebox or Transporter!
+SLS	MPEG-4 SLS / HD-AAC
+SMALL	Small
+SOFTSQUEEZE	SoftSqueeze
+SOFTSQUEEZE_HOME	SoftSqueeze Home
+SOFTSQUEEZE_MUSIC_PLAYER	SoftSqueeze Music Player
+SONG	Song
+SONGS	Songs
+SONGTITLE	Song Title
+SONG_INFO	Song Info
+SORT_ARTISTALBUM	Artist, Album
+SORT_ARTISTYEARALBUM	Artist, Year, Album
+SORT_BY	Sort By
+SORT_GENREALBUM	Genre, Album
+SORT_GENREARTISTALBUM	Genre, Artist, Album
+SORT_YEARALBUM	Year, Album
+SORT_YEARARTISTALBUM	Year, Artist, Album
+SOURCE	Source
+SQUEEZEBOX	Squeezebox
+SQUEEZEBOX2	Squeezebox2/v3
+SQUEEZEBOX2_HOME	Squeezebox Home
+SQUEEZEBOX2_MUSIC_PLAYER	Squeezebox Music Player
+SQUEEZEBOX_HOME	Squeezebox Home
+SQUEEZEBOX_MUSIC_PLAYER	Squeezebox Music Player
+SQUEEZEBOX_SERVER	Lyrion Music Server
+SQUEEZEBOX_SERVER_CONNECTING	Connecting to %s...
+SQUEEZEBOX_SERVER_SETTINGS	Lyrion Music Server Settings
+SQUEEZEBOX_SERVER_WANT_SWITCH	This player is currently connected to %s. Do you want it to switch to this Lyrion Music Server?
+SRC	Digital Input Source
+STANDARD	Standard
+STANDARD_N	Standard Narrow
+STATISTICS	Statistics
+STATUS	Status
+STEREOXL	StereoXL
+STOP	Stop
+STOPPED	Stopped
+STOPPED_ON	Now stopped on
+STOPPING	Stopping
+STREAM_FORMAT	Stream Format
+SUBTITLE	Subtitle
+SUB_LIBRARY	Selected library view
+SWITCH_TO_EXTENDED_LIST	Small Artwork
+SWITCH_TO_GALLERY	Large Artwork
+SWITCH_TO_LIST	Text only
+SYNCHRONIZE	Synchronize
+SYNCHRONIZED_WITH	Synced with
+SYNCING_WITH	Syncing with: %s
+SYNC_ABOUT	Add one or more additional Squeezeboxes to use the Synchronize feature and realize the full potential of multi-room audio. Visit Lyrion.org for more information.
+SYNC_WITH	Sync with:
+SYNC_X_TO	Sync %s to:
+TAGVERSION	Tag Version
+TECHNICAL_INFORMATION	Technical Information
+TEXTSEARCH	text search
+TEXTSIZE	Text Size
+THOUSANDS_SEP	,
+THREELINE	Threeline
+TITLE	Title
+TITLEFORMAT	Song Title Format
+TO	to
+TOTAL_TIME	Total Time:
+TRACK	Track
+TRACKARTIST	Track Artist
+TRACKS_FROM_OTHER_ALBUMS	Tracks from other albums
+TRACK_NUMBER	Track Number
+TRANSITION_CROSSFADE	Crossfade
+TRANSITION_FADE_IN	Fade in
+TRANSITION_FADE_IN_OUT	Fade in and out
+TRANSITION_FADE_OUT	Fade out
+TRANSITION_NONE	None
+TRANSPORTER	Transporter
+TRANSPORTER_HOME	Transporter Home
+TRANSPORTER_MUSIC_PLAYER	Transporter Music Player
+TREBLE	Treble
+TYPE	File Format
+UNDOCK_PLAYER_PANEL	Undock player panel
+UNINSTALL	Uninstall
+UNK	Unknown
+UNMIXABLE	%s not available for this item
+UNSUPPORTED_SAMPLE_RATE	Unsupported sample-rate
+UNSYNC	Unsync
+UNSYNCING_FROM	Unsyncing from: %s
+UNSYNC_WITH	Unsync with:
+UNTITLED	Untitled
+UP	Up
+UPDATE	Update
+UPDATESTANDALONEARTWORK_PROGRESS	Find Updated Coverart Files
+UPDATES_LATEST_CHANGES	Latest Changes (<a href="%s" target="_blank">all changes</a>)
+UPDATE_DSP_FAILURE_RESTORE	Update failed! Restoring default
+UPDATING_DSP	Updating DSP...
+UPDATING_FIRMWARE_BOOM	Updating Firmware.
+UPDATING_FIRMWARE_RECEIVER	Updating Squeezebox Firmware.
+UPDATING_FIRMWARE_SQUEEZEBOX	Updating Squeezebox firmware.
+UPDATING_FIRMWARE_SQUEEZEBOX2	Updating Squeezebox firmware.
+UPDATING_FIRMWARE_TRANSPORTER	Updating Transporter firmware.
+UPGRADE_COMPLETE	Firmware Update
+UPGRADE_COMPLETE_DETAILS	Your update is complete.
+URL	URL
+USB	USB
+USE_ITUNES	Use iTunes
+USE_MUSICMAGIC	Use MusicIP
+VARIOUSARTISTS	Various Artists
+VERSION	Version 9.2.0 / r%s
+VIEW_TAGS	View Tags
+VIRTUALLIBRARIES	Library Views
+VIRTUALLIBRARIES_PROGRESS	Create Library Views
+VISUALIZER_ANALOG_VUMETER	Analog VU Meter
+VISUALIZER_DIGITAL_VUMETER	Digital VU Meter
+VISUALIZER_EXTENDED_TEXT	Extended Text Display
+VISUALIZER_SPECTRUM_ANALYZER	Spectrum Analyzer
+VISUALIZER_SPECTRUM_ANALYZER_SMALL	Small Spectrum
+VISUALIZER_VUMETER	VU Meter
+VISUALIZER_VUMETER_SMALL	Small VU
+VOLUME	Volume
+VOLUME_LOUDER	Louder
+VOLUME_SOFTER	Softer
+WAITING_TO_SYNC	Waiting to sync...
+WAV	WAV
+WEB_NO_COOKIES_WARNING	Your browser does not accept cookies. This can lead to unexpected behavior controlling your Lyrion Music Server. Please enable cookies in your browser before you continue.
+WEB_XML_ERROR	There was an error loading the remote feed for %s: (%s)
+WELCOME_TO_BOOM	Welcome to Squeezebox
+WELCOME_TO_CONTROLLER	Welcome to Controller
+WELCOME_TO_RECEIVER	Welcome to Squeezebox
+WELCOME_TO_SLIMP3	Welcome to SLIMP3
+WELCOME_TO_SOFTSQUEEZE	Welcome to SoftSqueeze
+WELCOME_TO_SQUEEZEBOX	Welcome to Squeezebox
+WELCOME_TO_SQUEEZEBOX2	Welcome to Squeezebox
+WELCOME_TO_SQUEEZEBOX_SERVER	Welcome to Lyrion Music Server
+WELCOME_TO_SQUEEZEPLAY	Welcome to SqueezePlay
+WELCOME_TO_SQUEEZESLAVE	Welcome to SqueezeSlave
+WELCOME_TO_TRANSPORTER	Welcome to Transporter
+WITH	with
+WMA	Windows Media
+WMAL	WMA Lossless
+WMAP	WMA Pro
+WORDCLOCKOUTPUT_DISABLED	Word clock output is disabled (Source is master)
+WORDCLOCKOUTPUT_ENABLED	Word clock output is enabled (Transporter is master)
+WORK	Work
+WORKS	Works
+WORKS_CLASSICAL	Classical Works
+WVP	WavPack
+WVPX	WavPack DSD
+XML_AUDIO_ENCLOSURES	Audio Enclosures
+XML_DATE	Date
+XML_EDITOR	Editor
+XML_ENCLOSURE	Enclosure
+XML_ERROR	Error
+XML_EXPLICIT	Explicit
+XML_FEED_DESCRIPTION	About this feed
+XML_GET_FAILED	Failed to parse
+XML_LINK	Link
+XML_SUBTITLE	Subtitle
+XML_SUMMARY	Summary
+X_MINUTES	%s minutes
+YEAR	Year
+YEAR_INFO	Year Info
+YES	Yes
+ZAPPED_SONGS	Zapped Songs
+ZAPPING_FROM_PLAYLIST	Moving to Zapped Songs playlist:
