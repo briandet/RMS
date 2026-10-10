@@ -430,7 +430,8 @@ fn mp4_attrs(ilst: &lofty::mp4::Ilst, cover: &mut Option<usize>) -> Attrs {
                 let bytes: Vec<u8> = f.iter().copied().filter(|&b| b != 0xA9).collect();
                 String::from_utf8_lossy(&bytes).to_uppercase()
             }
-            AtomIdent::Freeform { name, .. } => name.to_string(),
+            // Audio::Scan reports freeform (`----:com.apple.iTunes:NAME`) atoms by name
+            AtomIdent::Freeform { name, .. } => name.to_uppercase(),
         };
         if key == "COVR" {
             continue;

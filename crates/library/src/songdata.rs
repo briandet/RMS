@@ -260,7 +260,7 @@ pub fn tag_data(c: &Connection, cfg: &LibraryConfig, tags_in: &str, args: &TagDa
         p.extend(ids.into_iter().map(SqlValue::Text));
     }
     if let Some(cid) = args.contributor_id.as_ref().filter(|a| !a.is_empty()) {
-        let va = crate::queries::va_id(c);
+        let va = crate::queries::va_id_cfg(c, cfg);
         if cid.parse::<i64>().ok() == va {
             join(&mut from, "albums");
             w.push("albums.compilation = 1".into());

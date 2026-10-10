@@ -29,19 +29,8 @@ pub fn specified(s: &str) -> bool {
     !s.contains('*')
 }
 
-pub fn va_id(c: &Connection) -> Option<i64> {
-    // the VA contributor is the one referenced by compilation albums, or found by name
-    c.query_row(
-        "SELECT contributor FROM albums WHERE compilation = 1 AND contributor IS NOT NULL LIMIT 1",
-        [],
-        |r| r.get::<_, i64>(0),
-    )
-    .optional()
-    .ok()
-    .flatten()
-}
-
-fn va_id_cfg(c: &Connection, cfg: &LibraryConfig) -> Option<i64> {
+/// Id of the Various Artists contributor (`variousArtistsObject`), looked up by namesearch.
+pub fn va_id_cfg(c: &Connection, cfg: &LibraryConfig) -> Option<i64> {
     let rules = TextRules::new(&cfg.ignored_articles, &cfg.split_list);
     let search = rules.search_key(&cfg.various_artists_string);
     c.query_row("SELECT id FROM contributors WHERE namesearch = ? LIMIT 1", [search], |r| r.get(0))
@@ -102,7 +91,7 @@ pub(crate) fn run(lib: &Library, q: &LibQuery) -> anyhow::Result<Row> {
         LibQueryName::Playlists => playlists(&c, &cfg, q, scanning)?,
         LibQueryName::PlaylistTracks => playlist_tracks(&c, &cfg, q, scanning)?,
         LibQueryName::SongInfo => songinfo(&c, &cfg, q, scanning)?,
-        LibQueryName::Roles => roles(&c, q, scanning)?,
+        LibQueryName::Roles => roles(&c, &cfg, q, scanning)?,
         LibQueryName::Works => works(&c, &cfg, q, scanning)?,
         LibQueryName::Libraries => Row::new(),
     };
@@ -1256,7 +1245,7 @@ fn years(c: &Connection, q: &LibQuery, scanning: bool) -> anyhow::Result<Row> {
     Ok(out)
 }
 
-fn roles(c: &Connection, q: &LibQuery, scanning: bool) -> anyhow::Result<Row> {
+fn roles(c: &Connection, cfg: &LibraryConfig, q: &LibQuery, scanning: bool) -> anyhow::Result<Row> {
     let tags = get(q, "tags").unwrap_or("").to_string();
     let mut from = String::from("FROM contributors ");
     let mut w: Vec<String> = Vec::new();
@@ -1269,7 +1258,7 @@ fn roles(c: &Connection, q: &LibQuery, scanning: bool) -> anyhow::Result<Row> {
     } else {
         from.push_str("JOIN contributor_album ON contributors.id = contributor_album.contributor ");
         if let Some(cid) = get(q, "artist_id") {
-            let va: Option<i64> = va_id(c);
+            let va: Option<i64> = va_id_cfg(c, cfg);
             if cid.parse::<i64>().ok() == va && va.is_some() {
                 from.push_str("JOIN albums ON contributor_album.album = albums.id ");
                 w.push("albums.compilation = ?".into());
