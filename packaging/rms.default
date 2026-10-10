@@ -1,0 +1,18 @@
+# RMS settings, read by the systemd service (see `rms --help` for all of them).
+# Apply changes with:  sudo systemctl restart rms
+
+# Music folders, comma-separated.  The rms user needs read access.
+RMS_MUSIC_DIR=/srv/music
+
+# Where saved playlists go (also add it to ReadWritePaths, see rms.service).
+#RMS_PLAYLIST_DIR=
+
+# Server name shown on players (default: the host name).
+#RMS_NAME=
+
+# Ports (players always use 3483).
+#RMS_HTTP_PORT=9000
+#RMS_CLI_PORT=9090
+
+# Logging, e.g. info,rms=debug
+#RMS_LOG=info,rms=info
