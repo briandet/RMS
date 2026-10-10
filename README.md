@@ -7,7 +7,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Client | Protocol | Status |
 |---|---|---|
 | squeezelite, piCorePlayer, **WiiM** (Pro, Pro Plus, Amp, Ultra…) | slimproto (TCP 3483) + HTTP streaming, UDP discovery | ✔ tested with squeezelite 2.0 |
-| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, remote's display buttons |
+| Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, on-screen menus with the IR remote |
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
@@ -88,8 +88,15 @@ with the `pref` / `playerpref` commands or the web UI.
   (progress bar, elapsed/remaining time, buffer fullness, clock, VU meter and spectrum
   visualizers), server-side scrolling of long titles, the volume bar, the date/time
   screensaver while off, Transporter's second screen and brightness while on / off / idle
-  (Boom's automatic brightness included).  The remote's Now Playing, Size and Brightness
-  buttons cycle the display mode, text size and brightness.
+  (Boom's automatic brightness included).
+* **On-screen menus** for those players, driven by the IR remote and front panel buttons:
+  Lyrion's IR timing (press / repeat / hold / single) and its own `Default.map` button
+  maps, Home → My Music / Radio / Favorites / Search / Settings, browsing with accelerated
+  scrolling and number-key letter jumps, play / add / insert from any list, the Now Playing
+  playlist browser, track info, text entry for searches and names (multi-tap number keys),
+  sliders, checkboxes and radio settings, volume, presets, sleep, shuffle / repeat and the
+  screensavers, with the push and bump animations of the real firmware.  The menus are the
+  same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
   a small internet radio directory.
 
@@ -108,10 +115,10 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
   faad…); per-format enable/disable is not configurable yet.
 * Only a few plugins exist (Favorites, alarms, radio directory).  Streaming-service
   plugins (Spotty, Qobuz, TIDAL…) and the TuneIn directory are not ported.
-* Players with graphical displays show the Now Playing, volume and clock screens but have
-  no on-screen menus: the IR remote controls playback (play/pause/skip/volume/power) and
-  the display buttons, while browsing is done from Squeezer or the web UI.  Squeezebox 1
-  and SliMP3 (text displays) are not supported.
+* The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
+  than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first, and
+  there is no song scanner or alarm editor on the player itself.  Squeezebox 1 and SliMP3
+  (text displays) are not supported.
 * No firmware updates for hardware players.
 
 ## Development

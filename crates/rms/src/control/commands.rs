@@ -322,7 +322,11 @@ pub fn ir(server: &Arc<Server>, r: &mut Request) {
         return r.bad_params();
     };
     if let Ok(c) = u32::from_str_radix(code.trim_start_matches("0x"), 16) {
-        super::ir::handle_ir(server, &p, c, 0);
+        let time = r
+            .param("_time")
+            .and_then(|t| t.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        super::ir::handle_ir(server, &p, c, time as u32);
     }
     r.set_done();
 }

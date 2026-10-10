@@ -33,6 +33,7 @@ const PROGRESS2E: char = '\x05';
 const PROGRESS1: char = '\x07';
 const PROGRESS2: char = '\x08';
 const BELL: char = '\x10';
+const CURSORPOS: char = '\x0a';
 
 impl Font {
     /// `Slim::Display::Lib::Fonts::parseBMP` + `parseFont`.
@@ -100,6 +101,7 @@ impl Font {
         let space = self.glyphs.first().cloned().unwrap_or_default();
         let mut out = Vec::new();
         let mut tight = false;
+        let mut cursor = false;
         for ch in text.chars() {
             match ch {
                 TIGHT => {
@@ -108,6 +110,10 @@ impl Font {
                 }
                 END_TIGHT => {
                     tight = false;
+                    continue;
+                }
+                CURSORPOS => {
+                    cursor = true;
                     continue;
                 }
                 _ => {}
@@ -119,7 +125,27 @@ impl Font {
                 '?' as usize
             };
             if let Some(g) = self.glyphs.get(idx) {
-                out.extend_from_slice(g);
+                if cursor {
+                    // the character under the cursor, widened if narrow, with the cursor
+                    // glyph laid over it
+                    cursor = false;
+                    let mut cols = g.clone();
+                    if cols.len() < 3 * space.len() {
+                        cols = [space.clone(), cols, space.clone()].concat();
+                    }
+                    let cur = self
+                        .glyphs
+                        .get(CURSORPOS as usize)
+                        .filter(|c| !c.is_empty());
+                    if let Some(cur) = cur {
+                        for (i, c) in cols.iter_mut().enumerate() {
+                            *c |= cur[i % cur.len()];
+                        }
+                    }
+                    out.extend_from_slice(&cols);
+                } else {
+                    out.extend_from_slice(g);
+                }
                 if !tight {
                     out.extend_from_slice(&space);
                 }
@@ -129,18 +155,55 @@ impl Font {
     }
 }
 
+impl Font {
+    /// `Slim::Display::Lib::Fonts::extent`: rows used by the font (set bits of glyph 0x1f).
+    pub fn extent(&self) -> u8 {
+        self.glyphs
+            .get(0x1f)
+            .map(|g| g.iter().map(|c| c.count_ones()).sum::<u32>().min(32) as u8)
+            .unwrap_or(0)
+    }
+}
+
 /// The font files shipped with Lyrion's `Graphics` folder that the players here use.
 const FONT_FILES: &[(&str, &[u8])] = &[
-    ("light.1", include_bytes!("../assets/fonts/light.1.font.bmp")),
-    ("light.2", include_bytes!("../assets/fonts/light.2.font.bmp")),
-    ("standard.1", include_bytes!("../assets/fonts/standard.1.font.bmp")),
-    ("standard.2", include_bytes!("../assets/fonts/standard.2.font.bmp")),
+    (
+        "light.1",
+        include_bytes!("../assets/fonts/light.1.font.bmp"),
+    ),
+    (
+        "light.2",
+        include_bytes!("../assets/fonts/light.2.font.bmp"),
+    ),
+    (
+        "standard.1",
+        include_bytes!("../assets/fonts/standard.1.font.bmp"),
+    ),
+    (
+        "standard.2",
+        include_bytes!("../assets/fonts/standard.2.font.bmp"),
+    ),
     ("full.2", include_bytes!("../assets/fonts/full.2.font.bmp")),
-    ("light_n.1", include_bytes!("../assets/fonts/light_n.1.font.bmp")),
-    ("light_n.2", include_bytes!("../assets/fonts/light_n.2.font.bmp")),
-    ("standard_n.1", include_bytes!("../assets/fonts/standard_n.1.font.bmp")),
-    ("standard_n.2", include_bytes!("../assets/fonts/standard_n.2.font.bmp")),
-    ("full_n.2", include_bytes!("../assets/fonts/full_n.2.font.bmp")),
+    (
+        "light_n.1",
+        include_bytes!("../assets/fonts/light_n.1.font.bmp"),
+    ),
+    (
+        "light_n.2",
+        include_bytes!("../assets/fonts/light_n.2.font.bmp"),
+    ),
+    (
+        "standard_n.1",
+        include_bytes!("../assets/fonts/standard_n.1.font.bmp"),
+    ),
+    (
+        "standard_n.2",
+        include_bytes!("../assets/fonts/standard_n.2.font.bmp"),
+    ),
+    (
+        "full_n.2",
+        include_bytes!("../assets/fonts/full_n.2.font.bmp"),
+    ),
 ];
 
 fn font(name: &str) -> Option<&'static Font> {
@@ -164,10 +227,7 @@ pub struct FontSet {
 impl FontSet {
     pub fn named(family: &str) -> Option<FontSet> {
         let set = FontSet {
-            line: [
-                font(&format!("{family}.1")),
-                font(&format!("{family}.2")),
-            ],
+            line: [font(&format!("{family}.1")), font(&format!("{family}.2"))],
         };
         set.line[1].map(|_| set)
     }
@@ -262,30 +322,103 @@ const SPECTRUM: u32 = 2;
 
 macro_rules! mode {
     ($desc:expr, $bar:expr, $secs:expr, $width:expr, $visu:expr) => {
-        Mode { desc: $desc, bar: $bar, secs: $secs, width: $width, fullness: false, clock: false, visu: $visu }
+        Mode {
+            desc: $desc,
+            bar: $bar,
+            secs: $secs,
+            width: $width,
+            fullness: false,
+            clock: false,
+            visu: $visu,
+        }
     };
 }
 
 const SB2_VU: &[u32] = &[VU, 0, 0, 280, 18, 302, 18];
 const SB2_SPECTRUM_SMALL: &[u32] = &[SPECTRUM, 1, 1, 0x10000, 280, 40, 0, 4, 1, 0, 1, 3];
-const SB2_SPECTRUM: &[u32] =
-    &[SPECTRUM, 0, 0, 0x10000, 0, 160, 0, 4, 1, 1, 1, 1, 160, 160, 1, 4, 1, 1, 1, 1];
+const SB2_SPECTRUM: &[u32] = &[
+    SPECTRUM, 0, 0, 0x10000, 0, 160, 0, 4, 1, 1, 1, 1, 160, 160, 1, 4, 1, 1, 1, 1,
+];
 
 static SB2_MODES: &[Mode] = &[
     mode!(&["BLANK"], false, 0, 320, &[0]),
     mode!(&["ELAPSED"], true, 1, 320, &[0]),
     mode!(&["REMAINING"], true, -1, 320, &[0]),
     mode!(&["VISUALIZER_VUMETER_SMALL"], false, 0, 278, SB2_VU),
-    mode!(&["VISUALIZER_VUMETER_SMALL", "AND", "ELAPSED"], true, 1, 278, SB2_VU),
-    mode!(&["VISUALIZER_VUMETER_SMALL", "AND", "REMAINING"], true, -1, 278, SB2_VU),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER_SMALL"], false, 0, 278, SB2_SPECTRUM_SMALL),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER_SMALL", "AND", "ELAPSED"], true, 1, 278, SB2_SPECTRUM_SMALL),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER_SMALL", "AND", "REMAINING"], true, -1, 278, SB2_SPECTRUM_SMALL),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER"], false, 0, 320, SB2_SPECTRUM),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER", "AND", "ELAPSED"], true, 1, 320, SB2_SPECTRUM),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER", "AND", "REMAINING"], true, -1, 320, SB2_SPECTRUM),
-    Mode { desc: &["SETUP_SHOWBUFFERFULLNESS"], bar: true, secs: 0, width: 320, fullness: true, clock: false, visu: &[0] },
-    Mode { desc: &["CLOCK"], bar: false, secs: 0, width: 320, fullness: false, clock: true, visu: &[0] },
+    mode!(
+        &["VISUALIZER_VUMETER_SMALL", "AND", "ELAPSED"],
+        true,
+        1,
+        278,
+        SB2_VU
+    ),
+    mode!(
+        &["VISUALIZER_VUMETER_SMALL", "AND", "REMAINING"],
+        true,
+        -1,
+        278,
+        SB2_VU
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER_SMALL"],
+        false,
+        0,
+        278,
+        SB2_SPECTRUM_SMALL
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER_SMALL", "AND", "ELAPSED"],
+        true,
+        1,
+        278,
+        SB2_SPECTRUM_SMALL
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER_SMALL", "AND", "REMAINING"],
+        true,
+        -1,
+        278,
+        SB2_SPECTRUM_SMALL
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER"],
+        false,
+        0,
+        320,
+        SB2_SPECTRUM
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER", "AND", "ELAPSED"],
+        true,
+        1,
+        320,
+        SB2_SPECTRUM
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER", "AND", "REMAINING"],
+        true,
+        -1,
+        320,
+        SB2_SPECTRUM
+    ),
+    Mode {
+        desc: &["SETUP_SHOWBUFFERFULLNESS"],
+        bar: true,
+        secs: 0,
+        width: 320,
+        fullness: true,
+        clock: false,
+        visu: &[0],
+    },
+    Mode {
+        desc: &["CLOCK"],
+        bar: false,
+        secs: 0,
+        width: 320,
+        fullness: false,
+        clock: true,
+        visu: &[0],
+    },
 ];
 
 static TRANSPORTER_MODES: &[Mode] = &[
@@ -295,8 +428,24 @@ static TRANSPORTER_MODES: &[Mode] = &[
     mode!(&["PROGRESS_BAR", "AND", "REMAINING"], true, -1, 320, &[0]),
     mode!(&["ELAPSED"], false, 1, 320, &[0]),
     mode!(&["REMAINING"], false, -1, 320, &[0]),
-    Mode { desc: &["SETUP_SHOWBUFFERFULLNESS"], bar: true, secs: 0, width: 320, fullness: true, clock: false, visu: &[0] },
-    Mode { desc: &["CLOCK"], bar: false, secs: 0, width: 320, fullness: false, clock: true, visu: &[0] },
+    Mode {
+        desc: &["SETUP_SHOWBUFFERFULLNESS"],
+        bar: true,
+        secs: 0,
+        width: 320,
+        fullness: true,
+        clock: false,
+        visu: &[0],
+    },
+    Mode {
+        desc: &["CLOCK"],
+        bar: false,
+        secs: 0,
+        width: 320,
+        fullness: false,
+        clock: true,
+        visu: &[0],
+    },
 ];
 
 /// Transporter's second screen (`@visualizers`): `true` = extended text (album / artist).
@@ -305,26 +454,127 @@ static TRANSPORTER_VISUALIZERS: &[(bool, &[u32])] = &[
     (true, &[0]),
     (false, &[VU, 0, 1, 320, 160, 160 + 320, 160]),
     (false, &[VU, 0, 0, 20 + 320, 130, 170 + 320, 130]),
-    (false, &[SPECTRUM, 0, 0, 0x10000, 320, 160, 0, 4, 1, 1, 1, 3, 160 + 320, 160, 1, 4, 1, 1, 1, 3]),
-    (true, &[SPECTRUM, 0, 0, 0x10000, 320, 160, 0, 4, 1, 1, 1, 1, 160 + 320, 160, 1, 4, 1, 1, 1, 1]),
+    (
+        false,
+        &[
+            SPECTRUM,
+            0,
+            0,
+            0x10000,
+            320,
+            160,
+            0,
+            4,
+            1,
+            1,
+            1,
+            3,
+            160 + 320,
+            160,
+            1,
+            4,
+            1,
+            1,
+            1,
+            3,
+        ],
+    ),
+    (
+        true,
+        &[
+            SPECTRUM,
+            0,
+            0,
+            0x10000,
+            320,
+            160,
+            0,
+            4,
+            1,
+            1,
+            1,
+            1,
+            160 + 320,
+            160,
+            1,
+            4,
+            1,
+            1,
+            1,
+            1,
+        ],
+    ),
 ];
 
-const BOOM_SPECTRUM: &[u32] =
-    &[SPECTRUM, 0, 0, 0x10000, 0, 80, 0, 3, 1, 1, 1, 1, 81, 80, 1, 3, 1, 1, 1, 1];
+const BOOM_SPECTRUM: &[u32] = &[
+    SPECTRUM, 0, 0, 0x10000, 0, 80, 0, 3, 1, 1, 1, 1, 81, 80, 1, 3, 1, 1, 1, 1,
+];
 
 static BOOM_MODES: &[Mode] = &[
     mode!(&["BLANK"], false, 0, 160, &[0]),
     mode!(&["PROGRESS_BAR"], true, 0, 160, &[0]),
     mode!(&["ELAPSED"], false, 1, 160, &[0]),
     mode!(&["REMAINING"], false, -1, 160, &[0]),
-    mode!(&["VISUALIZER_VUMETER_SMALL"], false, 0, 145, &[VU, 0, 0, 146, 6, 154, 6]),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER_SMALL"], false, 0, 145, &[SPECTRUM, 1, 1, 0x10000, 146, 16, 0, 2, 0, 0, 1, 3]),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER"], false, 0, 160, BOOM_SPECTRUM),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER", "AND", "PROGRESS_BAR"], true, 0, 160, BOOM_SPECTRUM),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER", "AND", "ELAPSED"], false, 1, 160, BOOM_SPECTRUM),
-    mode!(&["VISUALIZER_SPECTRUM_ANALYZER", "AND", "REMAINING"], false, -1, 160, BOOM_SPECTRUM),
-    Mode { desc: &["CLOCK"], bar: false, secs: 0, width: 160, fullness: false, clock: true, visu: &[0] },
-    Mode { desc: &["SETUP_SHOWBUFFERFULLNESS"], bar: false, secs: 0, width: 160, fullness: true, clock: false, visu: &[0] },
+    mode!(
+        &["VISUALIZER_VUMETER_SMALL"],
+        false,
+        0,
+        145,
+        &[VU, 0, 0, 146, 6, 154, 6]
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER_SMALL"],
+        false,
+        0,
+        145,
+        &[SPECTRUM, 1, 1, 0x10000, 146, 16, 0, 2, 0, 0, 1, 3]
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER"],
+        false,
+        0,
+        160,
+        BOOM_SPECTRUM
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER", "AND", "PROGRESS_BAR"],
+        true,
+        0,
+        160,
+        BOOM_SPECTRUM
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER", "AND", "ELAPSED"],
+        false,
+        1,
+        160,
+        BOOM_SPECTRUM
+    ),
+    mode!(
+        &["VISUALIZER_SPECTRUM_ANALYZER", "AND", "REMAINING"],
+        false,
+        -1,
+        160,
+        BOOM_SPECTRUM
+    ),
+    Mode {
+        desc: &["CLOCK"],
+        bar: false,
+        secs: 0,
+        width: 160,
+        fullness: false,
+        clock: true,
+        visu: &[0],
+    },
+    Mode {
+        desc: &["SETUP_SHOWBUFFERFULLNESS"],
+        bar: false,
+        secs: 0,
+        width: 160,
+        fullness: true,
+        clock: false,
+        visu: &[0],
+    },
 ];
 
 /// Human readable name of a playing display mode (`desc` strings joined).
@@ -354,6 +604,7 @@ pub fn init_prefs(p: &Player) {
         ("scrollPauseDouble", json!(3.6)),
         ("scrollRate", json!(0.033)),
         ("scrollRateDouble", json!(0.033)),
+        ("alwaysShowCount", json!((kind != Kind::Boom) as i32)),
     ];
     match kind {
         Kind::Squeezebox2 => prefs.extend([
@@ -434,7 +685,9 @@ pub fn brightness_options(p: &Player) -> Vec<(i64, String)> {
         (4, "4".into()),
     ]);
     if map[max as usize] > 255 {
-        for b in 4..=max {
+        // ambient (automatic) levels at the top of the map
+        let top = max;
+        for b in 4..=top {
             if map[b as usize] > 255 {
                 opts.insert(b, s("BRIGHTNESS_AMBIENT"));
                 max -= 1;
@@ -443,7 +696,7 @@ pub fn brightness_options(p: &Player) -> Vec<(i64, String)> {
     }
     opts.insert(max, format!("{} ({})", max, s("BRIGHTNESS_BRIGHTEST")));
     let mut v: Vec<(i64, String)> = opts.into_iter().collect();
-    v.sort_by(|a, b| b.0.cmp(&a.0));
+    v.sort_by_key(|o| std::cmp::Reverse(o.0));
     v
 }
 
@@ -476,6 +729,30 @@ pub fn toggle_brightness(p: &Player) {
         b = max;
     }
     p.prefs.set(pref, json!(b));
+}
+
+/// `brightness_up` / `brightness_down`.
+pub fn adjust_brightness(p: &Player, delta: i64) {
+    let Some(kind) = kind_of(p) else {
+        return;
+    };
+    let pref = brightness_pref(p);
+    let max = kind.brightness_map(p).len() as i64 - 1;
+    p.prefs
+        .set(pref, json!((p.prefs.get_i64(pref) + delta).clamp(0, max)));
+}
+
+/// `textsize_small|medium|large`: a size, or the largest for `None`.
+pub fn set_text_size(p: &Player, size: Option<i64>) {
+    if kind_of(p).is_none() {
+        return;
+    }
+    let pref = font_pref(p);
+    let max = p.prefs.get_string_list(pref).len().saturating_sub(1) as i64;
+    p.prefs.set(
+        &format!("{pref}_curr"),
+        json!(size.unwrap_or(max).clamp(0, max)),
+    );
 }
 
 /// `textsize_toggle` (`Slim::Buttons::Common` `textsize`).
@@ -556,8 +833,9 @@ pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
     let dots = (value / 100.0 * spaces as f64) as i64;
     let divider = (midpoint / 100.0 * spaces as f64) as i64;
     // Lyrion's progress3 symbols map to progress2
-    let (p1, p2, p3, p1e, p2e, p3e) =
-        (PROGRESS1, PROGRESS2, PROGRESS2, PROGRESS1E, PROGRESS2E, PROGRESS2E);
+    let (p1, p2, p3, p1e, p2e, p3e) = (
+        PROGRESS1, PROGRESS2, PROGRESS2, PROGRESS1E, PROGRESS2E, PROGRESS2E,
+    );
     let mut chart = String::new();
     chart.push(TIGHT);
     chart.push(PROGRESS_END);
@@ -574,9 +852,17 @@ pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
                     p3e
                 }
             } else if edge1 {
-                if i < dots { p1e } else { p1 }
+                if i < dots {
+                    p1e
+                } else {
+                    p1
+                }
             } else if edge2 {
-                if i < dots { p2e } else { p2 }
+                if i < dots {
+                    p2e
+                } else {
+                    p2
+                }
             } else if i < dots {
                 p3e
             } else {
@@ -784,14 +1070,25 @@ pub fn format_title(format: &str, value: &dyn Fn(&str) -> Option<String>) -> Str
 /// Split a title format into (is_element, text) tokens.
 fn title_tokens(format: &str) -> Vec<(bool, String)> {
     const ELEMENTS: &[&str] = &[
-        "TRACKNUM", "TITLE", "ARTIST", "ALBUMARTIST", "ALBUM", "DISC", "YEAR", "GENRE", "FILE",
+        "TRACKNUM",
+        "TITLE",
+        "ARTIST",
+        "ALBUMARTIST",
+        "ALBUM",
+        "DISC",
+        "YEAR",
+        "GENRE",
+        "FILE",
         "EXT",
     ];
     let mut out: Vec<(bool, String)> = Vec::new();
     let mut i = 0;
     let b = format.as_bytes();
     while i < b.len() {
-        let elem = ELEMENTS.iter().filter(|e| format[i..].starts_with(**e)).max_by_key(|e| e.len());
+        let elem = ELEMENTS
+            .iter()
+            .filter(|e| format[i..].starts_with(**e))
+            .max_by_key(|e| e.len());
         match elem {
             Some(e) => {
                 out.push((true, e.to_string()));
@@ -811,7 +1108,12 @@ fn title_tokens(format: &str) -> Vec<(bool, String)> {
 }
 
 /// Title as shown on the player (`getCurrentTitle` with the player's title format).
-fn display_title(p: &Player, server: Option<&Arc<Server>>, info: &crate::player::song::TrackInfo, meta: Option<&crate::player::song::RemoteMeta>) -> String {
+pub(crate) fn display_title(
+    p: &Player,
+    server: Option<&Arc<Server>>,
+    info: &crate::player::song::TrackInfo,
+    meta: Option<&crate::player::song::RemoteMeta>,
+) -> String {
     if info.remote {
         return meta
             .and_then(|m| m.title.clone().or_else(|| m.station.clone()))
@@ -857,6 +1159,36 @@ fn display_title(p: &Player, server: Option<&Arc<Server>>, info: &crate::player:
     }
 }
 
+/// The date/time screensaver (`Slim::Plugin::DateTime::dateTimeLines`), with a bell when
+/// an alarm is due within a day.
+pub fn datetime_parts(server: &Arc<Server>, p: &Arc<Player>) -> Parts {
+    let t = chrono::Local::now();
+    let mut parts = Parts {
+        center: [
+            lms_strftime(&server.prefs.server.get_str("longdateFormat"), t, true),
+            lms_strftime(&server.prefs.server.get_str("timeFormat"), t, false),
+        ],
+        ..Default::default()
+    };
+    let (state, next) = crate::plugins::alarm::status_info(p);
+    if state == "set" {
+        let mut ov = BELL.to_string();
+        if kind_of(p) != Some(Kind::Boom) {
+            if let Some(at) = chrono::DateTime::from_timestamp(next, 0) {
+                let at = at.with_timezone(&chrono::Local);
+                ov.push(' ');
+                ov.push_str(&lms_strftime(
+                    &server.prefs.server.get_str("timeFormat"),
+                    at,
+                    false,
+                ));
+            }
+        }
+        parts.overlay[0] = ov;
+    }
+    parts
+}
+
 /// Everything to show on a player's display right now.
 #[derive(Debug, Clone, PartialEq)]
 struct Screen {
@@ -873,7 +1205,10 @@ fn screen_for(server: &Arc<Server>, p: &Arc<Player>, kind: Kind) -> Screen {
     let now = crate::util::now();
     let brightness = {
         let map = kind.brightness_map(p);
-        let level = p.prefs.get_i64(brightness_pref(p)).clamp(0, map.len() as i64 - 1);
+        let level = p
+            .prefs
+            .get_i64(brightness_pref(p))
+            .clamp(0, map.len() as i64 - 1);
         map[level as usize]
     };
     let full = kind.width();
@@ -886,23 +1221,7 @@ fn screen_for(server: &Arc<Server>, p: &Arc<Player>, kind: Kind) -> Screen {
     };
 
     if !p.power() {
-        // date/time screensaver (`Slim::Plugin::DateTime`)
-        let t = chrono::Local::now();
-        let date = lms_strftime(&server.prefs.server.get_str("longdateFormat"), t, true);
-        let time = lms_strftime(&server.prefs.server.get_str("timeFormat"), t, false);
-        screen.parts.center = [date, time];
-        let (state, next) = crate::plugins::alarm::status_info(p);
-        if state == "set" {
-            let mut ov = BELL.to_string();
-            if kind != Kind::Boom {
-                if let Some(at) = chrono::DateTime::from_timestamp(next, 0) {
-                    let at = at.with_timezone(&chrono::Local);
-                    ov.push(' ');
-                    ov.push_str(&lms_strftime(&server.prefs.server.get_str("timeFormat"), at, false));
-                }
-            }
-            screen.parts.overlay[0] = ov;
-        }
+        screen.parts = datetime_parts(server, p);
         return screen;
     }
 
@@ -946,6 +1265,18 @@ fn screen_for(server: &Arc<Server>, p: &Arc<Player>, kind: Kind) -> Screen {
     let mode = &kind.modes()[pdm];
     screen.visu = mode.visu.to_vec();
     screen.width = mode.width;
+    // menus of the player UI; the visualizer stays while playing (`showVisualizer`)
+    if let Some(parts) = p.ui.lock().parts.clone() {
+        screen.parts = parts;
+        if p.controller().lock().mode() != "play" {
+            screen.visu = vec![0];
+            screen.width = full;
+        }
+        if kind == Kind::Transporter {
+            screen.visu = vec![0];
+        }
+        return screen;
+    }
     // Transporter: screen 2 shows a visualizer and/or album and artist (`visualMode`)
     let mut extended_text = false;
     if kind == Kind::Transporter {
@@ -995,15 +1326,25 @@ fn screen_for(server: &Arc<Server>, p: &Arc<Player>, kind: Kind) -> Screen {
         screen.parts.line[1] = display_title(p, Some(server), info, meta.as_ref());
         if let Some(p2) = screen.parts2.as_mut() {
             if extended_text {
-                let album = meta.as_ref().and_then(|m| m.album.clone()).or_else(|| info.album.clone());
-                let artist = meta.as_ref().and_then(|m| m.artist.clone()).or_else(|| info.artist.clone());
+                let album = meta
+                    .as_ref()
+                    .and_then(|m| m.album.clone())
+                    .or_else(|| info.album.clone());
+                let artist = meta
+                    .as_ref()
+                    .and_then(|m| m.artist.clone())
+                    .or_else(|| info.artist.clone());
                 p2.line = [album.unwrap_or_default(), artist.unwrap_or_default()];
             }
         }
     }
 
     let duration = c.playing_song_duration().filter(|d| *d > 0.0);
-    let elapsed = if c.is_stopped() { 0.0 } else { c.playing_song_elapsed() };
+    let elapsed = if c.is_stopped() {
+        0.0
+    } else {
+        c.playing_song_elapsed()
+    };
     drop(c);
     let mut overlay = String::new();
     let mut fraction = 0.0;
@@ -1018,14 +1359,20 @@ fn screen_for(server: &Arc<Server>, p: &Arc<Player>, kind: Kind) -> Screen {
     } else if mode.clock {
         overlay = format!(
             " {}",
-            lms_strftime(&server.prefs.server.get_str("timeFormat"), chrono::Local::now(), false)
+            lms_strftime(
+                &server.prefs.server.get_str("timeFormat"),
+                chrono::Local::now(),
+                false
+            )
         );
     } else if let Some(d) = duration {
         fraction = (elapsed / d).clamp(0.0, 1.0);
     }
     if mode.bar && (duration.is_some() || mode.fullness) {
         if !mode.fullness {
-            fraction = duration.map(|d| (elapsed / d).clamp(0.0, 1.0)).unwrap_or(0.0);
+            fraction = duration
+                .map(|d| (elapsed / d).clamp(0.0, 1.0))
+                .unwrap_or(0.0);
         }
         screen.parts.progress = Some(fraction);
     }
@@ -1055,6 +1402,7 @@ struct DisplayState {
     sent2: Option<Vec<u8>>,
     sent_brightness: Option<u16>,
     sent_visu: Option<Vec<u32>>,
+    ui_generation: u64,
     connected_at: f64,
 }
 
@@ -1072,6 +1420,7 @@ impl DisplayState {
             sent2: None,
             sent_brightness: None,
             sent_visu: None,
+            ui_generation: 0,
             connected_at,
         }
     }
@@ -1093,12 +1442,22 @@ fn visu_frame(params: &[u32]) -> ServerFrame {
 
 fn update_player(server: &Arc<Server>, p: &Arc<Player>, kind: Kind, ds: &mut DisplayState) {
     let now = crate::util::now();
+    // the UI changed the screen: redraw now
+    let generation = p.ui.lock().generation;
+    if generation != ds.ui_generation {
+        ds.ui_generation = generation;
+        ds.next_compute = 0.0;
+    }
     if now >= ds.next_compute {
         ds.next_compute = now + COMPUTE_INTERVAL;
         let screen = screen_for(server, p, kind);
         let fonts_key = {
             let pref = font_pref(p);
-            format!("{}/{}", p.prefs.get_str(pref), p.prefs.get_i64(&format!("{pref}_curr")))
+            format!(
+                "{}/{}",
+                p.prefs.get_str(pref),
+                p.prefs.get_i64(&format!("{pref}_curr"))
+            )
         };
         if ds.screen.as_ref() != Some(&screen) || ds.fonts_key != fonts_key {
             let fonts = current_fonts(p, kind);
@@ -1138,7 +1497,11 @@ fn update_player(server: &Arc<Server>, p: &Arc<Player>, kind: Kind, ds: &mut Dis
                 let fonts_single = ds.fonts_key.contains("full");
                 let px = p
                     .prefs
-                    .get_i64(if fonts_single { "scrollPixelsDouble" } else { "scrollPixels" })
+                    .get_i64(if fonts_single {
+                        "scrollPixelsDouble"
+                    } else {
+                        "scrollPixels"
+                    })
                     .clamp(1, 20) as usize;
                 ds.offset += px;
                 if ds.offset >= cols.len() + SCROLL_PAD {
@@ -1169,7 +1532,25 @@ fn update_player(server: &Arc<Server>, p: &Arc<Player>, kind: Kind, ds: &mut Dis
         ds.sent_visu = Some(screen.visu.clone());
     }
     let f = frame(&ds.rendered, ds.offset);
-    if ds.sent.as_ref() != Some(&f) {
+    let transition = p.ui.lock().transition.take();
+    if let Some(t) = transition {
+        // `pushBumpAnimate`: the new screen with an animation; no updates until the player
+        // reports the animation complete (`ANIC`)
+        let (code, extent) = t.code();
+        let param = if extent {
+            current_fonts(p, kind).line[1].map_or(0, Font::extent)
+        } else {
+            0
+        };
+        p.send(ServerFrame::Grfe {
+            offset: 0,
+            transition: code,
+            param,
+            bitmap: f.clone().into(),
+        });
+        p.state.lock().animating_until = now + 0.6;
+        ds.sent = Some(f);
+    } else if ds.sent.as_ref() != Some(&f) && p.state.lock().animating_until <= now {
         p.send(ServerFrame::Grfe {
             offset: 0,
             transition: b'c',
@@ -1306,7 +1687,9 @@ mod tests {
         let r = render(320, f, &parts, true);
         assert!(r.bits.iter().any(|c| *c != 0));
         // the full font is tall: uses both halves
-        assert!(r.bits.iter().any(|c| c & 0xffff_0000 != 0) && r.bits.iter().any(|c| c & 0xffff != 0));
+        assert!(
+            r.bits.iter().any(|c| c & 0xffff_0000 != 0) && r.bits.iter().any(|c| c & 0xffff != 0)
+        );
     }
 
     #[test]
@@ -1321,7 +1704,10 @@ mod tests {
     fn lms_date_formats() {
         use chrono::TimeZone;
         let t = chrono::Local.with_ymd_and_hms(2024, 3, 5, 9, 7, 0).unwrap();
-        assert_eq!(lms_strftime("%A, %B |%d, %Y", t, true), "Tuesday, March 5, 2024");
+        assert_eq!(
+            lms_strftime("%A, %B |%d, %Y", t, true),
+            "Tuesday, March 5, 2024"
+        );
         assert_eq!(lms_strftime("|%I:%M %p", t, false), "9:07 AM");
         assert_eq!(lms_strftime("%H:%M", t, false), "09:07");
     }

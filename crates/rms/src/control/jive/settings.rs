@@ -590,14 +590,30 @@ pub fn player_brightness_settings(server: &Arc<Server>, r: &mut Request) {
         let current = p.prefs.get_i64(pref);
         let radios: Vec<Value> = options
             .iter()
-            .map(|(v, label)| json!({ "text": label, "radio": (current == *v) as i32,
-                "actions": { "do": { "cmd": ["playerpref", pref, v], "player": 0 } } }))
+            .map(|(v, label)| {
+                json!({ "text": label, "radio": (current == *v) as i32,
+                "actions": { "do": { "cmd": ["playerpref", pref, v], "player": 0 } } })
+            })
             .collect();
-        menu.push(json!({ "text": s(token), "count": radios.len(), "offset": 0, "item_loop": radios }));
+        menu.push(
+            json!({ "text": s(token), "count": radios.len(), "offset": 0, "item_loop": radios }),
+        );
     }
     if p.state.lock().caps.model == "boom" {
-        menu.push(pref_slider(&s("SETUP_MINAUTOBRIGHTNESS"), "minAutoBrightness", p.prefs.get_i64("minAutoBrightness"), 1, 5));
-        menu.push(pref_slider(&s("SETUP_SENSAUTOBRIGHTNESS"), "sensAutoBrightness", p.prefs.get_i64("sensAutoBrightness"), 1, 20));
+        menu.push(pref_slider(
+            &s("SETUP_MINAUTOBRIGHTNESS"),
+            "minAutoBrightness",
+            p.prefs.get_i64("minAutoBrightness"),
+            1,
+            5,
+        ));
+        menu.push(pref_slider(
+            &s("SETUP_SENSAUTOBRIGHTNESS"),
+            "sensAutoBrightness",
+            p.prefs.get_i64("sensAutoBrightness"),
+            1,
+            20,
+        ));
     }
     slice_and_ship(r, menu);
 }

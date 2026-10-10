@@ -341,6 +341,9 @@ impl Server {
     /// `Squeezebox::reconnect` + `_hello_handler` tail: initial frames and state recovery.
     fn after_hello(self: &Arc<Server>, player: &Arc<Player>, helo: &Helo, _existing: bool) {
         crate::display::init_prefs(player);
+        if crate::display::display_width(&player.state.lock().caps.model.clone()).is_some() {
+            crate::ui::start(self, player);
+        }
         let (model, revision) = {
             let s = player.state.lock();
             (s.caps.model.clone(), s.revision)

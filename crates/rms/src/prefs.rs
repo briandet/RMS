@@ -157,7 +157,7 @@ pub fn player_defaults() -> PrefMap {
         ("powerOnBrightness", json!(4)),
         ("powerOffBrightness", json!(1)),
         ("idleBrightness", json!(1)),
-        ("screensaver", json!("playlist")),
+        ("screensaver", json!("screensaver")),
         ("idlesaver", json!("nosaver")),
         ("offsaver", json!("SCREENSAVER.datetime")),
         ("screensavertimeout", json!(30)),
