@@ -15,19 +15,21 @@ pub mod codec;
 pub mod discovery;
 pub mod server;
 
-pub use client::{
-    ClientMessage, DisconnectReason, Helo, Stat, StatEvent, DEVICE_IDS,
-};
+pub use client::{ClientMessage, DisconnectReason, Helo, Stat, StatEvent, DEVICE_IDS};
 pub use server::{
-    AudioGain, Format, PcmEndian, PcmSampleRate, PcmSampleSize, ServerFrame, StrmCommand, StrmHeader,
-    TransitionType,
+    AudioGain, Format, PcmEndian, PcmSampleRate, PcmSampleSize, ServerFrame, StrmCommand,
+    StrmHeader, TransitionType, VolumeCurve,
 };
 
 /// Errors raised while decoding frames from a player.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("frame payload too short for {op}: need {need} bytes, got {got}")]
-    Short { op: &'static str, need: usize, got: usize },
+    Short {
+        op: &'static str,
+        need: usize,
+        got: usize,
+    },
     #[error("declared frame length {0} exceeds maximum")]
     TooLarge(u32),
     #[error("invalid value in {op}: {detail}")]

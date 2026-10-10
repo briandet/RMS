@@ -104,6 +104,10 @@ pub struct Song {
     pub started_at: Option<f64>,
     /// Resolved audio URL for remote entries (after playlist expansion / redirects).
     pub stream_url: Option<String>,
+    /// The player reported this song's start (STMs).  Songs promoted to playing by the
+    /// server (short tracks fully streamed before STMs) absorb the late STMs instead of
+    /// being retired by it.
+    pub start_reported: bool,
 }
 
 impl Song {
@@ -124,6 +128,7 @@ impl Song {
             replay_gain_db: 0.0,
             started_at: None,
             stream_url: None,
+            start_reported: false,
         }
     }
 

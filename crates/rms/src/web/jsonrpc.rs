@@ -41,14 +41,26 @@ pub async fn execute_body(server: &Arc<Server>, body: &[u8]) -> Option<Value> {
     let player = params.first().map(value_to_token).unwrap_or_default();
     let cmd = params.get(1)?.as_array()?;
     let tokens: Vec<String> = cmd.iter().map(value_to_token).collect();
-    let p = if player.is_empty() { None } else { server.resolve_client(&player) };
+    let p = if player.is_empty() {
+        None
+    } else {
+        server.resolve_client(&player)
+    };
     let connected = p.as_ref().map(|p| p.is_connected()).unwrap_or(false);
-    let raw = if player.is_empty() { None } else { Some(player.as_str()) };
-    let mut r = server.dispatch.parse(p.as_ref().map(|p| p.id), raw, connected, &tokens);
+    let raw = if player.is_empty() {
+        None
+    } else {
+        Some(player.as_str())
+    };
+    let mut r = server
+        .dispatch
+        .parse(p.as_ref().map(|p| p.id), raw, connected, &tokens);
     r.source = Source::JsonRpc;
     debug!("jsonrpc {} {:?}", player, tokens);
     let r = crate::control::dispatch::execute(server, r).await;
-    if r.status != crate::control::request::Status::Done && r.status != crate::control::request::Status::Dispatchable {
+    if r.status != crate::control::request::Status::Done
+        && r.status != crate::control::request::Status::Dispatchable
+    {
         return None;
     }
     let mut out = serde_json::Map::new();
@@ -64,8 +76,13 @@ pub async fn execute_body(server: &Arc<Server>, body: &[u8]) -> Option<Value> {
 fn respond(v: Option<Value>) -> Response {
     match v {
         Some(v) => {
-            let mut r = Response::new(axum::body::Body::from(serde_json::to_vec(&v).unwrap_or_default()));
-            r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            let mut r = Response::new(axum::body::Body::from(
+                serde_json::to_vec(&v).unwrap_or_default(),
+            ));
+            r.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
             r
         }
         // LMS closes the connection without a response; an empty 500 is the closest HTTP analogue.
@@ -73,11 +90,18 @@ fn respond(v: Option<Value>) -> Response {
     }
 }
 
-pub async fn handle_post(State(server): State<Arc<Server>>, _headers: HeaderMap, body: Bytes) -> Response {
+pub async fn handle_post(
+    State(server): State<Arc<Server>>,
+    _headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     respond(execute_body(&server, &body).await)
 }
 
-pub async fn handle_get(State(server): State<Arc<Server>>, Query(q): Query<HashMap<String, String>>) -> Response {
+pub async fn handle_get(
+    State(server): State<Arc<Server>>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
     match q.get("request") {
         Some(r) => respond(execute_body(&server, r.as_bytes()).await),
         None => (StatusCode::BAD_REQUEST, "").into_response(),

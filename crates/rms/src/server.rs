@@ -27,12 +27,21 @@ static FFMPEG: OnceLock<Option<String>> = OnceLock::new();
 
 /// Path to the ffmpeg binary (`RMS_FFMPEG` or `ffmpeg` on PATH).
 pub fn ffmpeg_path() -> String {
-    FFMPEG.get().cloned().flatten().unwrap_or_else(|| "ffmpeg".to_string())
+    FFMPEG
+        .get()
+        .cloned()
+        .flatten()
+        .unwrap_or_else(|| "ffmpeg".to_string())
 }
 
 fn detect_ffmpeg() -> Option<String> {
     let candidate = std::env::var("RMS_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_string());
-    match std::process::Command::new(&candidate).arg("-version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status() {
+    match std::process::Command::new(&candidate)
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
         Ok(s) if s.success() => Some(candidate),
         _ => None,
     }
@@ -86,7 +95,16 @@ impl Server {
             prefs.server.set("cliport", json!(port));
         }
         if !config.music_dirs.is_empty() {
-            let dirs: Vec<String> = config.music_dirs.iter().map(|d| std::fs::canonicalize(d).unwrap_or(d.clone()).to_string_lossy().to_string()).collect();
+            let dirs: Vec<String> = config
+                .music_dirs
+                .iter()
+                .map(|d| {
+                    std::fs::canonicalize(d)
+                        .unwrap_or(d.clone())
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .collect();
             prefs.server.set("mediadirs", json!(dirs));
         }
         if let Some(pd) = &config.playlist_dir {
@@ -136,15 +154,40 @@ impl Server {
 
     pub fn apply_library_config(&self) {
         let p = &self.prefs.server;
-        let cfg = rms_library::LibraryConfig {
-            media_dirs: p.get_string_list("mediadirs").into_iter().map(Into::into).collect(),
-            playlist_dir: Some(p.get_str("playlistdir")).filter(|s| !s.is_empty()).map(Into::into),
-            ignored_articles: p.get_str("ignoredarticles"),
-            split_list: p.get_str("splitList"),
-            various_artists_string: p.get_str("variousArtistsString"),
-            no_genre_string: p.get_str("noGenreString"),
-            group_discs: p.get_bool("groupdiscs"),
+        let opt = |k: &str| Some(p.get_str(k)).filter(|s| !s.is_empty());
+        let mut cfg = rms_library::LibraryConfig {
+            media_dirs: p
+                .get_string_list("mediadirs")
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            playlist_dir: opt("playlistdir").map(Into::into),
+            ..Default::default()
         };
+        if let Some(v) = opt("ignoredarticles") {
+            cfg.ignored_articles = v;
+        }
+        if let Some(v) = opt("splitList") {
+            cfg.split_list = v;
+        }
+        if let Some(v) = opt("variousArtistsString") {
+            cfg.various_artists_string = v;
+        }
+        if let Some(v) = opt("noGenreString") {
+            cfg.no_genre_string = v;
+        }
+        cfg.ignore_dir_re = opt("ignoreDirRE");
+        cfg.cover_art = p.get_str("coverArt");
+        cfg.group_discs = p.get_bool("groupdiscs");
+        cfg.composer_in_artists = p.get_bool("composerInArtists");
+        cfg.conductor_in_artists = p.get_bool("conductorInArtists");
+        cfg.band_in_artists = p.get_bool("bandInArtists");
+        cfg.trackartist_in_artists = p.get_bool("trackartistInArtists");
+        cfg.use_unified_artists_list = p.get_bool("useUnifiedArtistsList");
+        cfg.various_artist_auto_identification = p.get_bool("variousArtistAutoIdentification");
+        cfg.use_tpe2_as_album_artist = p.get_bool("useTPE2AsAlbumArtist");
+        cfg.search_substring = p.get_bool("searchSubString");
+        cfg.browse_age_limit = p.get_i64("browseagelimit").max(1) as usize;
         self.library.set_config(cfg);
     }
 
@@ -155,7 +198,9 @@ impl Server {
         if !n.is_empty() {
             return n;
         }
-        hostname::get().map(|h| h.to_string_lossy().to_string()).unwrap_or_else(|_| "RMS".to_string())
+        hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "RMS".to_string())
     }
 
     pub fn uuid(&self) -> String {
@@ -172,12 +217,19 @@ impl Server {
 
     /// Default name for a new player: model name, numbered when taken (`Client::name`).
     pub fn default_player_name(&self, model_name: &str) -> String {
-        let base = if model_name.is_empty() { "Squeezebox".to_string() } else { model_name.to_string() };
+        let base = if model_name.is_empty() {
+            "Squeezebox".to_string()
+        } else {
+            model_name.to_string()
+        };
         let taken: Vec<String> = self.players().iter().map(|p| p.name()).collect();
         if !taken.contains(&base) {
             return base;
         }
-        (2..).map(|i| format!("{} {}", base, i)).find(|n| !taken.contains(n)).unwrap()
+        (2..)
+            .map(|i| format!("{} {}", base, i))
+            .find(|n| !taken.contains(n))
+            .unwrap()
     }
 
     // ---- players --------------------------------------------------------------------
@@ -192,7 +244,10 @@ impl Server {
     }
 
     pub fn connected_players(&self) -> Vec<Arc<Player>> {
-        self.players().into_iter().filter(|p| p.is_connected()).collect()
+        self.players()
+            .into_iter()
+            .filter(|p| p.is_connected())
+            .collect()
     }
 
     /// `Slim::Player::Client::getClient`: MAC, `ip:port`, IP, name, or id.
@@ -217,11 +272,22 @@ impl Server {
 
     /// Called by the slimproto connection after a HELO.  Returns the player and a token that
     /// is cancelled when a newer connection for the same player takes over.
-    pub fn player_connected(self: &Arc<Server>, helo: &Helo, addr: SocketAddr, tx: mpsc::UnboundedSender<ServerFrame>) -> (Arc<Player>, u64, CancellationToken) {
+    pub fn player_connected(
+        self: &Arc<Server>,
+        helo: &Helo,
+        addr: SocketAddr,
+        tx: mpsc::UnboundedSender<ServerFrame>,
+    ) -> (Arc<Player>, u64, CancellationToken) {
         let existing = self.player(&helo.mac);
         let conn_id = self.next_conn_id.fetch_add(1, Ordering::SeqCst);
         let cancel = CancellationToken::new();
-        if let Some(old) = self.conns.lock().insert(helo.mac, Conn { id: conn_id, cancel: cancel.clone() }) {
+        if let Some(old) = self.conns.lock().insert(
+            helo.mac,
+            Conn {
+                id: conn_id,
+                cancel: cancel.clone(),
+            },
+        ) {
             info!("{}: closing previous connection", helo.mac);
             old.cancel.cancel();
         }
@@ -241,7 +307,12 @@ impl Server {
                     s.is_upgrading = false;
                 }
                 p.set_frame_sender(Some(tx));
-                info!("{}: reconnect from {} ({})", p.id, addr, p.state.lock().caps.model_name);
+                info!(
+                    "{}: reconnect from {} ({})",
+                    p.id,
+                    addr,
+                    p.state.lock().caps.model_name
+                );
                 self.notifier.notify(Some(p.id), &["client", "reconnect"]);
                 p
             }
@@ -250,7 +321,13 @@ impl Server {
                 p.state.lock().connected = true;
                 p.set_frame_sender(Some(tx));
                 self.players.write().insert(p.id, p.clone());
-                info!("{}: new player \"{}\" ({}) from {}", p.id, p.name(), p.state.lock().caps.model_name, addr);
+                info!(
+                    "{}: new player \"{}\" ({}) from {}",
+                    p.id,
+                    p.name(),
+                    p.state.lock().caps.model_name,
+                    addr
+                );
                 self.notifier.notify(Some(p.id), &["client", "new"]);
                 p
             }
@@ -269,9 +346,13 @@ impl Server {
             player.send(ServerFrame::Vers(crate::VERSION.to_string()));
         }
         // restore sync group
-        let sg = helo.syncgroup_id().or_else(|| Some(player.prefs.get_i64("syncgroupid") as u64).filter(|v| *v > 0));
+        let sg = helo
+            .syncgroup_id()
+            .or_else(|| Some(player.prefs.get_i64("syncgroupid") as u64).filter(|v| *v > 0));
         if let Some(sg) = sg {
-            if let Some(buddy) = self.players().into_iter().find(|p| p.id != player.id && p.prefs.get_i64("syncgroupid") as u64 == sg && p.is_connected()) {
+            if let Some(buddy) = self.players().into_iter().find(|p| {
+                p.id != player.id && p.prefs.get_i64("syncgroupid") as u64 == sg && p.is_connected()
+            }) {
                 info!("{}: restoring sync group with {}", player.id, buddy.id);
                 self.sync(&buddy, player, true);
             }
@@ -282,7 +363,11 @@ impl Server {
             if player.power() {
                 c.player_active(player);
             }
-            if helo.bytes_received.is_some() && !helo.reconnect && c.is_active(player.id) && c.active_players().len() == 1 {
+            if helo.bytes_received.is_some()
+                && !helo.reconnect
+                && c.is_active(player.id)
+                && c.active_players().len() == 1
+            {
                 if !c.is_stopped() {
                     info!("{}: restarting play on pseudo-reconnect", player.id);
                     c.player_reconnect(helo.bytes_received);
@@ -294,8 +379,14 @@ impl Server {
         }
         // SqueezePlay/squeezelite: query name; SB2 class also queries disableDac.
         player.query_player_name();
-        if matches!(model.as_str(), "squeezebox2" | "squeezebox3" | "transporter" | "boom" | "receiver") {
-            player.send(ServerFrame::Setd { id: slimproto::server::setd_id::DISABLE_DAC, value: None });
+        if matches!(
+            model.as_str(),
+            "squeezebox2" | "squeezebox3" | "transporter" | "boom" | "receiver"
+        ) {
+            player.send(ServerFrame::Setd {
+                id: slimproto::server::setd_id::DISABLE_DAC,
+                value: None,
+            });
         }
         player.audio_outputs_enable(player.power());
         player.send_volume();
@@ -320,7 +411,8 @@ impl Server {
             s.disconnected_at = Some(crate::util::now());
         }
         info!("{}: disconnected", player.id);
-        self.notifier.notify(Some(player.id), &["client", "disconnect"]);
+        self.notifier
+            .notify(Some(player.id), &["client", "disconnect"]);
         {
             let ctrl = player.controller();
             let mut c = ctrl.lock();
@@ -328,7 +420,9 @@ impl Server {
             if !only {
                 c.player_inactive(player);
             }
-            player.prefs.set("playingAtPowerOff", json!(c.is_playing(false) as i32));
+            player
+                .prefs
+                .set("playingAtPowerOff", json!(c.is_playing(false) as i32));
         }
         let server = self.clone();
         let p = player.clone();
@@ -374,42 +468,69 @@ impl Server {
         player.state.lock().power = on;
         player.prefs.set("power", json!(on as i32));
         let ctrl = player.controller();
+        let resume = player.prefs.get_str("powerOnResume");
         if on {
             player.audio_outputs_enable(true);
-            let resume = player.prefs.get_str("powerOnResume");
-            let was_playing = player.prefs.get_i64("playingAtPowerOff") != 0;
             let mut c = ctrl.lock();
             c.player_active(player);
-            if !noplay && was_playing && (resume.contains("PlayOn") || resume.contains("ResetPlayOn") || resume.contains("PauseOn") && false) {
-                if c.is_paused() {
-                    c.resume(None);
-                } else if c.is_stopped() && !c.playlist.is_empty() {
-                    let idx = c.playlist.current;
-                    c.play(Some(idx), None, None);
+            // `Player::resumeOnPower`: e.g. "PauseOff-PlayOn", "StopOff-ResetPlayOn"
+            let resume_on = resume
+                .split_once('-')
+                .map(|(_, on)| on.trim_end_matches("On").to_string())
+                .unwrap_or_default();
+            if !noplay && !c.is_playing(false) {
+                if resume_on.contains("Reset") && !c.playlist.is_empty() {
+                    c.reset_song_queue(Some(0));
+                }
+                if resume_on.contains("Play")
+                    && !c.playlist.is_empty()
+                    && player.prefs.get_i64("playingAtPowerOff") != 0
+                {
+                    if c.is_paused() {
+                        c.resume(None);
+                    } else {
+                        let idx = c.playing_song_index().min(c.playlist.len() - 1);
+                        c.play(Some(idx), None, None);
+                    }
+                    player.prefs.set("playingAtPowerOff", json!(0));
                 }
             }
         } else {
             {
                 let mut c = ctrl.lock();
-                let playing = c.is_playing(false);
-                player.prefs.set("playingAtPowerOff", json!(playing as i32));
-                let resume = player.prefs.get_str("powerOnResume");
-                if playing && resume.starts_with("PauseOff") && c.active_players().len() == 1 {
-                    c.pause();
-                } else if c.active_players().len() == 1 && c.is_active(player.id) {
-                    c.stop();
+                // `Player::power`: only leave the group running if other members stay on
+                let just_unsync = c
+                    .all_players()
+                    .iter()
+                    .any(|o| o.id != player.id && o.power() && !o.prefs.get_bool("syncPower"));
+                if just_unsync {
+                    c.player_inactive(player);
+                    player.prefs.set("playingAtPowerOff", json!(0));
+                } else {
+                    let playing = c.is_playing(true);
+                    player.prefs.set("playingAtPowerOff", json!(playing as i32));
+                    let resume_off = resume
+                        .split_once("Off")
+                        .map(|(a, _)| a.to_string())
+                        .unwrap_or_default();
+                    if playing && resume_off == "Pause" {
+                        c.pause();
+                    } else if !(c.is_paused() && resume_off == "Pause") {
+                        c.stop();
+                    }
                 }
-                c.player_inactive(player);
             }
-            {
-                let mut s = player.state.lock();
-                s.sleep_time = 0.0;
-            }
+            player.state.lock().sleep_time = 0.0;
             player.audio_outputs_enable(false);
         }
         // syncPower: power the rest of the group too
         if player.prefs.get_bool("syncPower") {
-            let others: Vec<Arc<Player>> = ctrl.lock().all_players().into_iter().filter(|p| p.id != player.id).collect();
+            let others: Vec<Arc<Player>> = ctrl
+                .lock()
+                .all_players()
+                .into_iter()
+                .filter(|p| p.id != player.id)
+                .collect();
             for o in others {
                 if o.prefs.get_bool("syncPower") {
                     self.set_power(&o, on, noplay);
@@ -441,7 +562,11 @@ impl Server {
             let mut t = target.lock();
             let id = t.sync_group_id.unwrap_or_else(|| {
                 let existing = buddy.prefs.get_i64("syncgroupid");
-                if existing > 0 { existing as u64 } else { rand::random::<u32>() as u64 % 999_999_999 }
+                if existing > 0 {
+                    existing as u64
+                } else {
+                    rand::random::<u32>() as u64 % 999_999_999
+                }
             });
             t.sync_group_id = Some(id);
             t.add_member(player);
@@ -519,7 +644,11 @@ impl Server {
     }
 
     pub fn entry_for_track(&self, t: &rms_library::Track) -> Entry {
-        Entry { url: t.url.clone(), track_id: Some(t.id), album_key: t.album_id.map(|a| a.to_string()) }
+        Entry {
+            url: t.url.clone(),
+            track_id: Some(t.id),
+            album_key: t.album_id.map(|a| a.to_string()),
+        }
     }
 
     /// Metadata for a playlist entry (`Slim::Schema::objectForUrl`).
@@ -528,20 +657,42 @@ impl Server {
             let info = self.remote_info.get(&e.url).map(|r| r.clone());
             return TrackInfo {
                 url: e.url.clone(),
-                title: self.remote_titles.get(&e.url).map(|t| t.clone()).or_else(|| info.as_ref().and_then(|i| i.title.clone())),
-                content_type: info.as_ref().map(|i| i.content_type.clone()).unwrap_or_default(),
+                title: self
+                    .remote_titles
+                    .get(&e.url)
+                    .map(|t| t.clone())
+                    .or_else(|| info.as_ref().and_then(|i| i.title.clone())),
+                content_type: info
+                    .as_ref()
+                    .map(|i| i.content_type.clone())
+                    .unwrap_or_default(),
                 bitrate: info.as_ref().and_then(|i| i.bitrate),
                 remote: true,
                 ..Default::default()
             };
         }
-        let t = e.track_id.and_then(|id| self.library.track(id)).or_else(|| self.library.track_by_url(&e.url));
+        let t = e
+            .track_id
+            .and_then(|id| self.library.track(id))
+            .or_else(|| self.library.track_by_url(&e.url));
         match t {
             Some(t) => track_info_from_library(&t),
             None => {
                 // Not (yet) in the library: derive what we can from the file itself.
-                let ct = crate::util::path_from_file_url(&e.url).map(|p| content_type_for_ext(&crate::util::extension(&p))).unwrap_or_default();
-                TrackInfo { url: e.url.clone(), content_type: ct.to_string(), ..Default::default() }
+                let path = crate::util::path_from_file_url(&e.url);
+                let ct = path
+                    .as_ref()
+                    .map(|p| content_type_for_ext(&crate::util::extension(p)))
+                    .unwrap_or_default();
+                let mut info = TrackInfo {
+                    url: e.url.clone(),
+                    content_type: ct.to_string(),
+                    ..Default::default()
+                };
+                if let Some(p) = path {
+                    probe_file(&p, &mut info);
+                }
+                info
             }
         }
     }
@@ -556,7 +707,13 @@ impl Server {
                 title = probe.title.clone();
             }
             if probe.is_hls {
-                let info = RemoteInfo { stream_url: probe.url.clone(), content_type: "aac".into(), bitrate: probe.bitrate, title: title.clone(), is_hls: true };
+                let info = RemoteInfo {
+                    stream_url: probe.url.clone(),
+                    content_type: "aac".into(),
+                    bitrate: probe.bitrate,
+                    title: title.clone(),
+                    is_hls: true,
+                };
                 self.remote_info.insert(url.to_string(), info.clone());
                 return Some(info);
             }
@@ -568,7 +725,13 @@ impl Server {
                 continue;
             }
             let ct = probe.content_type.clone()?;
-            let info = RemoteInfo { stream_url: probe.url.clone(), content_type: ct, bitrate: probe.bitrate, title: title.clone(), is_hls: false };
+            let info = RemoteInfo {
+                stream_url: probe.url.clone(),
+                content_type: ct,
+                bitrate: probe.bitrate,
+                title: title.clone(),
+                is_hls: false,
+            };
             self.remote_info.insert(url.to_string(), info.clone());
             return Some(info);
         }
@@ -579,7 +742,12 @@ impl Server {
 
     /// `Player::fade_volume`: positive = fade in over `secs`, negative = fade out then call
     /// `done`.  Always asynchronous.
-    pub fn fade_volume(&self, player: &Arc<Player>, secs: f64, done: Option<Box<dyn FnOnce() + Send>>) {
+    pub fn fade_volume(
+        &self,
+        player: &Arc<Player>,
+        secs: f64,
+        done: Option<Box<dyn FnOnce() + Send>>,
+    ) {
         let p = player.clone();
         tokio::spawn(async move {
             let target = p.volume();
@@ -587,7 +755,11 @@ impl Server {
             let step_ms = ((secs.abs() * 1000.0) / steps as f64) as u64;
             for i in 1..=steps {
                 let frac = i as f64 / steps as f64;
-                let v = if secs < 0.0 { (target as f64 * (1.0 - frac)).round() as i32 } else { (target as f64 * frac).round() as i32 };
+                let v = if secs < 0.0 {
+                    (target as f64 * (1.0 - frac)).round() as i32
+                } else {
+                    (target as f64 * frac).round() as i32
+                };
                 p.set_volume_temp_silent(v);
                 tokio::time::sleep(std::time::Duration::from_millis(step_ms)).await;
             }
@@ -632,7 +804,7 @@ pub fn track_info_from_library(t: &rms_library::Track) -> TrackInfo {
     TrackInfo {
         url: t.url.clone(),
         id: Some(t.id),
-        title: t.title.clone(),
+        title: Some(t.title.clone()).filter(|t| !t.is_empty()),
         artist: t.artist.clone(),
         album: t.album.clone(),
         album_id: t.album_id,
@@ -666,5 +838,33 @@ pub fn track_info_from_library(t: &rms_library::Track) -> TrackInfo {
         cue_start: t.cue_start,
         cue_end: t.cue_end,
         artwork_url: None,
+    }
+}
+
+/// Read audio properties and basic tags of a file that is not in the library.
+fn probe_file(path: &std::path::Path, info: &mut TrackInfo) {
+    use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::tag::Accessor;
+    let Ok(f) = lofty::read_from_path(path) else {
+        return;
+    };
+    let props = f.properties();
+    let secs = props.duration().as_secs_f64();
+    if secs > 0.0 {
+        info.secs = Some(secs);
+    }
+    info.bitrate = props.audio_bitrate().map(|k| k * 1000);
+    info.samplerate = props.sample_rate();
+    info.samplesize = props.bit_depth().map(u32::from);
+    info.channels = props.channels().map(u32::from);
+    info.lossless = matches!(
+        info.content_type.as_str(),
+        "flc" | "wav" | "aif" | "alc" | "ape" | "wvp"
+    );
+    info.filesize = std::fs::metadata(path).ok().map(|m| m.len());
+    if let Some(tag) = f.primary_tag().or(f.first_tag()) {
+        info.title = tag.title().map(|s| s.to_string());
+        info.artist = tag.artist().map(|s| s.to_string());
+        info.album = tag.album().map(|s| s.to_string());
     }
 }

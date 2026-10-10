@@ -294,7 +294,11 @@ pub struct Controller {
 
 impl std::fmt::Debug for Controller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Controller({} {:?}-{:?})", self.master_id, self.playing_state, self.streaming_state)
+        write!(
+            f,
+            "Controller({} {:?}-{:?})",
+            self.master_id, self.playing_state, self.streaming_state
+        )
     }
 }
 
@@ -361,7 +365,10 @@ impl Controller {
         if strict {
             self.playing_state == PlayingState::Playing
         } else {
-            matches!(self.playing_state, PlayingState::Playing | PlayingState::Buffering | PlayingState::WaitingToSync)
+            matches!(
+                self.playing_state,
+                PlayingState::Playing | PlayingState::Buffering | PlayingState::WaitingToSync
+            )
         }
     }
 
@@ -396,11 +403,15 @@ impl Controller {
 
     /// `Slim::Player::Source::playingSongIndex`.
     pub fn playing_song_index(&self) -> usize {
-        self.playing_song().map(|s| s.index).unwrap_or(self.playlist.current)
+        self.playing_song()
+            .map(|s| s.index)
+            .unwrap_or(self.playlist.current)
     }
 
     pub fn streaming_song_index(&self) -> usize {
-        self.streaming_song().map(|s| s.index).unwrap_or(self.playlist.current)
+        self.streaming_song()
+            .map(|s| s.index)
+            .unwrap_or(self.playlist.current)
     }
 
     pub fn playing_song_duration(&self) -> Option<f64> {
@@ -413,8 +424,12 @@ impl Controller {
         if self.is_paused() {
             return self.resume_time.unwrap_or(0.0);
         }
-        let Some(song) = self.playing_song() else { return 0.0 };
-        let Some(master) = self.master() else { return 0.0 };
+        let Some(song) = self.playing_song() else {
+            return 0.0;
+        };
+        let Some(master) = self.master() else {
+            return 0.0;
+        };
         let elapsed = if self.is_stopped() {
             Some(0.0)
         } else {
@@ -424,7 +439,12 @@ impl Controller {
             Some(e) if e > 0.0 => e,
             _ => {
                 if song.is_remote() {
-                    master.state.lock().remote_stream_start.map(|s| crate::util::now() - s).unwrap_or(0.0)
+                    master
+                        .state
+                        .lock()
+                        .remote_stream_start
+                        .map(|s| crate::util::now() - s)
+                        .unwrap_or(0.0)
                 } else {
                     0.0
                 }
@@ -446,13 +466,22 @@ impl Controller {
 
     pub fn event(&mut self, ev: Event, p: EvParams) {
         let action = action_for(ev, self.playing_state, self.streaming_state);
-        debug!("{}: {:?} in {:?}-{:?} -> {:?}", self.master_id, ev, self.playing_state, self.streaming_state, action);
+        debug!(
+            "{}: {:?} in {:?}-{:?} -> {:?}",
+            self.master_id, ev, self.playing_state, self.streaming_state, action
+        );
         let before = (self.playing_state, self.streaming_state);
         self.run(action, ev, p);
         if !VALID_STATES[self.playing_state as usize][self.streaming_state as usize] {
-            error!("{}: {:?} with {:?} resulted in invalid state {:?}-{:?}", self.master_id, ev, action, self.playing_state, self.streaming_state);
+            error!(
+                "{}: {:?} with {:?} resulted in invalid state {:?}-{:?}",
+                self.master_id, ev, action, self.playing_state, self.streaming_state
+            );
         } else if before != (self.playing_state, self.streaming_state) {
-            debug!("{}: {:?} - new state {:?}-{:?}", self.master_id, ev, self.playing_state, self.streaming_state);
+            debug!(
+                "{}: {:?} - new state {:?}-{:?}",
+                self.master_id, ev, self.playing_state, self.streaming_state
+            );
         }
     }
 
@@ -460,8 +489,14 @@ impl Controller {
         use Action::*;
         match action {
             NoOp => {}
-            BadState => error!("{}: event {:?} received while in invalid state {:?}-{:?}", self.master_id, ev, self.playing_state, self.streaming_state),
-            Invalid => warn!("{}: event {:?} received while in invalid state {:?}-{:?}", self.master_id, ev, self.playing_state, self.streaming_state),
+            BadState => error!(
+                "{}: event {:?} received while in invalid state {:?}-{:?}",
+                self.master_id, ev, self.playing_state, self.streaming_state
+            ),
+            Invalid => warn!(
+                "{}: event {:?} received while in invalid state {:?}-{:?}",
+                self.master_id, ev, self.playing_state, self.streaming_state
+            ),
             Stop => self.a_stop(false),
             StopGetNext => {
                 self.a_stop(false);
@@ -480,7 +515,11 @@ impl Controller {
             JumpOrResume => {
                 if let Some(t) = self.resume_time {
                     self.fade_in = Some(FADEVOLUME);
-                    self.a_jump_to_time(EvParams { newtime: Some(t.to_string()), restart_if_no_seek: true, ..Default::default() });
+                    self.a_jump_to_time(EvParams {
+                        newtime: Some(t.to_string()),
+                        restart_if_no_seek: true,
+                        ..Default::default()
+                    });
                     self.resume_time = None;
                     self.fade_in = None;
                 } else {
@@ -511,13 +550,13 @@ impl Controller {
                 self.a_start_if_ready();
             }
             StartIfReady => self.a_start_if_ready(),
-            Playing => self.a_playing(),
+            Playing => self.a_playing(ev == Event::Started),
             PlayAndNext => {
-                self.a_playing();
+                self.a_playing(ev == Event::Started);
                 self.get_next_track(&EvParams::default(), true);
             }
             PlayAndStream => {
-                self.a_playing();
+                self.a_playing(ev == Event::Started);
                 self.a_stream_if_ready(p);
             }
             StopNextIfMore => {
@@ -548,7 +587,11 @@ impl Controller {
             Start => self.a_start(),
             AutoStart => {
                 self.set_streaming_state(StreamingState::Streamout);
-                if self.streaming_song().map(|s| s.status != SongStatus::Playing).unwrap_or(false) {
+                if self
+                    .streaming_song()
+                    .map(|s| s.status != SongStatus::Playing)
+                    .unwrap_or(false)
+                {
                     info!("{}: autostart possibly short track", self.master_id);
                     for pl in self.active_players() {
                         pl.strm_unpause(0);
@@ -609,9 +652,25 @@ impl Controller {
         self.notify_stopped(suppress);
     }
 
-    fn a_playing(&mut self) {
+    fn a_playing(&mut self, player_reported: bool) {
+        if player_reported {
+            // A song the server already promoted to playing (via `_Start`) has now really
+            // started on the player: record that, but do not retire it.
+            if let Some(back) = self.queue.back_mut() {
+                if back.status == SongStatus::Playing && !back.start_reported {
+                    back.start_reported = true;
+                    if !self.rebuffering {
+                        self.set_playing_state(PlayingState::Playing);
+                    }
+                    return;
+                }
+            }
+        }
         if self.fade_active {
-            let dur = self.master().map(|m| m.prefs.get_f64("fadeInDuration")).unwrap_or(0.0);
+            let dur = self
+                .master()
+                .map(|m| m.prefs.get_f64("fadeInDuration"))
+                .unwrap_or(0.0);
             for pl in self.active_players() {
                 if let Some(server) = self.server() {
                     server.fade_volume(&pl, dur, None);
@@ -625,7 +684,10 @@ impl Controller {
         self.consecutive_errors = 0;
         while self.queue.len() > 1 {
             let st = self.queue.back().map(|s| s.status).unwrap();
-            if matches!(st, SongStatus::Playing | SongStatus::Failed | SongStatus::Finished) {
+            if matches!(
+                st,
+                SongStatus::Playing | SongStatus::Failed | SongStatus::Finished
+            ) {
                 self.queue.pop_back();
             } else {
                 break;
@@ -636,6 +698,7 @@ impl Controller {
         let mut newsong: Option<(String, usize, String)> = None;
         if let Some(song) = self.queue.back_mut() {
             song.status = SongStatus::Playing;
+            song.start_reported = player_reported;
             song.retry_count = 0;
             song.started_at = Some(now);
             newsong = Some((standard_title(song), song.index, song.track.url.clone()));
@@ -651,7 +714,15 @@ impl Controller {
                 if let Some(m) = self.master() {
                     m.prefs.set("currentSong", json!(index));
                 }
-                server.notifier.notify_owned(Some(self.master_id), vec!["playlist".into(), "newsong".into(), title, index.to_string()]);
+                server.notifier.notify_owned(
+                    Some(self.master_id),
+                    vec![
+                        "playlist".into(),
+                        "newsong".into(),
+                        title,
+                        index.to_string(),
+                    ],
+                );
             }
         }
     }
@@ -694,12 +765,21 @@ impl Controller {
     }
 
     fn a_resume(&mut self) {
-        let paused_at = self.resume_time.unwrap_or(0.0) - self.playing_song().map(|s| s.start_offset).unwrap_or(0.0);
+        let paused_at = self.resume_time.unwrap_or(0.0)
+            - self.playing_song().map(|s| s.start_offset).unwrap_or(0.0);
         let server = self.server();
-        let sync_delay = server.as_ref().map(|s| s.prefs.server.get_i64("syncStartDelay")).filter(|d| *d > 0).unwrap_or(200) as f64 / 1000.0;
+        let sync_delay = server
+            .as_ref()
+            .map(|s| s.prefs.server.get_i64("syncStartDelay"))
+            .filter(|d| *d > 0)
+            .unwrap_or(200) as f64
+            / 1000.0;
         let start_at_base = crate::util::now() + sync_delay;
         if self.fade_in.is_none() {
-            let d = self.master().map(|m| m.prefs.get_f64("fadeInDuration")).unwrap_or(0.0);
+            let d = self
+                .master()
+                .map(|m| m.prefs.get_f64("fadeInDuration"))
+                .unwrap_or(0.0);
             if d > 0.0 {
                 self.fade_in = Some(d);
             }
@@ -749,7 +829,7 @@ impl Controller {
             } else if let Some(m) = self.master() {
                 m.strm_unpause(0);
             }
-            self.a_playing();
+            self.a_playing(false);
         } else {
             self.rebuffering = false;
             self.a_resume();
@@ -757,9 +837,14 @@ impl Controller {
     }
 
     fn sync_start(&self, players: &[Arc<Player>]) {
-        let delay_of = |p: &Arc<Player>| (p.prefs.get_i64("startDelay") + p.prefs.get_i64("playDelay")) as f64;
+        let delay_of =
+            |p: &Arc<Player>| (p.prefs.get_i64("startDelay") + p.prefs.get_i64("playDelay")) as f64;
         let max_delay = players.iter().map(delay_of).fold(0.0, f64::max);
-        let sync_delay = self.server().map(|s| s.prefs.server.get_i64("syncStartDelay")).filter(|d| *d > 0).unwrap_or(200) as f64;
+        let sync_delay = self
+            .server()
+            .map(|s| s.prefs.server.get_i64("syncStartDelay"))
+            .filter(|d| *d > 0)
+            .unwrap_or(200) as f64;
         let start_at = crate::util::now() + (max_delay + sync_delay) / 1000.0;
         for p in players {
             let at = start_at - delay_of(p) / 1000.0;
@@ -777,7 +862,11 @@ impl Controller {
         if self.next_track.is_none() {
             return;
         }
-        if self.active_players().iter().all(|pl| pl.is_ready_to_stream()) {
+        if self
+            .active_players()
+            .iter()
+            .all(|pl| pl.is_ready_to_stream())
+        {
             self.a_stream(p);
         }
     }
@@ -787,7 +876,10 @@ impl Controller {
         if self.queue.len() < 2 {
             self.get_next_track(&p, true);
         } else {
-            info!("{}: streaming track not started yet, will wait until then to try next track", self.master_id);
+            info!(
+                "{}: streaming track not started yet, will wait until then to try next track",
+                self.master_id
+            );
         }
     }
 
@@ -801,9 +893,17 @@ impl Controller {
         if same {
             if let Some(song) = self.streaming_song() {
                 if song.is_remote() && elapsed > 10.0 && song.is_live() {
-                    info!("{}: attempting to re-stream {} after {:.0}s", self.master_id, song.url(), elapsed);
+                    info!(
+                        "{}: attempting to re-stream {} after {:.0}s",
+                        self.master_id,
+                        song.url(),
+                        elapsed
+                    );
                     let id = song.id;
-                    self.a_stream(EvParams { song_id: Some(id), ..Default::default() });
+                    self.a_stream(EvParams {
+                        song_id: Some(id),
+                        ..Default::default()
+                    });
                     return;
                 }
             }
@@ -816,13 +916,22 @@ impl Controller {
     fn a_continue(&mut self, p: EvParams) {
         // Without byte-exact seek data we resume by time, as LMS does for most handlers.
         let t = self.playing_song_elapsed();
-        info!("{}: restarting playback at time offset {:.1}", self.master_id, t);
+        info!(
+            "{}: restarting playback at time offset {:.1}",
+            self.master_id, t
+        );
         let _ = p;
-        self.a_jump_to_time(EvParams { newtime: Some(t.to_string()), restart_if_no_seek: true, ..Default::default() });
+        self.a_jump_to_time(EvParams {
+            newtime: Some(t.to_string()),
+            restart_if_no_seek: true,
+            ..Default::default()
+        });
     }
 
     fn a_jump_to_time(&mut self, p: EvParams) {
-        let Some(song) = self.playing_song().cloned() else { return };
+        let Some(song) = self.playing_song().cloned() else {
+            return;
+        };
         let newtime_s = p.newtime.clone().unwrap_or_else(|| "0".into());
         let relative = newtime_s.starts_with('+') || newtime_s.starts_with('-');
         let mut newtime: f64 = newtime_s.parse().unwrap_or(0.0);
@@ -831,7 +940,10 @@ impl Controller {
             let mut s = song.clone();
             s.start_offset = 0.0;
             let id = self.requeue(s);
-            self.a_stream(EvParams { song_id: Some(id), ..Default::default() });
+            self.a_stream(EvParams {
+                song_id: Some(id),
+                ..Default::default()
+            });
             return;
         }
         if relative {
@@ -850,7 +962,15 @@ impl Controller {
         }
         self.a_stop(true);
         let id = self.requeue(song);
-        self.a_stream(EvParams { song_id: Some(id), seek: if song_can_seek_now(&self.queue, id) { Some(newtime) } else { None }, ..Default::default() });
+        self.a_stream(EvParams {
+            song_id: Some(id),
+            seek: if song_can_seek_now(&self.queue, id) {
+                Some(newtime)
+            } else {
+                None
+            },
+            ..Default::default()
+        });
     }
 
     /// Put `song` (a clone of a previous queue entry) back as the only queue entry.
@@ -863,7 +983,9 @@ impl Controller {
     }
 
     fn a_jump_paused(&mut self, p: EvParams) {
-        let Some(song) = self.playing_song().cloned() else { return };
+        let Some(song) = self.playing_song().cloned() else {
+            return;
+        };
         if !song.can_seek {
             if p.restart_if_no_seek {
                 self.a_stop(false);
@@ -910,8 +1032,15 @@ impl Controller {
         // Poll buffer fullness like `Player::rebuffer` / `_buffering`.
         let me = self.me.clone();
         let threshold = {
-            let bitrate = self.streaming_song().and_then(|s| s.stream_bitrate).unwrap_or(0);
-            let t = if bitrate > 0 { bitrate as u64 / 8 * 5 } else { 80 * 1024 };
+            let bitrate = self
+                .streaming_song()
+                .and_then(|s| s.stream_bitrate)
+                .unwrap_or(0);
+            let t = if bitrate > 0 {
+                bitrate as u64 / 8 * 5
+            } else {
+                80 * 1024
+            };
             t.max(1)
         };
         tokio::spawn(async move {
@@ -963,7 +1092,10 @@ impl Controller {
             if pp.0 <= recent {
                 return;
             }
-            points.push((p.clone(), pp.1 + p.prefs.get_i64("playDelay") as f64 / 1000.0));
+            points.push((
+                p.clone(),
+                pp.1 + p.prefs.get_i64("playDelay") as f64 / 1000.0,
+            ));
         }
         if points.is_empty() {
             return;
@@ -995,20 +1127,29 @@ impl Controller {
     }
 
     fn a_check_paused(&mut self) {
-        let Some(song) = self.playing_song() else { return };
+        let Some(song) = self.playing_song() else {
+            return;
+        };
         if !song.is_remote() {
             return;
         }
         let Some(m) = self.master() else { return };
         let usage = {
             let s = m.state.lock();
-            if s.buffer_size == 0 { 0.0 } else { s.buffer_fullness as f64 / s.buffer_size as f64 }
+            if s.buffer_size == 0 {
+                0.0
+            } else {
+                s.buffer_fullness as f64 / s.buffer_size as f64
+            }
         };
         if usage > 0.98 {
             if song.can_seek && self.resume_time.is_some() {
                 self.pause_streaming();
             } else if song.duration().is_none() {
-                info!("{}: stopping remote stream upon full buffer when paused", self.master_id);
+                info!(
+                    "{}: stopping remote stream upon full buffer when paused",
+                    self.master_id
+                );
                 self.a_stop(false);
             }
         }
@@ -1016,7 +1157,9 @@ impl Controller {
 
     fn will_retry(&mut self) -> bool {
         // Retry remote live streams a few times (bug 3161 in LMS); local files never retry.
-        let Some(song) = self.queue.front_mut() else { return false };
+        let Some(song) = self.queue.front_mut() else {
+            return false;
+        };
         if !song.is_remote() || !song.is_live() || song.retry_count >= 4 {
             return false;
         }
@@ -1024,7 +1167,12 @@ impl Controller {
         let delay = [5u64, 10, 15, 30][(song.retry_count as usize - 1).min(3)];
         let id = song.id;
         let me = self.me.clone();
-        info!("{}: will retry {} in {}s", self.master_id, song.url(), delay);
+        info!(
+            "{}: will retry {} in {}s",
+            self.master_id,
+            song.url(),
+            delay
+        );
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             if let Some(c) = me.upgrade() {
@@ -1051,7 +1199,10 @@ impl Controller {
         let mut repeat = self.playlist.repeat;
         if self.consecutive_errors >= 2 {
             if count == 1 {
-                warn!("{}: giving up because of too many consecutive errors", self.master_id);
+                warn!(
+                    "{}: giving up because of too many consecutive errors",
+                    self.master_id
+                );
                 return None;
             } else if repeat == 1 {
                 repeat = 2;
@@ -1082,7 +1233,10 @@ impl Controller {
 
     fn get_next_track(&mut self, p: &EvParams, if_more: bool) {
         if self.consecutive_errors > self.playlist.len() {
-            warn!("{}: giving up because of too many consecutive errors: {}", self.master_id, self.consecutive_errors);
+            warn!(
+                "{}: giving up because of too many consecutive errors: {}",
+                self.master_id, self.consecutive_errors
+            );
             return;
         }
         self.next_track_cb_id += 1;
@@ -1116,7 +1270,12 @@ impl Controller {
         let song_id = song.id;
         let needs_probe = song.track.remote;
         self.queue.push_front(song);
-        while self.queue.len() > 1 && matches!(self.queue.back().map(|s| s.status), Some(SongStatus::Failed | SongStatus::Finished)) {
+        while self.queue.len() > 1
+            && matches!(
+                self.queue.back().map(|s| s.status),
+                Some(SongStatus::Failed | SongStatus::Finished)
+            )
+        {
             self.queue.pop_back();
         }
         if needs_probe {
@@ -1135,7 +1294,11 @@ impl Controller {
                             s.track.content_type = info.content_type.clone();
                             s.track.bitrate = info.bitrate.or(s.track.bitrate);
                             s.remote_meta.station = info.title.clone();
-                            s.remote_meta.content_type = if info.is_hls { Some("hls".into()) } else { None };
+                            s.remote_meta.content_type = if info.is_hls {
+                                Some("hls".into())
+                            } else {
+                                None
+                            };
                             if s.track.title.is_none() {
                                 s.track.title = info.title.clone();
                             }
@@ -1163,16 +1326,33 @@ impl Controller {
         if self.next_track_cb_id != cb_id {
             return;
         }
-        if let Some(s) = self.queue.iter_mut().find(|s| s.index == index && s.status == SongStatus::Ready) {
+        if let Some(s) = self
+            .queue
+            .iter_mut()
+            .find(|s| s.index == index && s.status == SongStatus::Ready)
+        {
             s.status = SongStatus::Failed;
         }
         self.consecutive_errors += 1;
-        let url = self.playlist.song(index).map(|e| e.url.clone()).unwrap_or_default();
+        let url = self
+            .playlist
+            .song(index)
+            .map(|e| e.url.clone())
+            .unwrap_or_default();
         warn!("{}: cannot open {}: {}", self.master_id, url, err);
         if let Some(server) = self.server() {
-            server.notifier.notify_owned(Some(self.master_id), vec!["playlist".into(), "cant_open".into(), url, err.into()]);
+            server.notifier.notify_owned(
+                Some(self.master_id),
+                vec!["playlist".into(), "cant_open".into(), url, err.into()],
+            );
         }
-        self.event(Event::NextTrackError, EvParams { error_index: Some(index), ..Default::default() });
+        self.event(
+            Event::NextTrackError,
+            EvParams {
+                error_index: Some(index),
+                ..Default::default()
+            },
+        );
     }
 
     // ---- streaming ------------------------------------------------------------------
@@ -1193,14 +1373,23 @@ impl Controller {
                 return;
             }
         };
-        while matches!(self.queue.back().map(|s| s.status), Some(SongStatus::Failed | SongStatus::Finished | SongStatus::Ready)) {
+        while matches!(
+            self.queue.back().map(|s| s.status),
+            Some(SongStatus::Failed | SongStatus::Finished | SongStatus::Ready)
+        ) {
             self.queue.pop_back();
         }
-        while matches!(self.queue.front().map(|s| s.status), Some(SongStatus::Failed | SongStatus::Finished | SongStatus::Ready)) {
+        while matches!(
+            self.queue.front().map(|s| s.status),
+            Some(SongStatus::Failed | SongStatus::Finished | SongStatus::Ready)
+        ) {
             self.queue.pop_front();
         }
         if self.queue.len() >= 2 {
-            error!("{}: aborting streaming because songqueue too long", self.master_id);
+            error!(
+                "{}: aborting streaming because songqueue too long",
+                self.master_id
+            );
             while self.queue.len() > 1 {
                 self.queue.pop_front();
             }
@@ -1212,17 +1401,32 @@ impl Controller {
             self.queue.push_front(song);
             return;
         }
-        let seek = p.seek.or(if song.start_offset > 0.0 { Some(song.start_offset) } else { None });
+        let seek = p.seek.or(if song.start_offset > 0.0 {
+            Some(song.start_offset)
+        } else {
+            None
+        });
         let opened = match stream::open_song(&server, &mut song, &players, seek) {
             Ok(o) => o,
             Err(e) => {
                 warn!("{}: problem opening {}: {}", self.master_id, song.url(), e);
-                server.notifier.notify_owned(Some(self.master_id), vec!["playlist".into(), "cant_open".into(), song.url().to_string(), e]);
+                server.notifier.notify_owned(
+                    Some(self.master_id),
+                    vec![
+                        "playlist".into(),
+                        "cant_open".into(),
+                        song.url().to_string(),
+                        e,
+                    ],
+                );
                 song.status = SongStatus::Failed;
                 let idx = song.index;
                 self.consecutive_errors += 1;
                 self.queue.push_front(song);
-                self.a_next_if_more(EvParams { error_index: Some(idx), ..Default::default() });
+                self.a_next_if_more(EvParams {
+                    error_index: Some(idx),
+                    ..Default::default()
+                });
                 return;
             }
         };
@@ -1234,17 +1438,26 @@ impl Controller {
         song.status = SongStatus::Streaming;
         self.notify(&["playlist", "open", song.url()]);
 
-        let paused = players.len() > 1 && matches!(self.playing_state, PlayingState::Stopped | PlayingState::Buffering);
+        let paused = players.len() > 1
+            && matches!(
+                self.playing_state,
+                PlayingState::Stopped | PlayingState::Buffering
+            );
         let fade_in = self.fade_in.unwrap_or(0.0);
         let paused = paused || fade_in > 0.0;
         let master = players[0].clone();
         let master_prefs = master.prefs.clone();
-        self.fade_active = fade_in < 1.0 && self.playing_state == PlayingState::Stopped && master_prefs.get_f64("fadeInDuration") > 0.0;
+        self.fade_active = fade_in < 1.0
+            && self.playing_state == PlayingState::Stopped
+            && master_prefs.get_f64("fadeInDuration") > 0.0;
 
         // transitions (stream_s)
         let mut transition = TransitionType::from_pref(master_prefs.get_i64("transitionType"));
         let mut tdur = master_prefs.get_f64("transitionDuration").max(0.0);
-        if transition != TransitionType::None && master_prefs.get_bool("transitionSmart") && (self.playlist.len() < 2 || self.adjacent_same_album(song.index)) {
+        if transition != TransitionType::None
+            && master_prefs.get_bool("transitionSmart")
+            && (self.playlist.len() < 2 || self.adjacent_same_album(song.index))
+        {
             transition = TransitionType::None;
         }
         if !self.is_playing(true) {
@@ -1274,9 +1487,16 @@ impl Controller {
         };
 
         if self.playing_state == PlayingState::Stopped {
-            let master_vol = players.iter().find(|p| p.prefs.get_bool("syncVolume")).map(|p| p.prefs.get_i64("volume").abs() as i32);
+            let master_vol = players
+                .iter()
+                .find(|p| p.prefs.get_bool("syncVolume"))
+                .map(|p| p.prefs.get_i64("volume").abs() as i32);
             for pl in &players {
-                let v = if pl.prefs.get_bool("syncVolume") { master_vol.unwrap_or(pl.volume()) } else { pl.volume() };
+                let v = if pl.prefs.get_bool("syncVolume") {
+                    master_vol.unwrap_or(pl.volume())
+                } else {
+                    pl.volume()
+                };
                 pl.set_volume(v, false);
                 if self.fade_active {
                     pl.set_volume_temp_silent(0);
@@ -1289,7 +1509,11 @@ impl Controller {
             if song.is_remote() {
                 pl.state.lock().remote_stream_start = Some(crate::util::now());
             }
-            let my_fade = if fade_in > pl.state.lock().caps.max_transition_duration as f64 { 0.0 } else { fade_in };
+            let my_fade = if fade_in > pl.state.lock().caps.max_transition_duration as f64 {
+                0.0
+            } else {
+                fade_in
+            };
             let params = PlayParams {
                 paused,
                 reconnect: p.reconnect,
@@ -1307,10 +1531,18 @@ impl Controller {
         let idx = song.index;
         self.queue.push_front(song);
         if started != players.len() {
-            warn!("{}: only {} of {} players started streaming", self.master_id, started, players.len());
+            warn!(
+                "{}: only {} of {} players started streaming",
+                self.master_id,
+                started,
+                players.len()
+            );
             self.a_stop(false);
             self.consecutive_errors += 1;
-            self.a_next_if_more(EvParams { error_index: Some(idx), ..Default::default() });
+            self.a_next_if_more(EvParams {
+                error_index: Some(idx),
+                ..Default::default()
+            });
             return;
         }
         self.next_track = None;
@@ -1340,7 +1572,14 @@ impl Controller {
         if let Some(f) = fade_in.filter(|f| *f > 0.0) {
             self.fade_in = Some(f);
         }
-        self.event(Event::Play, EvParams { index, seek, ..Default::default() });
+        self.event(
+            Event::Play,
+            EvParams {
+                index,
+                seek,
+                ..Default::default()
+            },
+        );
     }
 
     pub fn skip(&mut self) {
@@ -1364,7 +1603,14 @@ impl Controller {
     }
 
     pub fn jump_to_time(&mut self, newtime: &str, restart_if_no_seek: bool) {
-        self.event(Event::JumpToTime, EvParams { newtime: Some(newtime.to_string()), restart_if_no_seek, ..Default::default() });
+        self.event(
+            Event::JumpToTime,
+            EvParams {
+                newtime: Some(newtime.to_string()),
+                restart_if_no_seek,
+                ..Default::default()
+            },
+        );
     }
 
     /// Select a song without playing (`resetSongqueue`).
@@ -1372,7 +1618,8 @@ impl Controller {
         self.queue.clear();
         if let Some(i) = index {
             if let (Some(e), Some(server)) = (self.playlist.song(i).cloned(), self.server()) {
-                self.queue.push_back(Song::new(i, server.track_info_for(&e)));
+                self.queue
+                    .push_back(Song::new(i, server.track_info_for(&e)));
             }
             self.playlist.current = i;
         }
@@ -1380,7 +1627,10 @@ impl Controller {
 
     /// Called after the playlist grew while idle: restart streaming if needed.
     pub fn next_if_streamed(&mut self) {
-        if self.streaming_state == StreamingState::Idle && self.playing_state != PlayingState::Stopped && self.playing_state != PlayingState::Paused {
+        if self.streaming_state == StreamingState::Idle
+            && self.playing_state != PlayingState::Stopped
+            && self.playing_state != PlayingState::Paused
+        {
             self.get_next_track(&EvParams::default(), true);
         }
     }
@@ -1394,7 +1644,10 @@ impl Controller {
         if self.queue.len() > 1 {
             self.queue.pop_back();
         } else {
-            let at_end = self.playing_song().map(|s| s.status == SongStatus::Playing && s.index + 1 == self.playlist.len()).unwrap_or(false);
+            let at_end = self
+                .playing_song()
+                .map(|s| s.status == SongStatus::Playing && s.index + 1 == self.playlist.len())
+                .unwrap_or(false);
             if let Some(s) = self.queue.back_mut() {
                 if s.status == SongStatus::Playing {
                     s.status = SongStatus::Finished;
@@ -1425,7 +1678,12 @@ impl Controller {
         self.event(Event::OutputUnderrun, EvParams::default());
     }
 
-    pub fn player_streaming_failed(&mut self, _client: MacAddress, error: &str, error_disconnect: bool) {
+    pub fn player_streaming_failed(
+        &mut self,
+        _client: MacAddress,
+        error: &str,
+        error_disconnect: bool,
+    ) {
         let mut url = String::new();
         if let Some(s) = self.queue.front_mut() {
             s.status = SongStatus::Failed;
@@ -1434,14 +1692,31 @@ impl Controller {
         if self.queue.len() > 1 {
             self.queue.pop_front();
         }
-        warn!("{}: streaming failed for {}: {}", self.master_id, url, error);
+        warn!(
+            "{}: streaming failed for {}: {}",
+            self.master_id, url, error
+        );
         if !url.is_empty() {
             if let Some(server) = self.server() {
-                server.notifier.notify_owned(Some(self.master_id), vec!["playlist".into(), "cant_open".into(), url, error.to_string()]);
+                server.notifier.notify_owned(
+                    Some(self.master_id),
+                    vec![
+                        "playlist".into(),
+                        "cant_open".into(),
+                        url,
+                        error.to_string(),
+                    ],
+                );
             }
         }
         self.consecutive_errors += 1;
-        self.event(Event::StreamingFailed, EvParams { error_disconnect, ..Default::default() });
+        self.event(
+            Event::StreamingFailed,
+            EvParams {
+                error_disconnect,
+                ..Default::default()
+            },
+        );
     }
 
     pub fn player_buffer_ready(&mut self, _client: MacAddress) {
@@ -1472,18 +1747,30 @@ impl Controller {
 
     pub fn player_reconnect(&mut self, bytes_received: Option<u64>) {
         if self.streaming_song().is_some() {
-            self.event(Event::ContinuePlay, EvParams { bytes_received, ..Default::default() });
+            self.event(
+                Event::ContinuePlay,
+                EvParams {
+                    bytes_received,
+                    ..Default::default()
+                },
+            );
         }
     }
 
     // ---- sync group membership ------------------------------------------------------
 
     pub fn contains(&self, id: MacAddress) -> bool {
-        self.all_players.iter().filter_map(Weak::upgrade).any(|p| p.id == id)
+        self.all_players
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|p| p.id == id)
     }
 
     pub fn is_active(&self, id: MacAddress) -> bool {
-        self.players.iter().filter_map(Weak::upgrade).any(|p| p.id == id)
+        self.players
+            .iter()
+            .filter_map(Weak::upgrade)
+            .any(|p| p.id == id)
     }
 
     /// `playerActive`.
@@ -1506,13 +1793,21 @@ impl Controller {
         self.new_master();
         if self.is_playing(true) {
             let t = self.playing_song_elapsed();
-            self.a_jump_to_time(EvParams { newtime: Some(t.to_string()), restart_if_no_seek: true, ..Default::default() });
+            self.a_jump_to_time(EvParams {
+                newtime: Some(t.to_string()),
+                restart_if_no_seek: true,
+                ..Default::default()
+            });
         }
     }
 
     /// `playerInactive`.
     pub fn player_inactive(&mut self, player: &Arc<Player>) {
-        if let Some(pos) = self.players.iter().position(|w| w.upgrade().map(|p| p.id == player.id).unwrap_or(false)) {
+        if let Some(pos) = self
+            .players
+            .iter()
+            .position(|w| w.upgrade().map(|p| p.id == player.id).unwrap_or(false))
+        {
             if !self.is_stopped() {
                 if self.players.len() == 1 {
                     self.a_stop(false);
@@ -1530,7 +1825,11 @@ impl Controller {
     fn new_master(&mut self) {
         self.players.retain(|w| w.upgrade().is_some());
         self.all_players.retain(|w| w.upgrade().is_some());
-        let new = self.players.first().and_then(Weak::upgrade).or_else(|| self.all_players.first().and_then(Weak::upgrade));
+        let new = self
+            .players
+            .first()
+            .and_then(Weak::upgrade)
+            .or_else(|| self.all_players.first().and_then(Weak::upgrade));
         if let Some(p) = new {
             if p.id != self.master_id {
                 info!("new sync-group master {} (was {})", p.id, self.master_id);
@@ -1550,7 +1849,11 @@ impl Controller {
     }
 
     pub(crate) fn remove_member(&mut self, player: &Arc<Player>) {
-        if let Some(pos) = self.players.iter().position(|w| w.upgrade().map(|p| p.id == player.id).unwrap_or(false)) {
+        if let Some(pos) = self
+            .players
+            .iter()
+            .position(|w| w.upgrade().map(|p| p.id == player.id).unwrap_or(false))
+        {
             if !self.is_stopped() {
                 if self.players.len() == 1 {
                     self.a_stop(false);
@@ -1562,7 +1865,8 @@ impl Controller {
             }
             self.players.remove(pos);
         }
-        self.all_players.retain(|w| w.upgrade().map(|p| p.id != player.id).unwrap_or(false));
+        self.all_players
+            .retain(|w| w.upgrade().map(|p| p.id != player.id).unwrap_or(false));
         if !self.all_players.is_empty() {
             self.new_master();
         }
@@ -1576,21 +1880,34 @@ impl Controller {
             self.pause_streaming();
         } else if !no_restart && !self.is_stopped() {
             let t = self.playing_song_elapsed();
-            self.a_jump_to_time(EvParams { newtime: Some(t.to_string()), restart_if_no_seek: true, ..Default::default() });
+            self.a_jump_to_time(EvParams {
+                newtime: Some(t.to_string()),
+                restart_if_no_seek: true,
+                ..Default::default()
+            });
         }
     }
 
     pub fn member_count(&self) -> usize {
-        self.all_players.iter().filter(|w| w.upgrade().is_some()).count()
+        self.all_players
+            .iter()
+            .filter(|w| w.upgrade().is_some())
+            .count()
     }
 
     // ---- persistence ----------------------------------------------------------------
 
     pub fn save_playlist(&self) {
         let Some(m) = self.master() else { return };
-        let urls: Vec<&str> = self.playlist.entries.iter().map(|e| e.url.as_str()).collect();
+        let urls: Vec<&str> = self
+            .playlist
+            .entries
+            .iter()
+            .map(|e| e.url.as_str())
+            .collect();
         m.prefs.set("playlist", json!(urls));
-        m.prefs.set("playlistShuffledList", json!(self.playlist.order));
+        m.prefs
+            .set("playlistShuffledList", json!(self.playlist.order));
         m.prefs.set("currentSong", json!(self.playlist.current));
         m.prefs.set("shuffle", json!(self.playlist.shuffle));
         m.prefs.set("repeat", json!(self.playlist.repeat));
@@ -1604,10 +1921,17 @@ impl Controller {
         if urls.is_empty() {
             return;
         }
-        let order: Vec<usize> = p.get("playlistShuffledList").and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+        let order: Vec<usize> = p
+            .get("playlistShuffledList")
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
         let n = urls.len();
         self.playlist.entries = urls.into_iter().map(|u| server.entry_for_url(&u)).collect();
-        self.playlist.order = if order.len() == n && order.iter().all(|&i| i < n) { order } else { (0..n).collect() };
+        self.playlist.order = if order.len() == n && order.iter().all(|&i| i < n) {
+            order
+        } else {
+            (0..n).collect()
+        };
         self.playlist.current = (p.get_i64("currentSong").max(0) as usize).min(n.saturating_sub(1));
         self.playlist.timestamp = crate::util::now();
         self.reset_song_queue(Some(self.playlist.current));
@@ -1616,7 +1940,11 @@ impl Controller {
 }
 
 fn song_can_seek_now(queue: &VecDeque<Song>, id: u64) -> bool {
-    queue.iter().find(|s| s.id == id).map(|s| s.can_seek || s.spec.is_none()).unwrap_or(true)
+    queue
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.can_seek || s.spec.is_none())
+        .unwrap_or(true)
 }
 
 /// `Slim::Music::Info::standardTitle` (simplified: track title, or URL for unknown items).
@@ -1631,17 +1959,28 @@ pub fn standard_title(song: &Song) -> String {
 
 pub fn title_from_url(url: &str) -> String {
     if let Some(p) = crate::util::path_from_file_url(url) {
-        return p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| url.to_string());
+        return p
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| url.to_string());
     }
     url.to_string()
 }
 
 /// `Slim::Player::ReplayGain::fetchGainMode`: 0 none, 1 track, 2 album, 3 smart.
-fn replay_gain_for(prefs: &crate::prefs::PrefStore, song: &Song, playlist: &Playlist) -> Option<f64> {
+fn replay_gain_for(
+    prefs: &crate::prefs::PrefStore,
+    song: &Song,
+    playlist: &Playlist,
+) -> Option<f64> {
     let mode = prefs.get_i64("replayGainMode");
     if song.is_remote() {
         let rg = prefs.get_f64("remoteReplayGain");
-        return if mode > 0 && rg != 0.0 { Some(rg) } else { None };
+        return if mode > 0 && rg != 0.0 {
+            Some(rg)
+        } else {
+            None
+        };
     }
     let t = &song.track;
     let gain = match mode {
@@ -1650,9 +1989,20 @@ fn replay_gain_for(prefs: &crate::prefs::PrefStore, song: &Song, playlist: &Play
         3 => {
             let key = playlist.song(song.index).and_then(|e| e.album_key.clone());
             let same_album = key.is_some()
-                && ((song.index > 0 && playlist.song(song.index - 1).and_then(|e| e.album_key.clone()) == key)
-                    || playlist.song(song.index + 1).and_then(|e| e.album_key.clone()) == key);
-            if same_album { t.album_replay_gain.or(t.replay_gain) } else { t.replay_gain.or(t.album_replay_gain) }
+                && ((song.index > 0
+                    && playlist
+                        .song(song.index - 1)
+                        .and_then(|e| e.album_key.clone())
+                        == key)
+                    || playlist
+                        .song(song.index + 1)
+                        .and_then(|e| e.album_key.clone())
+                        == key);
+            if same_album {
+                t.album_replay_gain.or(t.replay_gain)
+            } else {
+                t.replay_gain.or(t.album_replay_gain)
+            }
         }
         _ => None,
     }?;
@@ -1689,15 +2039,45 @@ mod tests {
     fn table_spot_checks() {
         use PlayingState as P;
         use StreamingState as S;
-        assert_eq!(action_for(Event::Play, P::Stopped, S::Idle), Action::StopGetNext);
-        assert_eq!(action_for(Event::NextTrackReady, P::Stopped, S::TrackWait), Action::Stream);
-        assert_eq!(action_for(Event::Started, P::Buffering, S::Streaming), Action::Playing);
-        assert_eq!(action_for(Event::EndOfStream, P::Playing, S::Streaming), Action::AutoStart);
-        assert_eq!(action_for(Event::ReadyToStream, P::Playing, S::Streamout), Action::RetryOrNext);
-        assert_eq!(action_for(Event::Stopped, P::Playing, S::Idle), Action::Stopped);
-        assert_eq!(action_for(Event::Stopped, P::Playing, S::TrackWait), Action::PlayIfReady);
-        assert_eq!(action_for(Event::Pause, P::Paused, S::Idle), Action::JumpOrResume);
-        assert_eq!(action_for(Event::BufferReady, P::WaitingToSync, S::Streaming), Action::StartIfReady);
-        assert_eq!(action_for(Event::StatusHeartbeat, P::Playing, S::Idle), Action::CheckSync);
+        assert_eq!(
+            action_for(Event::Play, P::Stopped, S::Idle),
+            Action::StopGetNext
+        );
+        assert_eq!(
+            action_for(Event::NextTrackReady, P::Stopped, S::TrackWait),
+            Action::Stream
+        );
+        assert_eq!(
+            action_for(Event::Started, P::Buffering, S::Streaming),
+            Action::Playing
+        );
+        assert_eq!(
+            action_for(Event::EndOfStream, P::Playing, S::Streaming),
+            Action::AutoStart
+        );
+        assert_eq!(
+            action_for(Event::ReadyToStream, P::Playing, S::Streamout),
+            Action::RetryOrNext
+        );
+        assert_eq!(
+            action_for(Event::Stopped, P::Playing, S::Idle),
+            Action::Stopped
+        );
+        assert_eq!(
+            action_for(Event::Stopped, P::Playing, S::TrackWait),
+            Action::PlayIfReady
+        );
+        assert_eq!(
+            action_for(Event::Pause, P::Paused, S::Idle),
+            Action::JumpOrResume
+        );
+        assert_eq!(
+            action_for(Event::BufferReady, P::WaitingToSync, S::Streaming),
+            Action::StartIfReady
+        );
+        assert_eq!(
+            action_for(Event::StatusHeartbeat, P::Playing, S::Idle),
+            Action::CheckSync
+        );
     }
 }

@@ -11,7 +11,11 @@ use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 /// `URI::Escape::uri_escape_utf8` default: everything but `A-Za-z0-9-_.~`.
-const CLI_ESCAPE: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
+const CLI_ESCAPE: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
 
 pub fn escape(s: &str) -> String {
     utf8_percent_encode(s, CLI_ESCAPE).to_string()
@@ -115,7 +119,9 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
         buf.extend_from_slice(&chunk[..n]);
         // a line ends at any run of CR, LF or NUL
         loop {
-            let Some(pos) = buf.iter().position(|&b| b == b'\r' || b == b'\n' || b == 0) else { break };
+            let Some(pos) = buf.iter().position(|&b| b == b'\r' || b == b'\n' || b == 0) else {
+                break;
+            };
             let mut end = pos;
             while end < buf.len() && matches!(buf[end], b'\r' | b'\n' | 0) {
                 end += 1;
@@ -126,7 +132,18 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
             buf.drain(..end);
             terminator = term;
             *term_shared.lock() = terminator.clone();
-            match process_line(&server, &line, conn_id, &cnx, &mut authed, &subscribe, &tx, &terminator).await {
+            match process_line(
+                &server,
+                &line,
+                conn_id,
+                &cnx,
+                &mut authed,
+                &subscribe,
+                &tx,
+                &terminator,
+            )
+            .await
+            {
                 LineResult::Continue => {}
                 LineResult::Close => break 'outer,
             }
@@ -162,23 +179,27 @@ async fn process_line(
     // player prefix
     let mut client = server.resolve_client(&tokens[0]);
     let mut client_raw: Option<String> = None;
-    if client.is_some() {
-        client_raw = Some(tokens.remove(0));
-    } else if tokens.len() > 1 && tokens[1] == "menu" {
+    // a known player id, or any id in front of `menu` (Jive menus for disconnected players)
+    if client.is_some() || (tokens.len() > 1 && tokens[1] == "menu") {
         client_raw = Some(tokens.remove(0));
     }
     if tokens.is_empty() {
         return LineResult::Continue;
     }
     let send = |words: Vec<String>, client: Option<String>| {
-        let _ = tx.send(format!("{}{}", render_line(client.as_deref(), &words), term));
+        let _ = tx.send(format!(
+            "{}{}",
+            render_line(client.as_deref(), &words),
+            term
+        ));
     };
     match tokens[0].as_str() {
         "login" => {
             let user = tokens.get(1).cloned().unwrap_or_default();
             let pass = tokens.get(2).cloned().unwrap_or_default();
             if !*authed {
-                let ok = user == server.prefs.server.get_str("username") && check_password(&pass, &server.prefs.server.get_str("password"));
+                let ok = user == server.prefs.server.get_str("username")
+                    && check_password(&pass, &server.prefs.server.get_str("password"));
                 send(vec!["login".into(), user, "******".into()], None);
                 if !ok {
                     warn!("CLI login failed");
@@ -219,7 +240,11 @@ async fn process_line(
                 Some("0") => *sub = Subscribe::None,
                 Some("1") => *sub = Subscribe::All,
                 _ => {
-                    *sub = if matches!(*sub, Subscribe::None) { Subscribe::All } else { Subscribe::None };
+                    *sub = if matches!(*sub, Subscribe::None) {
+                        Subscribe::All
+                    } else {
+                        Subscribe::None
+                    };
                 }
             }
             drop(sub);
@@ -236,7 +261,12 @@ async fn process_line(
         _ => {}
     }
     let connected = client.as_ref().map(|p| p.is_connected()).unwrap_or(false);
-    let mut req = server.dispatch.parse(client.as_ref().map(|p| p.id), client_raw.as_deref(), connected, &tokens);
+    let mut req = server.dispatch.parse(
+        client.as_ref().map(|p| p.id),
+        client_raw.as_deref(),
+        connected,
+        &tokens,
+    );
     if req.status == Status::NeedsClient {
         // CLI fallback: a random connected player
         if let Some(p) = server.connected_players().into_iter().next() {
@@ -245,19 +275,40 @@ async fn process_line(
         }
     }
     req.source = Source::Cli(conn_id);
-    let echo_client = client.as_ref().map(|p| p.id.to_string()).or(req.disconnected_client.clone());
-    let req = if req.status == Status::Dispatchable { super::dispatch::execute(server, req).await } else { req };
+    let echo_client = client
+        .as_ref()
+        .map(|p| p.id.to_string())
+        .or(req.disconnected_client.clone());
+    let req = if req.status == Status::Dispatchable {
+        super::dispatch::execute(server, req).await
+    } else {
+        req
+    };
     if req.status == Status::NotDispatchable || req.status == Status::NeedsClient {
-        debug!("CLI: unknown or missing client -- echoing as is: {:?}", tokens);
+        debug!(
+            "CLI: unknown or missing client -- echoing as is: {:?}",
+            tokens
+        );
     }
     if req.is_query && req.param("subscribe").is_some() {
         let tx2 = tx.clone();
         let term2 = term.to_string();
         let ec = echo_client.clone();
-        let sink: super::subscribe::Sink = Arc::new(move |r: Request| tx2.send(format!("{}{}", render_line(ec.as_deref(), &r.render_as_array()), term2)).is_ok());
+        let sink: super::subscribe::Sink = Arc::new(move |r: Request| {
+            tx2.send(format!(
+                "{}{}",
+                render_line(ec.as_deref(), &r.render_as_array()),
+                term2
+            ))
+            .is_ok()
+        });
         server.subscriptions.register(server, cnx, &req, sink);
     }
-    let words = if req.terms.is_empty() { tokens } else { req.render_as_array() };
+    let words = if req.terms.is_empty() {
+        tokens
+    } else {
+        req.render_as_array()
+    };
     send(words, echo_client);
     LineResult::Continue
 }
@@ -280,6 +331,9 @@ mod tests {
         assert_eq!(escape("playlist index"), "playlist%20index");
         assert_eq!(escape("a-b_c.d~e"), "a-b_c.d~e");
         assert_eq!(unescape("Hello%20World"), "Hello World");
-        assert_eq!(render_line(None, &["version".into(), "9.2.0".into()]), "version 9.2.0");
+        assert_eq!(
+            render_line(None, &["version".into(), "9.2.0".into()]),
+            "version 9.2.0"
+        );
     }
 }

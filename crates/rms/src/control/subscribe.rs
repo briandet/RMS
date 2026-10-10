@@ -29,13 +29,22 @@ pub struct Subscriptions {
 }
 
 fn key(cnx: &str, req: &Request) -> String {
-    format!("{}|{}|{}", cnx, req.request_str(), req.client.map(|c| c.to_string()).unwrap_or_else(|| "global".into()))
+    format!(
+        "{}|{}|{}",
+        cnx,
+        req.request_str(),
+        req.client
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "global".into())
+    )
 }
 
 impl Subscriptions {
     /// Register (or replace / remove) the subscription for an executed query.
     pub fn register(&self, server: &Arc<Server>, cnx: &str, req: &Request, sink: Sink) {
-        let Some(val) = req.param("subscribe").map(str::to_string) else { return };
+        let Some(val) = req.param("subscribe").map(str::to_string) else {
+            return;
+        };
         let k = key(cnx, req);
         if let Some((_, old)) = self.subs.remove(&k) {
             old.task.abort();
@@ -52,7 +61,11 @@ impl Subscriptions {
         let k2 = k.clone();
         let task = tokio::spawn(async move {
             let mut deadline: Option<tokio::time::Instant> = None;
-            let periodic = if timeout > 0.0 { Some(Duration::from_secs_f64(timeout)) } else { None };
+            let periodic = if timeout > 0.0 {
+                Some(Duration::from_secs_f64(timeout))
+            } else {
+                None
+            };
             let mut next_periodic = periodic.map(|p| tokio::time::Instant::now() + p);
             loop {
                 let wake = match (deadline, next_periodic) {
@@ -92,7 +105,14 @@ impl Subscriptions {
 
     /// Cometd: subscriptions are additionally keyed by their response channel so that
     /// `/slim/unsubscribe` can remove exactly one.
-    pub fn register_with_channel(&self, server: &Arc<Server>, cnx: &str, channel: &str, req: &Request, sink: Sink) {
+    pub fn register_with_channel(
+        &self,
+        server: &Arc<Server>,
+        cnx: &str,
+        channel: &str,
+        req: &Request,
+        sink: Sink,
+    ) {
         self.register(server, &format!("{}#{}", cnx, channel), req, sink);
     }
 
@@ -107,7 +127,12 @@ impl Subscriptions {
     }
 
     fn remove_prefix(&self, prefix: &str) {
-        let keys: Vec<String> = self.subs.iter().filter(|e| e.key().starts_with(prefix)).map(|e| e.key().clone()).collect();
+        let keys: Vec<String> = self
+            .subs
+            .iter()
+            .filter(|e| e.key().starts_with(prefix))
+            .map(|e| e.key().clone())
+            .collect();
         for k in keys {
             if let Some((_, s)) = self.subs.remove(&k) {
                 s.task.abort();
@@ -143,7 +168,11 @@ fn filter(server: &Server, name: &str, client: &str, n: &Notification) -> Option
                     .zip(slimproto::MacAddress::parse(client).and_then(|c| server.player(&c)))
                     .map(|(a, b)| Arc::ptr_eq(&a.controller(), &b.controller()))
                     .unwrap_or(false);
-                if in_group && (first == "sync" || (first == "playlist" && second == "newmetadata") || first == "newmetadata") {
+                if in_group
+                    && (first == "sync"
+                        || (first == "playlist" && second == "newmetadata")
+                        || first == "newmetadata")
+                {
                     return Some(1.3);
                 }
                 if first == "playlist" && second == "sync" && in_group {
@@ -153,9 +182,16 @@ fn filter(server: &Server, name: &str, client: &str, n: &Notification) -> Option
             }
             if first == "prefset" {
                 let pref = n.word(2);
-                return matches!(pref, "alarmSnoozeSeconds" | "digitalVolumeControl" | "libraryId").then_some(1.3);
+                return matches!(
+                    pref,
+                    "alarmSnoozeSeconds" | "digitalVolumeControl" | "libraryId"
+                )
+                .then_some(1.3);
             }
-            if matches!(first, "ir" | "button" | "debug" | "pref" | "display" | "displaynotify") {
+            if matches!(
+                first,
+                "ir" | "button" | "debug" | "pref" | "display" | "displaynotify"
+            ) {
                 return None;
             }
             if first == "client" && second == "forget" {
@@ -173,7 +209,9 @@ fn filter(server: &Server, name: &str, client: &str, n: &Notification) -> Option
             Some(1.3)
         }
         "serverstatus" => match first {
-            "client" if matches!(second, "forget" | "new" | "disconnect" | "reconnect") => Some(1.0),
+            "client" if matches!(second, "forget" | "new" | "disconnect" | "reconnect") => {
+                Some(1.0)
+            }
             "connect" => Some(1.0),
             "wipecache" | "rescan" | "power" | "name" | "library" => Some(1.3),
             "prefset" | "pref" | "playerpref" | "sync" => Some(1.3),
@@ -181,7 +219,9 @@ fn filter(server: &Server, name: &str, client: &str, n: &Notification) -> Option
             _ => None,
         },
         "displaystatus" => {
-            if first == "displaynotify" && n.player.map(|p| p.to_string()).as_deref() == Some(client) {
+            if first == "displaynotify"
+                && n.player.map(|p| p.to_string()).as_deref() == Some(client)
+            {
                 Some(1.0)
             } else {
                 None
@@ -198,7 +238,9 @@ pub async fn pump(server: Arc<Server>) {
     loop {
         match rx.recv().await {
             Ok(n) => server.subscriptions.notify(&server, &n),
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(k)) => tracing::warn!("subscription pump lagged by {}", k),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(k)) => {
+                tracing::warn!("subscription pump lagged by {}", k)
+            }
             Err(_) => return,
         }
     }

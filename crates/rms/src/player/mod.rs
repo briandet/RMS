@@ -72,39 +72,71 @@ impl Capabilities {
             "squeezebox2" => {
                 // SB2 vs SB3 by MAC range
                 let m = helo.mac.0;
-                let is_sb3 = m[0] == 0x00 && m[1] == 0x04 && m[2] == 0x20 && (m[3] > 0x06 || (m[3] == 0x06 && (m[4] > 0 || m[5] > 0)));
-                c.model = if is_sb3 { "squeezebox3".into() } else { "squeezebox2".into() };
-                c.model_name = if is_sb3 { "Squeezebox Classic".into() } else { "Squeezebox2".into() };
-                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                let is_sb3 = m[0] == 0x00
+                    && m[1] == 0x04
+                    && m[2] == 0x20
+                    && (m[3] > 0x06 || (m[3] == 0x06 && (m[4] > 0 || m[5] > 0)));
+                c.model = if is_sb3 {
+                    "squeezebox3".into()
+                } else {
+                    "squeezebox2".into()
+                };
+                c.model_name = if is_sb3 {
+                    "Squeezebox Classic".into()
+                } else {
+                    "Squeezebox2".into()
+                };
+                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
             }
             "transporter" => {
                 c.model_name = "Transporter".into();
-                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 c.max_sample_rate = 96000;
                 c.has_polarity_inversion = true;
             }
             "boom" => {
                 c.model_name = "Squeezebox Boom".into();
-                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 c.has_digital_out = false;
             }
             "receiver" => {
                 c.model_name = "Squeezebox Receiver".into();
-                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["wma", "ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 c.has_display = false;
                 c.has_ir = false;
             }
             "squeezeslave" => {
                 c.model_name = "Squeezeslave".into();
-                c.formats = ["ogg", "flc", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["ogg", "flc", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
             }
             "softsqueeze" | "softsqueeze3" | "softboom" => {
                 c.model_name = "Softsqueeze".into();
-                c.formats = ["ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
             }
             "squeezeplay" | "controller" => {
                 c.model_name = "SqueezePlay".into();
-                c.formats = ["ogg", "flc", "aif", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["ogg", "flc", "aif", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 c.has_ir = false;
                 c.has_display = false;
                 c.has_preamp = false;
@@ -112,7 +144,10 @@ impl Capabilities {
             }
             _ => {
                 c.model_name = model.to_string();
-                c.formats = ["flc", "pcm", "mp3"].iter().map(|s| s.to_string()).collect();
+                c.formats = ["flc", "pcm", "mp3"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
             }
         }
         c.apply_capabilities(helo);
@@ -121,7 +156,9 @@ impl Capabilities {
 
     /// Apply a SqueezePlay-style capabilities string (`Model=…,ModelName=…,flc,pcm,…`).
     pub fn apply_capabilities(&mut self, helo: &Helo) {
-        let Some(caps) = helo.capabilities.as_deref() else { return };
+        let Some(caps) = helo.capabilities.as_deref() else {
+            return;
+        };
         let declared = helo.declared_formats();
         if !declared.is_empty() {
             self.formats = declared;
@@ -148,12 +185,29 @@ impl Capabilities {
             }
         }
         // piCorePlayer appends -pCP to its model name
-        if self.model == "squeezelite" && self.firmware.to_lowercase().contains("-pcp") && !self.model_name.to_lowercase().contains("pcp") {
+        if self.model == "squeezelite"
+            && self.firmware.to_lowercase().contains("-pcp")
+            && !self.model_name.to_lowercase().contains("pcp")
+        {
             self.model_name.push_str("-pCP");
         }
         if self.model_name.is_empty() {
             self.model_name = self.model.clone();
         }
+    }
+
+    /// Volume curve of the player class (`getVolumeParameters`).
+    pub fn volume_curve(&self) -> slimproto::VolumeCurve {
+        match self.model.as_str() {
+            "squeezebox2" | "squeezebox3" | "transporter" | "receiver" | "squeezeslave"
+            | "softsqueeze" => slimproto::VolumeCurve::SQUEEZEBOX2,
+            _ => slimproto::VolumeCurve::SQUEEZEPLAY,
+        }
+    }
+
+    /// WiiM firmware identifies itself with this model name.
+    pub fn is_wiim(&self) -> bool {
+        self.model_name.to_ascii_lowercase().contains("wiim")
     }
 
     pub fn supports_format(&self, fmt: &str) -> bool {
@@ -338,7 +392,11 @@ impl Player {
     }
 
     pub fn ip(&self) -> String {
-        self.state.lock().addr.map(|a| a.to_string()).unwrap_or_default()
+        self.state
+            .lock()
+            .addr
+            .map(|a| a.to_string())
+            .unwrap_or_default()
     }
 
     pub fn set_frame_sender(&self, tx: Option<mpsc::UnboundedSender<ServerFrame>>) {
@@ -387,15 +445,28 @@ impl Player {
 
     /// Send the `audg` frame for the current volume/mute/balance.
     pub fn send_volume(&self) {
-        let (vol, dvc, preamp, balance, seq) = {
-            let mut s = self.state.lock();
-            let effective = if s.muted { 0 } else { s.temp_volume.unwrap_or(s.volume) };
-            let dvc = self.prefs.get_i64("digitalVolumeControl") != 0;
+        let (vol, dvc, preamp, balance, seq, curve) = {
+            let s = self.state.lock();
+            let effective = if s.muted {
+                0
+            } else {
+                s.temp_volume.unwrap_or(s.volume)
+            };
+            // players without a digital output always use digital volume control (Player::init)
+            let dvc = self.prefs.get_i64("digitalVolumeControl") != 0 || !s.caps.has_digital_out;
             let preamp = self.prefs.get_f64("preampVolumeControl");
-            s.sequence_number = s.sequence_number.wrapping_add(1);
-            (effective, dvc, preamp, s.balance, Some(s.sequence_number))
+            (
+                effective,
+                dvc,
+                preamp,
+                s.balance,
+                Some(s.sequence_number),
+                s.caps.volume_curve(),
+            )
         };
-        self.send(ServerFrame::Audg(AudioGain::for_volume(vol, dvc, preamp, balance, seq)));
+        self.send(ServerFrame::Audg(AudioGain::for_volume_curve(
+            vol, curve, dvc, preamp, balance, seq,
+        )));
     }
 
     /// Set the volume (0..=100), persist it and send it to the player.  Returns the new volume.
@@ -437,20 +508,29 @@ impl Player {
 
     /// Enable/disable audio outputs (`aude`).
     pub fn audio_outputs_enable(&self, enabled: bool) {
-        self.send(ServerFrame::Aude { spdif: enabled, dac: enabled });
+        self.send(ServerFrame::Aude {
+            spdif: enabled,
+            dac: enabled,
+        });
     }
 
     /// Ask the firmware for its stored player name (`setd 0`).
     pub fn query_player_name(&self) {
         self.state.lock().name_query_pending = true;
-        self.send(ServerFrame::Setd { id: setd_id::PLAYER_NAME, value: None });
+        self.send(ServerFrame::Setd {
+            id: setd_id::PLAYER_NAME,
+            value: None,
+        });
     }
 
     /// Push the player name to the firmware (`setd 0 <name>\0`).
     pub fn push_player_name(&self, name: &str) {
         let mut v = name.as_bytes().to_vec();
         v.push(0);
-        self.send(ServerFrame::Setd { id: setd_id::PLAYER_NAME, value: Some(v.into()) });
+        self.send(ServerFrame::Setd {
+            id: setd_id::PLAYER_NAME,
+            value: Some(v.into()),
+        });
     }
 
     pub fn set_name(&self, name: &str) {
@@ -469,7 +549,11 @@ impl Player {
     /// Request a status report (`strm t`).
     pub fn request_status(&self) {
         self.state.lock().last_status_request = crate::util::now();
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::Status, 0, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::Status,
+            0,
+            self.polarity_flags(),
+        )));
     }
 
     fn polarity_flags(&self) -> u8 {
@@ -479,7 +563,11 @@ impl Player {
     // ---- low-level transport commands used by the controller -------------------------
 
     pub fn strm_stop(&self) {
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::Stop, 0, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::Stop,
+            0,
+            self.polarity_flags(),
+        )));
         self.close_stream();
         let mut s = self.state.lock();
         s.ready_to_stream = true;
@@ -487,23 +575,39 @@ impl Player {
     }
 
     pub fn strm_flush(&self) {
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::Flush, 0, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::Flush,
+            0,
+            self.polarity_flags(),
+        )));
         self.close_stream();
         self.state.lock().ready_to_stream = true;
     }
 
     /// Pause; `interval_ms` > 0 pauses for that long (sync adjustment).
     pub fn strm_pause(&self, interval_ms: u32) {
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::Pause, interval_ms, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::Pause,
+            interval_ms,
+            self.polarity_flags(),
+        )));
     }
 
     /// Unpause now (`at_jiffies == 0`) or at the given player clock value.
     pub fn strm_unpause(&self, at_jiffies: u32) {
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::Unpause, at_jiffies, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::Unpause,
+            at_jiffies,
+            self.polarity_flags(),
+        )));
     }
 
     pub fn strm_skip_ahead(&self, ms: u32) {
-        self.send(ServerFrame::strm(StrmHeader::simple(StrmCommand::SkipAhead, ms, self.polarity_flags())));
+        self.send(ServerFrame::strm(StrmHeader::simple(
+            StrmCommand::SkipAhead,
+            ms,
+            self.polarity_flags(),
+        )));
     }
 
     /// Convert a server wall-clock time into the player's jiffies clock (`startAt`).
@@ -537,7 +641,8 @@ impl Player {
         let stat = s.last_stat.as_ref()?;
         let mut elapsed = stat.elapsed_milliseconds as f64 / 1000.0;
         if elapsed < stat.elapsed_seconds as f64 {
-            elapsed = stat.elapsed_seconds as f64 + (stat.elapsed_milliseconds % 1000) as f64 / 1000.0;
+            elapsed =
+                stat.elapsed_seconds as f64 + (stat.elapsed_milliseconds % 1000) as f64 / 1000.0;
         }
         if playing && s.connected {
             if let Some(ts) = s.jiffies_to_timestamp(stat.jiffies) {
@@ -561,7 +666,8 @@ impl Player {
         let elapsed = stat.elapsed_milliseconds as f64 / 1000.0;
         let mut song_elapsed = elapsed;
         if song_elapsed < stat.elapsed_seconds as f64 {
-            song_elapsed = stat.elapsed_seconds as f64 + (stat.elapsed_milliseconds % 1000) as f64 / 1000.0;
+            song_elapsed =
+                stat.elapsed_seconds as f64 + (stat.elapsed_milliseconds % 1000) as f64 / 1000.0;
         }
         Some((status_time, status_time - elapsed, song_elapsed))
     }
@@ -589,7 +695,10 @@ impl Player {
     /// The stream spec for the current generation, if the player has not fetched it yet.
     pub fn pending_stream(&self) -> Option<(u64, crate::stream::StreamSpec)> {
         let g = self.stream_generation.load(Ordering::SeqCst);
-        self.pending_stream.lock().clone().filter(|(gen, _)| *gen == g)
+        self.pending_stream
+            .lock()
+            .clone()
+            .filter(|(gen, _)| *gen == g)
     }
 
     pub fn set_stream_password(&self, pw: Option<String>) {
@@ -629,7 +738,11 @@ impl PlayerState {
                     self.jiffies_diffs.remove(0);
                 }
                 if self.jiffies_diffs.len() >= 10 {
-                    let min = self.jiffies_diffs.iter().cloned().fold(f64::INFINITY, f64::min);
+                    let min = self
+                        .jiffies_diffs
+                        .iter()
+                        .cloned()
+                        .fold(f64::INFINITY, f64::min);
                     if min > 0.001 && (min < 0.005 || self.jiffies_diffs.len() >= 50) {
                         self.jiffies_epoch = Some(epoch + min);
                         self.jiffies_diffs.clear();

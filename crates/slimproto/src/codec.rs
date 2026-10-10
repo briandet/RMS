@@ -70,7 +70,10 @@ mod tests {
         assert_eq!(codec.decode(&mut buf).unwrap(), Some(ClientMessage::Anic));
         assert_eq!(codec.decode(&mut buf).unwrap(), None);
         buf.put_u8(0);
-        assert!(matches!(codec.decode(&mut buf).unwrap(), Some(ClientMessage::Dsco(_))));
+        assert!(matches!(
+            codec.decode(&mut buf).unwrap(),
+            Some(ClientMessage::Dsco(_))
+        ));
         assert!(buf.is_empty());
     }
 

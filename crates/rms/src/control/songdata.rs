@@ -17,13 +17,19 @@ pub fn remote_id(url: &str) -> i64 {
 /// Render one track.  `song` (when given) supplies live metadata for remote streams.
 pub fn song_row(server: &Server, entry: &Entry, song: Option<&Song>, tags: &str) -> Row {
     if !crate::util::is_remote_url(&entry.url) {
-        let t = entry.track_id.and_then(|id| server.library.track(id)).or_else(|| server.library.track_by_url(&entry.url));
+        let t = entry
+            .track_id
+            .and_then(|id| server.library.track(id))
+            .or_else(|| server.library.track_by_url(&entry.url));
         if let Some(t) = t {
             return server.library.track_row(&t, tags);
         }
         let mut r = Row::new();
         r.insert("id".into(), json!(remote_id(&entry.url)));
-        r.insert("title".into(), json!(crate::player::controller::title_from_url(&entry.url)));
+        r.insert(
+            "title".into(),
+            json!(crate::player::controller::title_from_url(&entry.url)),
+        );
         for c in tags.chars() {
             if c == 'u' {
                 r.insert("url".into(), json!(entry.url));
@@ -36,9 +42,14 @@ pub fn song_row(server: &Server, entry: &Entry, song: Option<&Song>, tags: &str)
 
 fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Row {
     let info = server.track_info_for(&Entry::new(url));
-    let station = song.and_then(|s| s.remote_meta.station.clone()).or(info.title.clone());
+    let station = song
+        .and_then(|s| s.remote_meta.station.clone())
+        .or(info.title.clone());
     let live_title = song.and_then(|s| s.remote_meta.title.clone());
-    let title = live_title.clone().or(station.clone()).unwrap_or_else(|| url.to_string());
+    let title = live_title
+        .clone()
+        .or(station.clone())
+        .unwrap_or_else(|| url.to_string());
     let mut r = Row::new();
     r.insert("id".into(), json!(remote_id(url)));
     r.insert("title".into(), json!(title));
@@ -60,7 +71,10 @@ fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Ro
                 r.insert("url".into(), json!(url));
             }
             'o' => {
-                let ct = song.map(|s| s.stream_format.clone()).filter(|s| !s.is_empty()).unwrap_or(info.content_type.clone());
+                let ct = song
+                    .map(|s| s.stream_format.clone())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(info.content_type.clone());
                 if !ct.is_empty() {
                     r.insert("type".into(), json!(ct));
                 }
@@ -100,7 +114,14 @@ fn remote_row(server: &Server, url: &str, song: Option<&Song>, tags: &str) -> Ro
                 }
             }
             'V' => {
-                r.insert("live_edge".into(), json!(if song.map(|s| s.is_live()).unwrap_or(true) { 0 } else { -1 }));
+                r.insert(
+                    "live_edge".into(),
+                    json!(if song.map(|s| s.is_live()).unwrap_or(true) {
+                        0
+                    } else {
+                        -1
+                    }),
+                );
             }
             _ => {}
         }

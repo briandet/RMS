@@ -4,7 +4,11 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rms", version, about = "Rusty Music Server — Lyrion/Squeezebox compatible music server")]
+#[command(
+    name = "rms",
+    version,
+    about = "Rusty Music Server — Lyrion/Squeezebox compatible music server"
+)]
 pub struct Config {
     /// Directory for preferences, database, cache and logs.
     #[arg(long, env = "RMS_DATA_DIR", default_value = "./data")]
@@ -53,6 +57,14 @@ pub struct Config {
     /// Path to a convert.conf-style transcoding table (defaults to the built-in table).
     #[arg(long, env = "RMS_CONVERT_CONF")]
     pub convert_conf: Option<PathBuf>,
+
+    /// Slimproto (player control) TCP port.  Players always use 3483; change only for testing.
+    #[arg(long, env = "RMS_SLIMPROTO_PORT", default_value_t = 3483)]
+    pub slimproto_port: u16,
+
+    /// Disable the UDP discovery responder.
+    #[arg(long)]
+    pub no_discovery: bool,
 
     /// Log filter (tracing EnvFilter syntax).
     #[arg(long, env = "RMS_LOG", default_value = "info,rms=info")]

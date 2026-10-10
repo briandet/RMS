@@ -18,9 +18,13 @@ fn serve(path: &str) -> Response {
         Some(f) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
             let mut r = Response::new(Body::from(f.data.into_owned()));
-            r.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(mime.as_ref()).unwrap());
+            r.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_str(mime.as_ref()).unwrap(),
+            );
             if path.ends_with(".html") {
-                r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+                r.headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
             }
             r
         }

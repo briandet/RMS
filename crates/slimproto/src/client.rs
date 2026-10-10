@@ -55,13 +55,17 @@ impl Helo {
 
     /// UUID as a 32-char lower-case hex string (the form the reference server uses).
     pub fn uuid_hex(&self) -> Option<String> {
-        self.uuid.map(|u| u.iter().map(|b| format!("{:02x}", b)).collect())
+        self.uuid
+            .map(|u| u.iter().map(|b| format!("{:02x}", b)).collect())
     }
 
     /// The `SyncgroupID=<10 digits>` capability, if any.
     pub fn syncgroup_id(&self) -> Option<u64> {
-        self.capability_value("SyncgroupID")
-            .and_then(|v| (v.len() == 10 && v.bytes().all(|b| b.is_ascii_digit())).then(|| v.parse().ok()).flatten())
+        self.capability_value("SyncgroupID").and_then(|v| {
+            (v.len() == 10 && v.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| v.parse().ok())
+                .flatten()
+        })
     }
 
     /// Look up a `Key=value` capability; a bare `Key` yields `"1"`.
@@ -79,13 +83,17 @@ impl Helo {
 
     /// Codec list declared in the capabilities string: every token matching `^[a-z][a-z0-9]{1,4}$`.
     pub fn declared_formats(&self) -> Vec<String> {
-        let Some(caps) = self.capabilities.as_deref() else { return Vec::new() };
+        let Some(caps) = self.capabilities.as_deref() else {
+            return Vec::new();
+        };
         caps.split(',')
             .filter(|c| {
                 let b = c.as_bytes();
                 (2..=5).contains(&b.len())
                     && b[0].is_ascii_lowercase()
-                    && b[1..].iter().all(|x| x.is_ascii_lowercase() || x.is_ascii_digit())
+                    && b[1..]
+                        .iter()
+                        .all(|x| x.is_ascii_lowercase() || x.is_ascii_digit())
             })
             .map(str::to_owned)
             .collect()
@@ -94,7 +102,11 @@ impl Helo {
     pub fn parse(mut p: &[u8]) -> Result<Helo> {
         let total = p.len();
         if total < 10 {
-            return Err(Error::Short { op: "HELO", need: 10, got: total });
+            return Err(Error::Short {
+                op: "HELO",
+                need: 10,
+                got: total,
+            });
         }
         let device_id = p.get_u8();
         let revision = p.get_u8();
@@ -125,7 +137,11 @@ impl Helo {
             language = Some(l);
         }
         let capabilities = if total > 36 {
-            Some(String::from_utf8_lossy(p).trim_end_matches('\0').to_string())
+            Some(
+                String::from_utf8_lossy(p)
+                    .trim_end_matches('\0')
+                    .to_string(),
+            )
         } else {
             None
         };
@@ -273,7 +289,11 @@ impl Stat {
     pub fn parse(mut p: &[u8]) -> Result<Stat> {
         let len = p.len();
         if len < 43 {
-            return Err(Error::Short { op: "STAT", need: 43, got: len });
+            return Err(Error::Short {
+                op: "STAT",
+                need: 43,
+                got: len,
+            });
         }
         let mut event_code = [0u8; 4];
         p.copy_to_slice(&mut event_code);
@@ -292,7 +312,11 @@ impl Stat {
         let elapsed_milliseconds = if p.remaining() >= 4 { p.get_u32() } else { 0 };
         let server_timestamp = if p.remaining() >= 4 { p.get_u32() } else { 0 };
         // Older firmware does not send error_code; 57 = current fw (4 junk bytes), 53 = exact.
-        let error_code = if (len == 53 || len == 57) && p.remaining() >= 2 { p.get_u16() } else { 0 };
+        let error_code = if (len == 53 || len == 57) && p.remaining() >= 2 {
+            p.get_u16()
+        } else {
+            0
+        };
         Ok(Stat {
             event_code,
             num_crlf,
@@ -359,7 +383,9 @@ pub enum ClientMessage {
     Helo(Helo),
     Stat(Stat),
     /// `BYE!` — payload byte 1 means "going out for firmware upgrade".
-    Bye { upgrading: bool },
+    Bye {
+        upgrading: bool,
+    },
     /// `RESP` — the HTTP response headers received on the stream connection.
     Resp(Bytes),
     /// `BODY` — body data of a direct-stream response (used for remote playlists).
@@ -369,19 +395,37 @@ pub enum ClientMessage {
     /// `DSCO` — stream (data channel) disconnected.
     Dsco(DisconnectReason),
     /// `SETD` — player setting response: setting id followed by value bytes.
-    Setd { id: u8, value: Bytes },
+    Setd {
+        id: u8,
+        value: Bytes,
+    },
     /// `ANIC` — display animation complete.
     Anic,
     /// `BUTN` — hard button: time (jiffies) + button code.
-    Butn { time: u32, button: u32 },
+    Butn {
+        time: u32,
+        button: u32,
+    },
     /// `IR  ` — IR code: time (jiffies), 2 reserved bytes, 32-bit code.
-    Ir { time: u32, code: u32 },
+    Ir {
+        time: u32,
+        code: u32,
+    },
     /// `KNOB` — Transporter knob: time, position, sync.
-    Knob { time: u32, position: u32, sync: u8 },
+    Knob {
+        time: u32,
+        position: u32,
+        sync: u8,
+    },
     /// `RAWI` — raw IR data.
     RawIr(Bytes),
     /// `ALSS` — ambient light sensor.
-    Alss { time: u32, lux: u32, channel_0: u16, channel_1: u16 },
+    Alss {
+        time: u32,
+        lux: u32,
+        channel_0: u16,
+        channel_1: u16,
+    },
     /// `UREQ` — player requests a firmware update.
     Ureq,
     /// `DBUG` — debug text from the firmware.
@@ -389,7 +433,10 @@ pub enum ClientMessage {
     /// `SHUT` — proxy shutdown notice.
     Shut,
     /// `HELO`-less op we do not understand.
-    Unknown { op: [u8; 4], payload: Bytes },
+    Unknown {
+        op: [u8; 4],
+        payload: Bytes,
+    },
 }
 
 impl ClientMessage {
@@ -418,11 +465,17 @@ impl ClientMessage {
 
     /// Parse one complete frame payload for the given 4-byte op.
     pub fn parse(op: [u8; 4], payload: Bytes) -> Result<ClientMessage> {
-        let short = |need: usize, name: &'static str| Error::Short { op: name, need, got: payload.len() };
+        let short = |need: usize, name: &'static str| Error::Short {
+            op: name,
+            need,
+            got: payload.len(),
+        };
         Ok(match &op {
             b"HELO" => ClientMessage::Helo(Helo::parse(&payload)?),
             b"STAT" => ClientMessage::Stat(Stat::parse(&payload)?),
-            b"BYE!" => ClientMessage::Bye { upgrading: payload.as_ref() == [1u8] },
+            b"BYE!" => ClientMessage::Bye {
+                upgrading: payload.as_ref() == [1u8],
+            },
             b"RESP" => ClientMessage::Resp(payload),
             b"BODY" => ClientMessage::Body(payload),
             b"META" => ClientMessage::Meta(payload),
@@ -432,7 +485,10 @@ impl ClientMessage {
             }
             b"SETD" => {
                 let id = *payload.first().ok_or_else(|| short(1, "SETD"))?;
-                ClientMessage::Setd { id, value: payload.slice(1..) }
+                ClientMessage::Setd {
+                    id,
+                    value: payload.slice(1..),
+                }
             }
             b"ANIC" => ClientMessage::Anic,
             b"BUTN" => {
@@ -440,7 +496,10 @@ impl ClientMessage {
                     return Err(short(8, "BUTN"));
                 }
                 let mut p = payload.as_ref();
-                ClientMessage::Butn { time: p.get_u32(), button: p.get_u32() }
+                ClientMessage::Butn {
+                    time: p.get_u32(),
+                    button: p.get_u32(),
+                }
             }
             b"IR  " => {
                 if payload.len() < 10 {
@@ -449,14 +508,21 @@ impl ClientMessage {
                 let mut p = payload.as_ref();
                 let time = p.get_u32();
                 p.advance(2);
-                ClientMessage::Ir { time, code: p.get_u32() }
+                ClientMessage::Ir {
+                    time,
+                    code: p.get_u32(),
+                }
             }
             b"KNOB" => {
                 if payload.len() < 9 {
                     return Err(short(9, "KNOB"));
                 }
                 let mut p = payload.as_ref();
-                ClientMessage::Knob { time: p.get_u32(), position: p.get_u32(), sync: p.get_u8() }
+                ClientMessage::Knob {
+                    time: p.get_u32(),
+                    position: p.get_u32(),
+                    sync: p.get_u8(),
+                }
             }
             b"RAWI" => ClientMessage::RawIr(payload),
             b"ALSS" => {
@@ -506,7 +572,10 @@ mod tests {
         assert_eq!(h.capability_value("Model"), Some("squeezelite"));
         assert_eq!(h.capability_value("MaxSampleRate"), Some("192000"));
         assert_eq!(h.syncgroup_id(), Some(1234567890));
-        assert_eq!(h.declared_formats(), vec!["ogg", "flc", "pcm", "mp3", "aac", "alc"]);
+        assert_eq!(
+            h.declared_formats(),
+            vec!["ogg", "flc", "pcm", "mp3", "aac", "alc"]
+        );
         assert_eq!(h.uuid_hex().unwrap(), "0".repeat(32));
     }
 
@@ -568,14 +637,29 @@ mod tests {
         let m = ClientMessage::parse(*b"DSCO", Bytes::from_static(&[2])).unwrap();
         assert_eq!(m, ClientMessage::Dsco(DisconnectReason::RemoteReset));
         let m = ClientMessage::parse(*b"SETD", Bytes::from_static(b"\0Kitchen\0")).unwrap();
-        assert_eq!(m, ClientMessage::Setd { id: 0, value: Bytes::from_static(b"Kitchen\0") });
+        assert_eq!(
+            m,
+            ClientMessage::Setd {
+                id: 0,
+                value: Bytes::from_static(b"Kitchen\0")
+            }
+        );
         let mut ir = 5u32.to_be_bytes().to_vec();
         ir.extend_from_slice(&[0, 0]);
         ir.extend_from_slice(&0x7689c03fu32.to_be_bytes());
         let m = ClientMessage::parse(*b"IR  ", Bytes::from(ir)).unwrap();
-        assert_eq!(m, ClientMessage::Ir { time: 5, code: 0x7689c03f });
+        assert_eq!(
+            m,
+            ClientMessage::Ir {
+                time: 5,
+                code: 0x7689c03f
+            }
+        );
         let m = ClientMessage::parse(*b"BYE!", Bytes::from_static(&[1])).unwrap();
         assert_eq!(m, ClientMessage::Bye { upgrading: true });
-        assert!(matches!(ClientMessage::parse(*b"XXXX", Bytes::new()).unwrap(), ClientMessage::Unknown { .. }));
+        assert!(matches!(
+            ClientMessage::parse(*b"XXXX", Bytes::new()).unwrap(),
+            ClientMessage::Unknown { .. }
+        ));
     }
 }

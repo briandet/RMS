@@ -98,7 +98,10 @@ impl Request {
     }
 
     pub fn is_command(&self, words: &[&[&str]]) -> bool {
-        words.iter().enumerate().all(|(i, alts)| alts.contains(&self.term(i)))
+        words
+            .iter()
+            .enumerate()
+            .all(|(i, alts)| alts.contains(&self.term(i)))
     }
 
     // ---- params -----------------------------------------------------------------
@@ -115,7 +118,9 @@ impl Request {
     pub fn param_i64(&self, name: &str) -> Option<i64> {
         self.param(name).and_then(|s| {
             let s = s.trim();
-            s.parse::<i64>().ok().or_else(|| s.parse::<f64>().ok().map(|f| f as i64))
+            s.parse::<i64>()
+                .ok()
+                .or_else(|| s.parse::<f64>().ok().map(|f| f as i64))
         })
     }
 
@@ -167,7 +172,11 @@ impl Request {
 
     /// Append an element to `<loop>` (which must end in `_loop`).
     pub fn add_loop_item(&mut self, loop_name: &str, item: Results) {
-        match self.results.entry(loop_name.to_string()).or_insert_with(|| Value::Array(Vec::new())) {
+        match self
+            .results
+            .entry(loop_name.to_string())
+            .or_insert_with(|| Value::Array(Vec::new()))
+        {
             Value::Array(a) => a.push(Value::Object(item)),
             other => *other = Value::Array(vec![Value::Object(item)]),
         }
@@ -292,6 +301,18 @@ mod tests {
         r.add_loop_item("players_loop", item);
         r.add_result("__hidden", 1);
         r.add_result("_bare", "x");
-        assert_eq!(r.render_as_array(), vec!["players", "0", "2", "tags:a", "count:1", "playerindex:0", "name:Kitchen", "x"]);
+        assert_eq!(
+            r.render_as_array(),
+            vec![
+                "players",
+                "0",
+                "2",
+                "tags:a",
+                "count:1",
+                "playerindex:0",
+                "name:Kitchen",
+                "x"
+            ]
+        );
     }
 }

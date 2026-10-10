@@ -53,7 +53,14 @@ pub struct DispatchTable {
 impl DispatchTable {
     /// Register `terms` (verbs followed by `_param`/`?` names).  A later registration of the
     /// same verbs/variant replaces the earlier one, like `addDispatch`.
-    pub fn add(&mut self, terms: &[&str], needs_client: u8, is_query: bool, has_tags: bool, handler: Handler) {
+    pub fn add(
+        &mut self,
+        terms: &[&str],
+        needs_client: u8,
+        is_query: bool,
+        has_tags: bool,
+        handler: Handler,
+    ) {
         let mut verbs = Vec::new();
         let mut params = Vec::new();
         for t in terms {
@@ -91,7 +98,13 @@ impl DispatchTable {
 
     /// Parse a token array into a request (`Request->new`).  `client_known` tells whether
     /// the client id refers to a connected player.
-    pub fn parse(&self, client: Option<slimproto::MacAddress>, client_raw: Option<&str>, client_connected: bool, line: &[String]) -> Request {
+    pub fn parse(
+        &self,
+        client: Option<slimproto::MacAddress>,
+        client_raw: Option<&str>,
+        client_connected: bool,
+        line: &[String],
+    ) -> Request {
         let mut req = Request::blank();
         req.client = client;
         let mut node = &self.root;
@@ -107,7 +120,11 @@ impl DispatchTable {
             }
         }
         let is_query_line = line.last().map(|s| s == "?").unwrap_or(false);
-        let found = if req.terms.is_empty() { None } else { node.leaf[if is_query_line { 1 } else { 0 }] };
+        let found = if req.terms.is_empty() {
+            None
+        } else {
+            node.leaf[if is_query_line { 1 } else { 0 }]
+        };
         // A command line that ends in '?' but has no query variant falls back to nothing (104).
         let Some(idx) = found else {
             req.status = Status::NotDispatchable;
@@ -151,7 +168,9 @@ impl DispatchTable {
                 NeedsClient::Yes if client.is_some() && client_connected => Status::Dispatchable,
                 NeedsClient::Disconnected if client.is_some() || client_raw.is_some() => {
                     if !client_connected {
-                        req.disconnected_client = client_raw.map(str::to_string).or(client.map(|c| c.to_string()));
+                        req.disconnected_client = client_raw
+                            .map(str::to_string)
+                            .or(client.map(|c| c.to_string()));
                         req.client = None;
                     }
                     Status::Dispatchable
@@ -198,7 +217,12 @@ pub async fn execute(server: &Arc<Server>, mut req: Request) -> Request {
         return req;
     };
     let handler = server.dispatch.entry(idx).handler;
-    tracing::debug!("execute {:?} {:?} {:?}", req.client.map(|c| c.to_string()), req.terms, req.params);
+    tracing::debug!(
+        "execute {:?} {:?} {:?}",
+        req.client.map(|c| c.to_string()),
+        req.terms,
+        req.params
+    );
     // mark user activity
     if let Some(p) = req.client.and_then(|c| server.player(&c)) {
         p.state.lock().last_activity = crate::util::now();
@@ -226,10 +250,20 @@ pub async fn execute(server: &Arc<Server>, mut req: Request) -> Request {
 }
 
 /// Convenience: build and execute a request from string tokens.
-pub async fn execute_tokens(server: &Arc<Server>, client: Option<slimproto::MacAddress>, tokens: Vec<String>, source: Source) -> Request {
-    let connected = client.and_then(|c| server.player(&c)).map(|p| p.is_connected()).unwrap_or(false);
+pub async fn execute_tokens(
+    server: &Arc<Server>,
+    client: Option<slimproto::MacAddress>,
+    tokens: Vec<String>,
+    source: Source,
+) -> Request {
+    let connected = client
+        .and_then(|c| server.player(&c))
+        .map(|p| p.is_connected())
+        .unwrap_or(false);
     let client_raw = client.map(|c| c.to_string());
-    let mut req = server.dispatch.parse(client, client_raw.as_deref(), connected, &tokens);
+    let mut req = server
+        .dispatch
+        .parse(client, client_raw.as_deref(), connected, &tokens);
     req.source = source;
     execute(server, req).await
 }
@@ -244,10 +278,41 @@ mod tests {
 
     fn table() -> DispatchTable {
         let mut t = DispatchTable::default();
-        t.add(&["playlist", "index", "?"], 1, true, false, Handler::Sync(noop));
-        t.add(&["playlist", "index", "_index", "_fadein", "_noplay", "_seekdata"], 1, false, false, Handler::Sync(noop));
-        t.add(&["playlist", "artist", "_index", "?"], 1, true, false, Handler::Sync(noop));
-        t.add(&["albums", "_index", "_quantity"], 0, true, true, Handler::Sync(noop));
+        t.add(
+            &["playlist", "index", "?"],
+            1,
+            true,
+            false,
+            Handler::Sync(noop),
+        );
+        t.add(
+            &[
+                "playlist",
+                "index",
+                "_index",
+                "_fadein",
+                "_noplay",
+                "_seekdata",
+            ],
+            1,
+            false,
+            false,
+            Handler::Sync(noop),
+        );
+        t.add(
+            &["playlist", "artist", "_index", "?"],
+            1,
+            true,
+            false,
+            Handler::Sync(noop),
+        );
+        t.add(
+            &["albums", "_index", "_quantity"],
+            0,
+            true,
+            true,
+            Handler::Sync(noop),
+        );
         t.add(&["version", "?"], 0, true, false, Handler::Sync(noop));
         t.add(&["playlist", "newsong"], 1, false, false, Handler::None);
         t
@@ -271,7 +336,12 @@ mod tests {
         assert_eq!(r.param("_fadein"), None);
         let r = t.parse(Some(mac), None, true, &toks("playlist artist 3 ?"));
         assert_eq!(r.param("_index"), Some("3"));
-        let r = t.parse(None, None, false, &toks("albums 0 10 tags:al artist_id:4 url:http://x/y"));
+        let r = t.parse(
+            None,
+            None,
+            false,
+            &toks("albums 0 10 tags:al artist_id:4 url:http://x/y"),
+        );
         assert_eq!(r.param("_quantity"), Some("10"));
         assert_eq!(r.param("tags"), Some("al"));
         assert_eq!(r.param("url"), Some("http://x/y"));

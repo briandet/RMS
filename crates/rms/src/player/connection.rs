@@ -20,7 +20,10 @@ const CHECK_INTERVAL: u64 = 5;
 const DEAD_AFTER: f64 = 15.0;
 
 pub async fn listen(server: Arc<Server>) -> anyhow::Result<()> {
-    let addr = format!("{}:3483", server.config.bind_addr);
+    let addr = format!(
+        "{}:{}",
+        server.config.bind_addr, server.config.slimproto_port
+    );
     let listener = TcpListener::bind(&addr).await?;
     info!("slimproto listening on {}", addr);
     tokio::spawn(heartbeat(server.clone()));
@@ -45,7 +48,11 @@ async fn heartbeat(server: Arc<Server>) {
         for p in server.connected_players() {
             let last = p.state.lock().last_heard;
             if now - last >= DEAD_AFTER {
-                warn!("{}: no response for {:.0}s, disconnecting", p.id, now - last);
+                warn!(
+                    "{}: no response for {:.0}s, disconnecting",
+                    p.id,
+                    now - last
+                );
                 server.close_connection(&p.id);
                 continue;
             }
@@ -64,7 +71,11 @@ async fn heartbeat(server: Arc<Server>) {
     }
 }
 
-async fn handle(server: Arc<Server>, sock: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
+async fn handle(
+    server: Arc<Server>,
+    sock: TcpStream,
+    peer: std::net::SocketAddr,
+) -> anyhow::Result<()> {
     let mut framed = Framed::new(sock, SlimprotoCodec);
     // The first frame must be HELO within 5 seconds.
     let first = tokio::time::timeout(Duration::from_secs(5), framed.next()).await;
@@ -154,8 +165,12 @@ pub fn handle_message(server: &Arc<Server>, player: &Arc<Player>, msg: ClientMes
             debug!("{}: BODY {} bytes (ignored)", player.id, body.len());
         }
         ClientMessage::Setd { id, value } => handle_setd(server, player, id, &value),
-        ClientMessage::Ir { time, code } => crate::control::ir::handle_ir(server, player, code, time),
-        ClientMessage::Butn { time, button } => crate::control::ir::handle_button(server, player, button, time),
+        ClientMessage::Ir { time, code } => {
+            crate::control::ir::handle_ir(server, player, code, time)
+        }
+        ClientMessage::Butn { time, button } => {
+            crate::control::ir::handle_button(server, player, button, time)
+        }
         ClientMessage::Knob { position, .. } => debug!("{}: KNOB {}", player.id, position),
         ClientMessage::Bye { upgrading } => info!("{}: BYE! upgrading={}", player.id, upgrading),
         ClientMessage::Ureq => info!("{}: requests firmware update (not supported)", player.id),
@@ -163,7 +178,11 @@ pub fn handle_message(server: &Arc<Server>, player: &Arc<Player>, msg: ClientMes
         ClientMessage::Anic | ClientMessage::Alss { .. } | ClientMessage::RawIr(_) => {}
         ClientMessage::Shut => server.close_connection(&player.id),
         ClientMessage::Helo(_) => warn!("{}: unexpected second HELO", player.id),
-        ClientMessage::Unknown { op, .. } => warn!("{}: unknown slimproto op {:?}", player.id, String::from_utf8_lossy(&op)),
+        ClientMessage::Unknown { op, .. } => warn!(
+            "{}: unknown slimproto op {:?}",
+            player.id,
+            String::from_utf8_lossy(&op)
+        ),
     }
 }
 
@@ -198,8 +217,15 @@ fn handle_stat(server: &Arc<Server>, player: &Arc<Player>, stat: Stat) {
         }
         StatEvent::NotSupported => {
             player.state.lock().ready_to_stream = true;
-            let err = if stat.error_code != 0 { format!("DECODE_ERROR_{}", stat.error_code) } else { "PROBLEM_OPENING".to_string() };
-            warn!("{}: decoder does not support file format, code {}", id, stat.error_code);
+            let err = if stat.error_code != 0 {
+                format!("DECODE_ERROR_{}", stat.error_code)
+            } else {
+                "PROBLEM_OPENING".to_string()
+            };
+            warn!(
+                "{}: decoder does not support file format, code {}",
+                id, stat.error_code
+            );
             c.lock().player_streaming_failed(id, &err, false);
         }
         StatEvent::BufferReady => {
@@ -229,7 +255,11 @@ fn handle_stat(server: &Arc<Server>, player: &Arc<Player>, stat: Stat) {
 
 /// `_disco_handler`.
 fn handle_dsco(player: &Arc<Player>, reason: DisconnectReason) {
-    info!("{}: data stream disconnected: {}", player.id, reason.description());
+    info!(
+        "{}: data stream disconnected: {}",
+        player.id,
+        reason.description()
+    );
     {
         let mut s = player.state.lock();
         if s.connecting {
@@ -257,23 +287,37 @@ fn handle_dsco(player: &Arc<Player>, reason: DisconnectReason) {
 /// `directHeaders`: the player reports HTTP response headers of its stream connection.
 fn handle_resp(server: &Arc<Server>, player: &Arc<Player>, raw: &[u8]) {
     player.state.lock().connecting = false;
-    debug!("{}: RESP {}", player.id, String::from_utf8_lossy(raw).trim());
+    debug!(
+        "{}: RESP {}",
+        player.id,
+        String::from_utf8_lossy(raw).trim()
+    );
     let c = ctrl(player);
     let mut c = c.lock();
-    let Some(song) = c.queue.front().cloned() else { return };
-    let Some(direct_url) = song.direct_url.clone() else { return };
+    let Some(song) = c.queue.front().cloned() else {
+        return;
+    };
+    let Some(direct_url) = song.direct_url.clone() else {
+        return;
+    };
     let Some(h) = crate::stream::remote::parse_direct_headers(raw) else {
         c.player_streaming_failed(player.id, "PROBLEM_CONNECTING", false);
         return;
     };
     if h.status < 200 || h.status > 399 {
-        warn!("{}: invalid response code {} from remote stream {}", player.id, h.status, direct_url);
+        warn!(
+            "{}: invalid response code {} from remote stream {}",
+            player.id, h.status, direct_url
+        );
         player.state.lock().ready_to_stream = true;
         c.player_streaming_failed(player.id, &h.status_line, false);
         return;
     }
     if let Some(redir) = h.redirect.filter(|_| (300..400).contains(&h.status)) {
-        let new_url = url::Url::parse(&direct_url).and_then(|b| b.join(&redir)).map(|u| u.to_string()).unwrap_or(redir);
+        let new_url = url::Url::parse(&direct_url)
+            .and_then(|b| b.join(&redir))
+            .map(|u| u.to_string())
+            .unwrap_or(redir);
         info!("{}: direct stream redirected to {}", player.id, new_url);
         if let Some(s) = c.queue.front_mut() {
             s.direct_url = Some(new_url);
@@ -303,8 +347,15 @@ fn handle_resp(server: &Arc<Server>, player: &Arc<Player>, raw: &[u8]) {
             s.remote_meta.content_type = Some(ct.clone());
         }
     }
-    info!("{}: beginning direct stream (metaint {})", player.id, h.metaint);
-    player.send(ServerFrame::Cont { metaint: h.metaint, loop_: false, guids: Vec::new() });
+    info!(
+        "{}: beginning direct stream (metaint {})",
+        player.id, h.metaint
+    );
+    player.send(ServerFrame::Cont {
+        metaint: h.metaint,
+        loop_: false,
+        guids: Vec::new(),
+    });
 }
 
 /// `directMetadata`: ICY metadata block received by the player.
@@ -314,13 +365,18 @@ fn handle_meta(server: &Arc<Server>, player: &Arc<Player>, meta: &[u8]) {
     let c = ctrl(player);
     let mut c = c.lock();
     let master = c.master_id;
-    let Some(song) = c.queue.front_mut() else { return };
+    let Some(song) = c.queue.front_mut() else {
+        return;
+    };
     if song.remote_meta.title.as_deref() == Some(title.as_str()) {
         return;
     }
     info!("{}: stream title \"{}\"", player.id, title);
     song.remote_meta.title = Some(title.clone());
-    server.notifier.notify_owned(Some(master), vec!["playlist".into(), "newsong".into(), title]);
+    server.notifier.notify_owned(
+        Some(master),
+        vec!["playlist".into(), "newsong".into(), title],
+    );
 }
 
 /// `playerSettingsFrame`.
@@ -328,7 +384,10 @@ fn handle_setd(server: &Arc<Server>, player: &Arc<Player>, id: u8, value: &[u8])
     match id {
         0 => {
             player.state.lock().name_query_pending = false;
-            let name = String::from_utf8_lossy(value).trim_end_matches('\0').trim().to_string();
+            let name = String::from_utf8_lossy(value)
+                .trim_end_matches('\0')
+                .trim()
+                .to_string();
             if name.is_empty() {
                 let ours = player.name();
                 player.push_player_name(&ours);

@@ -30,7 +30,11 @@ pub struct Entry {
 
 impl Entry {
     pub fn new(url: impl Into<String>) -> Entry {
-        Entry { url: url.into(), track_id: None, album_key: None }
+        Entry {
+            url: url.into(),
+            track_id: None,
+            album_key: None,
+        }
     }
 }
 
@@ -77,7 +81,10 @@ impl Playlist {
 
     /// Iterate (position, entry) in play order.
     pub fn iter(&self) -> impl Iterator<Item = (usize, &Entry)> {
-        self.order.iter().enumerate().filter_map(|(pos, &i)| self.entries.get(i).map(|e| (pos, e)))
+        self.order
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, &i)| self.entries.get(i).map(|e| (pos, e)))
     }
 
     fn touch(&mut self) {
@@ -114,7 +121,11 @@ impl Playlist {
                 tail = self.shuffle_by_album(tail);
             }
             // keep everything up to and including the current song, shuffle the rest together
-            let keep = if self.order.is_empty() { 0 } else { (self.current + 1).min(self.order.len()) };
+            let keep = if self.order.is_empty() {
+                0
+            } else {
+                (self.current + 1).min(self.order.len())
+            };
             let mut rest: Vec<usize> = self.order.split_off(keep);
             rest.extend(tail);
             if self.shuffle == SHUFFLE_SONGS {
@@ -135,7 +146,11 @@ impl Playlist {
         let start = self.entries.len();
         let count = new.len();
         self.entries.extend(new);
-        let at = if self.order.is_empty() { 0 } else { (self.current + 1).min(self.order.len()) };
+        let at = if self.order.is_empty() {
+            0
+        } else {
+            (self.current + 1).min(self.order.len())
+        };
         let ids: Vec<usize> = (start..start + count).collect();
         self.order.splice(at..at, ids);
         self.touch();
@@ -242,7 +257,9 @@ impl Playlist {
                     if let Some(p) = shuffled.iter().position(|&i| i == cur) {
                         let key = self.entries[cur].album_key.clone();
                         let mut album_start = p;
-                        while album_start > 0 && self.entries[shuffled[album_start - 1]].album_key == key {
+                        while album_start > 0
+                            && self.entries[shuffled[album_start - 1]].album_key == key
+                        {
                             album_start -= 1;
                         }
                         shuffled.rotate_left(album_start);
@@ -256,7 +273,9 @@ impl Playlist {
             }
             _ => {
                 self.order = ids;
-                self.current = current_entry.unwrap_or(0).min(self.order.len().saturating_sub(1));
+                self.current = current_entry
+                    .unwrap_or(0)
+                    .min(self.order.len().saturating_sub(1));
             }
         }
     }
@@ -267,7 +286,12 @@ impl Playlist {
         for id in ids {
             let key = self.entries[id].album_key.as_deref();
             match groups.last_mut() {
-                Some(g) if key.is_some() && self.entries[*g.last().unwrap()].album_key.as_deref() == key => g.push(id),
+                Some(g)
+                    if key.is_some()
+                        && self.entries[*g.last().unwrap()].album_key.as_deref() == key =>
+                {
+                    g.push(id)
+                }
                 _ => groups.push(vec![id]),
             }
         }
@@ -301,7 +325,11 @@ impl Playlist {
         if self.order.is_empty() {
             return None;
         }
-        Some(if pos == 0 { self.order.len() - 1 } else { pos - 1 })
+        Some(if pos == 0 {
+            self.order.len() - 1
+        } else {
+            pos - 1
+        })
     }
 }
 
@@ -311,7 +339,12 @@ mod tests {
 
     fn pl(n: usize) -> Playlist {
         let mut p = Playlist::default();
-        p.load((0..n).map(|i| Entry::new(format!("file:///{}.flac", i))).collect(), None);
+        p.load(
+            (0..n)
+                .map(|i| Entry::new(format!("file:///{}.flac", i)))
+                .collect(),
+            None,
+        );
         p
     }
 
@@ -365,7 +398,10 @@ mod tests {
         p.set_shuffle(SHUFFLE_ALBUMS, false);
         // every album stays contiguous and in track order
         for chunk in p.order.chunks(3) {
-            let keys: Vec<_> = chunk.iter().map(|&i| p.entries[i].album_key.clone()).collect();
+            let keys: Vec<_> = chunk
+                .iter()
+                .map(|&i| p.entries[i].album_key.clone())
+                .collect();
             assert!(keys.iter().all(|k| *k == keys[0]));
             assert!(chunk.windows(2).all(|w| w[0] < w[1]));
         }

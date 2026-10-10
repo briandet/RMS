@@ -7,7 +7,11 @@ use super::type_for_mime;
 use std::time::Duration;
 use tracing::{debug, warn};
 
-pub const USER_AGENT: &str = concat!("Lyrion Music Server/9.2.0 (RMS ", env!("CARGO_PKG_VERSION"), ")");
+pub const USER_AGENT: &str = concat!(
+    "Lyrion Music Server/9.2.0 (RMS ",
+    env!("CARGO_PKG_VERSION"),
+    ")"
+);
 
 /// Result of probing a URL.
 #[derive(Debug, Clone, Default)]
@@ -25,7 +29,11 @@ pub struct Probe {
 
 /// Guess a type from the URL's extension.
 pub fn type_from_extension(url: &str) -> Option<&'static str> {
-    let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    let path = url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase();
     let ext = path.rsplit('.').next().unwrap_or("");
     Some(match ext {
         "mp3" => "mp3",
@@ -52,7 +60,10 @@ pub fn is_playlist_type(t: &str) -> bool {
 
 /// Fetch headers (and for playlists the body) of `url`, following redirects.
 pub async fn probe(client: &reqwest::Client, url: &str) -> Probe {
-    let mut probe = Probe { url: url.to_string(), ..Default::default() };
+    let mut probe = Probe {
+        url: url.to_string(),
+        ..Default::default()
+    };
     let ext_type = type_from_extension(url);
     let resp = client
         .get(url)
@@ -66,21 +77,42 @@ pub async fn probe(client: &reqwest::Client, url: &str) -> Probe {
         Err(e) => {
             // Shoutcast v1 answers "ICY 200 OK" which is not valid HTTP; treat as mp3 radio.
             warn!("probe {} failed: {} — assuming direct audio", url, e);
-            probe.content_type = Some(ext_type.filter(|t| !is_playlist_type(t)).unwrap_or("mp3").to_string());
+            probe.content_type = Some(
+                ext_type
+                    .filter(|t| !is_playlist_type(t))
+                    .unwrap_or("mp3")
+                    .to_string(),
+            );
             return probe;
         }
     };
     probe.url = resp.url().to_string();
     let headers = resp.headers().clone();
-    let mime = headers.get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    probe.title = headers.get("icy-name").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mime = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    probe.title = headers
+        .get("icy-name")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     probe.bitrate = headers
         .get("icy-br")
         .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.split(',').next().and_then(|x| x.trim().parse::<u32>().ok()))
+        .and_then(|s| {
+            s.split(',')
+                .next()
+                .and_then(|x| x.trim().parse::<u32>().ok())
+        })
         .map(|kbps| kbps * 1000);
     let mut t = type_for_mime(&mime).map(str::to_string);
-    if t.is_none() || t.as_deref() == Some("html") || mime.starts_with("text/plain") || mime.starts_with("application/octet-stream") {
+    if t.is_none()
+        || t.as_deref() == Some("html")
+        || mime.starts_with("text/plain")
+        || mime.starts_with("application/octet-stream")
+    {
         if let Some(e) = ext_type {
             t = Some(e.to_string());
         }
@@ -90,8 +122,13 @@ pub async fn probe(client: &reqwest::Client, url: &str) -> Probe {
     if is_playlist_type(&lms_type) || lms_type == "m3u" {
         let body = read_limited(resp, 256 * 1024).await.unwrap_or_default();
         let text = decode_text(&body);
-        if text.trim_start().starts_with("#EXTM3U") && (text.contains("#EXT-X-") || lms_type == "m3u8") {
-            if text.contains("#EXT-X-TARGETDURATION") || text.contains("#EXT-X-STREAM-INF") || text.contains("#EXT-X-MEDIA-SEQUENCE") {
+        if text.trim_start().starts_with("#EXTM3U")
+            && (text.contains("#EXT-X-") || lms_type == "m3u8")
+        {
+            if text.contains("#EXT-X-TARGETDURATION")
+                || text.contains("#EXT-X-STREAM-INF")
+                || text.contains("#EXT-X-MEDIA-SEQUENCE")
+            {
                 probe.is_hls = true;
                 probe.content_type = Some("aac".into());
                 return probe;
@@ -131,13 +168,18 @@ fn resolve(base: &str, href: &str) -> String {
     if href.contains("://") {
         return href.to_string();
     }
-    url::Url::parse(base).and_then(|b| b.join(href)).map(|u| u.to_string()).unwrap_or_else(|_| href.to_string())
+    url::Url::parse(base)
+        .and_then(|b| b.join(href))
+        .map(|u| u.to_string())
+        .unwrap_or_else(|_| href.to_string())
 }
 
 /// Parse a playlist body by type (`pls`, `m3u`, `asx`, `xspf`).  Falls back to sniffing.
 pub fn parse_playlist(text: &str, kind: &str, base: &str) -> Vec<(String, Option<String>)> {
     let trimmed = text.trim_start();
-    let kind = if trimmed.starts_with("[playlist]") || trimmed.to_ascii_lowercase().starts_with("[playlist]") {
+    let kind = if trimmed.starts_with("[playlist]")
+        || trimmed.to_ascii_lowercase().starts_with("[playlist]")
+    {
         "pls"
     } else if trimmed.starts_with("<?xml") && trimmed.contains("<playlist") {
         "xspf"
@@ -155,10 +197,13 @@ pub fn parse_playlist(text: &str, kind: &str, base: &str) -> Vec<(String, Option
 }
 
 pub fn parse_pls(text: &str, base: &str) -> Vec<(String, Option<String>)> {
-    let mut files: std::collections::BTreeMap<u32, (Option<String>, Option<String>)> = Default::default();
+    let mut files: std::collections::BTreeMap<u32, (Option<String>, Option<String>)> =
+        Default::default();
     for line in text.lines() {
         let line = line.trim();
-        let Some((k, v)) = line.split_once('=') else { continue };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         let kl = k.trim().to_ascii_lowercase();
         if let Some(n) = kl.strip_prefix("file") {
             if let Ok(n) = n.parse() {
@@ -170,7 +215,10 @@ pub fn parse_pls(text: &str, base: &str) -> Vec<(String, Option<String>)> {
             }
         }
     }
-    files.into_values().filter_map(|(u, t)| u.map(|u| (u, t))).collect()
+    files
+        .into_values()
+        .filter_map(|(u, t)| u.map(|u| (u, t)))
+        .collect()
 }
 
 pub fn parse_m3u(text: &str, base: &str) -> Vec<(String, Option<String>)> {
@@ -182,7 +230,10 @@ pub fn parse_m3u(text: &str, base: &str) -> Vec<(String, Option<String>)> {
             continue;
         }
         if let Some(info) = line.strip_prefix("#EXTINF:") {
-            title = info.split_once(',').map(|(_, t)| t.trim().to_string()).filter(|t| !t.is_empty());
+            title = info
+                .split_once(',')
+                .map(|(_, t)| t.trim().to_string())
+                .filter(|t| !t.is_empty());
             continue;
         }
         if line.starts_with('#') {
@@ -195,7 +246,8 @@ pub fn parse_m3u(text: &str, base: &str) -> Vec<(String, Option<String>)> {
 
 pub fn parse_asx(text: &str, base: &str) -> Vec<(String, Option<String>)> {
     // ASX is frequently not well-formed XML; scan for <ref href="..."> case-insensitively.
-    let re = regex::Regex::new(r#"(?is)<entry\b.*?</entry>|<ref\s+href\s*=\s*["']([^"']+)["']"#).unwrap();
+    let re = regex::Regex::new(r#"(?is)<entry\b.*?</entry>|<ref\s+href\s*=\s*["']([^"']+)["']"#)
+        .unwrap();
     let href_re = regex::Regex::new(r#"(?i)<ref\s+href\s*=\s*["']([^"']+)["']"#).unwrap();
     let title_re = regex::Regex::new(r"(?is)<title>\s*(.*?)\s*</title>").unwrap();
     let mut out = Vec::new();
@@ -210,11 +262,20 @@ pub fn parse_asx(text: &str, base: &str) -> Vec<(String, Option<String>)> {
 }
 
 pub fn parse_xspf(text: &str, base: &str) -> Vec<(String, Option<String>)> {
-    let Ok(doc) = roxmltree::Document::parse(text) else { return Vec::new() };
+    let Ok(doc) = roxmltree::Document::parse(text) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for track in doc.descendants().filter(|n| n.has_tag_name("track")) {
-        let loc = track.children().find(|n| n.has_tag_name("location")).and_then(|n| n.text());
-        let title = track.children().find(|n| n.has_tag_name("title")).and_then(|n| n.text()).map(str::to_string);
+        let loc = track
+            .children()
+            .find(|n| n.has_tag_name("location"))
+            .and_then(|n| n.text());
+        let title = track
+            .children()
+            .find(|n| n.has_tag_name("title"))
+            .and_then(|n| n.text())
+            .map(str::to_string);
         if let Some(l) = loc {
             out.push((resolve(base, l), title));
         }
@@ -262,8 +323,15 @@ pub fn direct_request_string(u: &url::Url) -> String {
     );
     if !u.username().is_empty() {
         use base64::Engine;
-        let cred = format!("{}:{}", percent_encoding::percent_decode_str(u.username()).decode_utf8_lossy(), u.password().unwrap_or(""));
-        r.push_str(&format!("Authorization: Basic {}\r\n", base64::engine::general_purpose::STANDARD.encode(cred)));
+        let cred = format!(
+            "{}:{}",
+            percent_encoding::percent_decode_str(u.username()).decode_utf8_lossy(),
+            u.password().unwrap_or("")
+        );
+        r.push_str(&format!(
+            "Authorization: Basic {}\r\n",
+            base64::engine::general_purpose::STANDARD.encode(cred)
+        ));
     }
     r.push_str("\r\n");
     r
@@ -284,19 +352,38 @@ pub struct DirectHeaders {
 
 /// `Slim::Player::Protocols::HTTP::parseDirectHeaders`.
 pub fn parse_direct_headers(raw: &[u8]) -> Option<DirectHeaders> {
-    let text = String::from_utf8_lossy(raw).trim_end_matches('\0').replace('\r', "\n");
+    let text = String::from_utf8_lossy(raw)
+        .trim_end_matches('\0')
+        .replace('\r', "\n");
     let mut lines = text.split('\n').filter(|l| !l.is_empty());
     let status_line = lines.next()?.to_string();
-    let code: u16 = status_line.split_whitespace().nth(1).and_then(|c| c.parse().ok())?;
-    let mut h = DirectHeaders { status: code, status_line, ..Default::default() };
+    let code: u16 = status_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())?;
+    let mut h = DirectHeaders {
+        status: code,
+        status_line,
+        ..Default::default()
+    };
     for line in lines {
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         let k = k.trim().to_ascii_lowercase();
         let v = v.trim();
         match k.as_str() {
             "icy-metaint" => h.metaint = v.parse().unwrap_or(0),
-            "icy-name" | "x-audiocast-name" => h.title = Some(v.to_string()).filter(|s| !s.is_empty()),
-            "icy-br" | "x-audiocast-bitrate" => h.bitrate = v.split(',').next().and_then(|x| x.trim().parse::<u32>().ok()).map(|b| if b < 1000 { b * 1000 } else { b }),
+            "icy-name" | "x-audiocast-name" => {
+                h.title = Some(v.to_string()).filter(|s| !s.is_empty())
+            }
+            "icy-br" | "x-audiocast-bitrate" => {
+                h.bitrate = v
+                    .split(',')
+                    .next()
+                    .and_then(|x| x.trim().parse::<u32>().ok())
+                    .map(|b| if b < 1000 { b * 1000 } else { b })
+            }
             "location" => h.redirect = Some(v.to_string()),
             "content-type" => h.content_type = type_for_mime(v).map(str::to_string),
             "content-length" => h.length = v.parse().ok(),
@@ -313,13 +400,32 @@ mod tests {
     #[test]
     fn playlists() {
         let pls = "[playlist]\nNumberOfEntries=2\nFile1=http://a/1\nTitle1=One\nFile2=http://a/2\n";
-        assert_eq!(parse_playlist(pls, "pls", "http://x/"), vec![("http://a/1".into(), Some("One".into())), ("http://a/2".into(), None)]);
+        assert_eq!(
+            parse_playlist(pls, "pls", "http://x/"),
+            vec![
+                ("http://a/1".into(), Some("One".into())),
+                ("http://a/2".into(), None)
+            ]
+        );
         let m3u = "#EXTM3U\n#EXTINF:-1,Radio\nhttp://s/stream\nrel.mp3\n";
-        assert_eq!(parse_m3u(m3u, "http://h/dir/list.m3u"), vec![("http://s/stream".into(), Some("Radio".into())), ("http://h/dir/rel.mp3".into(), None)]);
-        let asx = "<ASX version=\"3.0\"><Entry><Title>T</Title><Ref href=\"http://w/1\"/></Entry></ASX>";
-        assert_eq!(parse_asx(asx, ""), vec![("http://w/1".into(), Some("T".into()))]);
+        assert_eq!(
+            parse_m3u(m3u, "http://h/dir/list.m3u"),
+            vec![
+                ("http://s/stream".into(), Some("Radio".into())),
+                ("http://h/dir/rel.mp3".into(), None)
+            ]
+        );
+        let asx =
+            "<ASX version=\"3.0\"><Entry><Title>T</Title><Ref href=\"http://w/1\"/></Entry></ASX>";
+        assert_eq!(
+            parse_asx(asx, ""),
+            vec![("http://w/1".into(), Some("T".into()))]
+        );
         let xspf = r#"<?xml version="1.0"?><playlist xmlns="http://xspf.org/ns/0/"><trackList><track><location>http://x/a.mp3</location><title>A</title></track></trackList></playlist>"#;
-        assert_eq!(parse_playlist(xspf, "xspf", ""), vec![("http://x/a.mp3".into(), Some("A".into()))]);
+        assert_eq!(
+            parse_playlist(xspf, "xspf", ""),
+            vec![("http://x/a.mp3".into(), Some("A".into()))]
+        );
     }
 
     #[test]

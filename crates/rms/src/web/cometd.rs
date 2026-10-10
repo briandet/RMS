@@ -47,7 +47,9 @@ fn create_uuid() -> String {
 }
 
 fn http_date() -> String {
-    chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+    chrono::Utc::now()
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string()
 }
 
 fn clid_from_channel(ch: &str) -> Option<String> {
@@ -61,7 +63,10 @@ fn channel_matches(pattern: &str, channel: &str) -> bool {
         return channel.starts_with(&format!("{}/", prefix));
     }
     if let Some(prefix) = pattern.strip_suffix("/*") {
-        return channel.strip_prefix(&format!("{}/", prefix)).map(|rest| !rest.is_empty()).unwrap_or(false);
+        return channel
+            .strip_prefix(&format!("{}/", prefix))
+            .map(|rest| !rest.is_empty())
+            .unwrap_or(false);
     }
     channel.contains(pattern)
 }
@@ -72,12 +77,20 @@ impl Manager {
     }
 
     fn add_client(&self, clid: &str) {
-        self.clients.lock().insert(clid.to_string(), Client { idle_since: Some(crate::util::now()), ..Default::default() });
+        self.clients.lock().insert(
+            clid.to_string(),
+            Client {
+                idle_since: Some(crate::util::now()),
+                ..Default::default()
+            },
+        );
     }
 
     fn remove_client(&self, server: &Server, clid: &str) {
         self.clients.lock().remove(clid);
-        server.subscriptions.unregister_connection(&format!("cometd:{}", clid));
+        server
+            .subscriptions
+            .unregister_connection(&format!("cometd:{}", clid));
         info!("cometd client {} removed", clid);
     }
 
@@ -99,7 +112,11 @@ impl Manager {
         }
         for ev in &events {
             let ch = ev.get("channel").and_then(|c| c.as_str()).unwrap_or("");
-            let mut targets: Vec<String> = clients.iter().filter(|(_, c)| c.channels.iter().any(|p| channel_matches(p, ch))).map(|(k, _)| k.clone()).collect();
+            let mut targets: Vec<String> = clients
+                .iter()
+                .filter(|(_, c)| c.channels.iter().any(|p| channel_matches(p, ch)))
+                .map(|(k, _)| k.clone())
+                .collect();
             if let Some(c) = clid {
                 if !targets.iter().any(|t| t == c) {
                     targets.push(c.to_string());
@@ -110,7 +127,9 @@ impl Manager {
             }
         }
         for (k, evs) in per {
-            let Some(c) = clients.get_mut(&k) else { continue };
+            let Some(c) = clients.get_mut(&k) else {
+                continue;
+            };
             if let Some(tx) = &c.stream {
                 let mut out = std::mem::take(&mut c.pending);
                 out.extend(evs);
@@ -132,7 +151,11 @@ impl Manager {
     }
 
     fn take_pending(&self, clid: &str) -> Vec<Value> {
-        self.clients.lock().get_mut(clid).map(|c| std::mem::take(&mut c.pending)).unwrap_or_default()
+        self.clients
+            .lock()
+            .get_mut(clid)
+            .map(|c| std::mem::take(&mut c.pending))
+            .unwrap_or_default()
     }
 
     /// Plain (`/slim/subscribe` without `subscribe:`) notification subscriptions.
@@ -152,9 +175,14 @@ impl Manager {
                     }
                     let data: Value = match &n.json {
                         Some(j) => Value::Array(j.as_ref().clone()),
-                        None => Value::Array(n.words.iter().map(|w| Value::String(w.clone())).collect()),
+                        None => {
+                            Value::Array(n.words.iter().map(|w| Value::String(w.clone())).collect())
+                        }
                     };
-                    out.push((clid.clone(), json!({"channel": resp, "id": id, "data": data, "ext": {"priority": ""}})));
+                    out.push((
+                        clid.clone(),
+                        json!({"channel": resp, "id": id, "data": data, "ext": {"priority": ""}}),
+                    ));
                 }
             }
         }
@@ -170,7 +198,13 @@ impl Manager {
             .clients
             .lock()
             .iter()
-            .filter(|(_, c)| c.stream.is_none() && c.poll.is_none() && c.idle_since.map(|t| now - t > AUTOKILL_SECS).unwrap_or(false))
+            .filter(|(_, c)| {
+                c.stream.is_none()
+                    && c.poll.is_none()
+                    && c.idle_since
+                        .map(|t| now - t > AUTOKILL_SECS)
+                        .unwrap_or(false)
+            })
             .map(|(k, _)| k.clone())
             .collect();
         for d in dead {
@@ -195,8 +229,16 @@ pub async fn run(server: Arc<Server>) {
     }
 }
 
-fn extract_message(headers: &HeaderMap, query: &HashMap<String, String>, body: &Bytes) -> Option<String> {
-    let ct = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
+fn extract_message(
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+    body: &Bytes,
+) -> Option<String> {
+    let ct = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     let body_s = String::from_utf8_lossy(body).to_string();
     if ct.starts_with("text/json") || ct.starts_with("application/json") {
         return Some(body_s);
@@ -206,7 +248,11 @@ fn extract_message(headers: &HeaderMap, query: &HashMap<String, String>, body: &
             for pair in body_s.split('&') {
                 if let Some((k, v)) = pair.split_once('=') {
                     if k == "message" {
-                        return Some(percent_encoding::percent_decode_str(&v.replace('+', " ")).decode_utf8_lossy().to_string());
+                        return Some(
+                            percent_encoding::percent_decode_str(&v.replace('+', " "))
+                                .decode_utf8_lossy()
+                                .to_string(),
+                        );
                     }
                 }
             }
@@ -217,9 +263,14 @@ fn extract_message(headers: &HeaderMap, query: &HashMap<String, String>, body: &
 }
 
 fn json_response(events: Vec<Value>) -> Response {
-    let mut r = Response::new(Body::from(serde_json::to_vec(&Value::Array(events)).unwrap_or_default()));
+    let mut r = Response::new(Body::from(
+        serde_json::to_vec(&Value::Array(events)).unwrap_or_default(),
+    ));
     let h = r.headers_mut();
-    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    h.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     h.insert(header::EXPIRES, HeaderValue::from_static("-1"));
     h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -232,19 +283,30 @@ enum Transport {
     LongPoll(u64),
 }
 
-pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashMap<String, String>>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn handle(
+    State(server): State<Arc<Server>>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let Some(msg) = extract_message(&headers, &query, &body) else {
-        return json_response(vec![json!({"successful": false, "error": "no bayeux message found"})]);
+        return json_response(vec![
+            json!({"successful": false, "error": "no bayeux message found"}),
+        ]);
     };
     let parsed: Value = match serde_json::from_str(&msg) {
         Ok(v) => v,
         Err(e) => return json_response(vec![json!({"successful": false, "error": e.to_string()})]),
     };
     let Value::Array(objs) = parsed else {
-        return json_response(vec![json!({"successful": false, "error": "bayeux message not an array"})]);
+        return json_response(vec![
+            json!({"successful": false, "error": "bayeux message not an array"}),
+        ]);
     };
     if objs.iter().any(|o| !o.is_object()) {
-        return json_response(vec![json!({"successful": false, "error": "bayeux event not a hash"})]);
+        return json_response(vec![
+            json!({"successful": false, "error": "bayeux event not a hash"}),
+        ]);
     }
     let ua = headers
         .get("x-user-agent")
@@ -261,8 +323,16 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
     let mut delayed = false;
 
     for obj in &objs {
-        let channel = obj.get("channel").and_then(|c| c.as_str()).unwrap_or("").to_string();
-        let msgid = obj.get("id").cloned().filter(|v| !v.is_null() && v != &json!(0) && v != &json!("")).unwrap_or(json!(""));
+        let channel = obj
+            .get("channel")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let msgid = obj
+            .get("id")
+            .cloned()
+            .filter(|v| !v.is_null() && v != &json!(0) && v != &json!(""))
+            .unwrap_or(json!(""));
         let data = obj.get("data");
         if clid.is_none() {
             if let Some(c) = obj.get("clientId").and_then(|c| c.as_str()) {
@@ -271,13 +341,22 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 let c = create_uuid();
                 mgr.add_client(&c);
                 clid = Some(c);
-            } else if channel.starts_with("/slim/subscribe") || channel.starts_with("/slim/request") {
-                clid = data.and_then(|d| d.get("response")).and_then(|r| r.as_str()).and_then(clid_from_channel);
+            } else if channel.starts_with("/slim/subscribe") || channel.starts_with("/slim/request")
+            {
+                clid = data
+                    .and_then(|d| d.get("response"))
+                    .and_then(|r| r.as_str())
+                    .and_then(clid_from_channel);
             } else if channel.starts_with("/slim/unsubscribe") {
-                clid = data.and_then(|d| d.get("unsubscribe")).and_then(|r| r.as_str()).and_then(clid_from_channel);
+                clid = data
+                    .and_then(|d| d.get("unsubscribe"))
+                    .and_then(|r| r.as_str())
+                    .and_then(clid_from_channel);
             }
             if clid.is_none() {
-                errors.push(json!({"channel": channel, "error": "No clientId found", "id": obj.get("id")}));
+                errors.push(
+                    json!({"channel": channel, "error": "No clientId found", "id": obj.get("id")}),
+                );
                 break;
             }
         }
@@ -300,7 +379,8 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 }));
             }
             "/meta/connect" | "/meta/reconnect" => {
-                let streaming = obj.get("connectionType").and_then(|v| v.as_str()) == Some("streaming");
+                let streaming =
+                    obj.get("connectionType").and_then(|v| v.as_str()) == Some("streaming");
                 first_event = Some(json!({
                     "id": msgid, "channel": channel, "clientId": c, "successful": true,
                     "timestamp": http_date(), "advice": {"interval": if streaming { RETRY_DELAY } else { 0 }}
@@ -308,8 +388,18 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 if streaming {
                     transport = Transport::Streaming;
                 } else {
-                    let mut timeout = obj.get("advice").and_then(|a| a.get("timeout")).and_then(|t| t.as_u64()).unwrap_or(LONG_POLLING_TIMEOUT);
-                    if mgr.clients.lock().get(&c).map(|cl| !cl.pending.is_empty()).unwrap_or(false) {
+                    let mut timeout = obj
+                        .get("advice")
+                        .and_then(|a| a.get("timeout"))
+                        .and_then(|t| t.as_u64())
+                        .unwrap_or(LONG_POLLING_TIMEOUT);
+                    if mgr
+                        .clients
+                        .lock()
+                        .get(&c)
+                        .map(|cl| !cl.pending.is_empty())
+                        .unwrap_or(false)
+                    {
                         timeout = 0;
                     }
                     transport = Transport::LongPoll(timeout);
@@ -323,7 +413,10 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
             "/meta/subscribe" | "/meta/unsubscribe" => {
                 let subs: Vec<String> = match obj.get("subscription") {
                     Some(Value::String(s)) => vec![s.clone()],
-                    Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect(),
+                    Some(Value::Array(a)) => a
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect(),
                     _ => vec![],
                 };
                 let sub = channel == "/meta/subscribe";
@@ -349,8 +442,14 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 let is_sub = channel == "/slim/subscribe";
                 let id = obj.get("id").cloned().unwrap_or(json!(0));
                 let request = data.and_then(|d| d.get("request"));
-                let response = data.and_then(|d| d.get("response")).and_then(|r| r.as_str()).map(str::to_string);
-                let priority = data.and_then(|d| d.get("priority")).cloned().unwrap_or(json!(""));
+                let response = data
+                    .and_then(|d| d.get("response"))
+                    .and_then(|r| r.as_str())
+                    .map(str::to_string);
+                let priority = data
+                    .and_then(|d| d.get("priority"))
+                    .cloned()
+                    .unwrap_or(json!(""));
                 let Some(request) = request else {
                     errors.push(json!({"channel": channel, "error": "request data key not found", "id": id}));
                     continue;
@@ -360,7 +459,18 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                     continue;
                 };
                 let response_clid = clid_from_channel(&response).unwrap_or_else(|| c.clone());
-                match handle_request(&server, is_sub, request, &response, &id, &priority, &response_clid, &ua).await {
+                match handle_request(
+                    &server,
+                    is_sub,
+                    request,
+                    &response,
+                    &id,
+                    &priority,
+                    &response_clid,
+                    &ua,
+                )
+                .await
+                {
                     Ok(result) => {
                         let id_truthy = !(id.is_null() || id == json!(0) || id == json!(""));
                         if is_sub || id_truthy {
@@ -370,23 +480,22 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                             if !is_sub && !id_truthy {
                                 continue;
                             }
-                            match transport {
-                                Transport::Streaming => mgr.deliver(vec![res], None),
-                                _ if !is_sub || matches!(transport, Transport::LongPoll(_)) => {
-                                    events.push(res);
-                                    if is_sub {
-                                        delayed = false;
-                                    }
+                            // LMS: results go inline for long-polling (and CLI) connections;
+                            // streaming clients get them on the stream, routed by channel.
+                            let streaming_client = matches!(transport, Transport::Streaming)
+                                || mgr
+                                    .clients
+                                    .lock()
+                                    .get(&c)
+                                    .map(|cl| cl.stream.is_some())
+                                    .unwrap_or(false);
+                            if matches!(transport, Transport::LongPoll(_)) || !streaming_client {
+                                events.push(res);
+                                if is_sub {
+                                    delayed = false;
                                 }
-                                _ => {
-                                    // streaming connection on another socket: route by channel
-                                    let streaming = mgr.clients.lock().get(&c).map(|cl| cl.stream.is_some()).unwrap_or(false);
-                                    if streaming {
-                                        mgr.deliver(vec![res], None);
-                                    } else {
-                                        events.push(res);
-                                    }
-                                }
+                            } else {
+                                mgr.deliver(vec![res], None);
                             }
                         }
                     }
@@ -402,14 +511,20 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 }
             }
             "/slim/unsubscribe" => {
-                let unsub = data.and_then(|d| d.get("unsubscribe")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let unsub = data
+                    .and_then(|d| d.get("unsubscribe"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
                 {
                     let mut clients = mgr.clients.lock();
                     if let Some(cl) = clients.get_mut(&c) {
                         cl.plain.remove(&unsub);
                     }
                 }
-                server.subscriptions.unregister_channel(&format!("cometd:{}", c), &unsub);
+                server
+                    .subscriptions
+                    .unregister_channel(&format!("cometd:{}", c), &unsub);
                 events.push(json!({"channel": "/slim/unsubscribe", "clientId": c, "id": obj.get("id"), "successful": true, "data": data}));
             }
             other => {
@@ -425,7 +540,9 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
         events.push(e);
     }
 
-    let Some(c) = clid else { return json_response(events) };
+    let Some(c) = clid else {
+        return json_response(events);
+    };
     match transport {
         Transport::Streaming => {
             let (tx, rx) = mpsc::unbounded_channel::<Vec<Value>>();
@@ -443,26 +560,41 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                 }
             }
             debug!("cometd {}: streaming connection established", c);
-            let first_chunk = Bytes::from(serde_json::to_vec(&Value::Array(first)).unwrap_or_default());
-            let rest = futures::stream::unfold((rx, server.clone(), c.clone()), |(mut rx, server, c)| async move {
-                match rx.recv().await {
-                    Some(evs) => Some((Ok::<Bytes, std::io::Error>(Bytes::from(serde_json::to_vec(&Value::Array(evs)).unwrap_or_default())), (rx, server, c))),
-                    None => {
-                        // connection replaced or client removed: start the 10 s grace period
-                        let mut clients = server.cometd.clients.lock();
-                        if let Some(cl) = clients.get_mut(&c) {
-                            cl.idle_since = Some(crate::util::now() - AUTOKILL_SECS + STREAM_LOSS_GRACE_SECS);
+            let first_chunk =
+                Bytes::from(serde_json::to_vec(&Value::Array(first)).unwrap_or_default());
+            let rest = futures::stream::unfold(
+                (rx, server.clone(), c.clone()),
+                |(mut rx, server, c)| async move {
+                    match rx.recv().await {
+                        Some(evs) => Some((
+                            Ok::<Bytes, std::io::Error>(Bytes::from(
+                                serde_json::to_vec(&Value::Array(evs)).unwrap_or_default(),
+                            )),
+                            (rx, server, c),
+                        )),
+                        None => {
+                            // connection replaced or client removed: start the 10 s grace period
+                            let mut clients = server.cometd.clients.lock();
+                            if let Some(cl) = clients.get_mut(&c) {
+                                cl.idle_since = Some(
+                                    crate::util::now() - AUTOKILL_SECS + STREAM_LOSS_GRACE_SECS,
+                                );
+                            }
+                            None
                         }
-                        None
                     }
-                }
-            });
-            let stream = futures::stream::once(async move { Ok::<Bytes, std::io::Error>(first_chunk) });
+                },
+            );
+            let stream =
+                futures::stream::once(async move { Ok::<Bytes, std::io::Error>(first_chunk) });
             use futures::StreamExt;
             let body = Body::from_stream(stream.chain(rest));
             let mut r = Response::new(body);
             let h = r.headers_mut();
-            h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
             h.insert(header::EXPIRES, HeaderValue::from_static("-1"));
             h.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
             h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -477,8 +609,16 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
                     cl.idle_since = None;
                 }
             }
-            if timeout > 0 && mgr.clients.lock().get(&c).map(|cl| cl.pending.is_empty()).unwrap_or(true) {
-                let _ = tokio::time::timeout(Duration::from_millis(timeout), notify.notified()).await;
+            if timeout > 0
+                && mgr
+                    .clients
+                    .lock()
+                    .get(&c)
+                    .map(|cl| cl.pending.is_empty())
+                    .unwrap_or(true)
+            {
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(timeout), notify.notified()).await;
             }
             let mut out = Vec::new();
             if let Some(f) = first_event {
@@ -508,29 +648,54 @@ pub async fn handle(State(server): State<Arc<Server>>, Query(query): Query<HashM
 
 /// `handleRequest`: run a request for a Cometd client; returns the result event (if sync).
 #[allow(clippy::too_many_arguments)]
-async fn handle_request(server: &Arc<Server>, is_sub: bool, request: &Value, response: &str, id: &Value, priority: &Value, clid: &str, ua: &str) -> Result<Option<Value>, (String, bool)> {
+async fn handle_request(
+    server: &Arc<Server>,
+    is_sub: bool,
+    request: &Value,
+    response: &str,
+    id: &Value,
+    priority: &Value,
+    clid: &str,
+    ua: &str,
+) -> Result<Option<Value>, (String, bool)> {
     let Some(arr) = request.as_array() else {
         return Err(("invalid request arguments, array expected".into(), false));
     };
-    let mac = arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mac = arr
+        .first()
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let Some(args) = arr.get(1).and_then(|a| a.as_array()) else {
         return Err(("invalid request arguments, array expected".into(), false));
     };
-    let tokens: Vec<String> = args.iter().map(crate::web::jsonrpc::value_to_token).collect();
+    let tokens: Vec<String> = args
+        .iter()
+        .map(crate::web::jsonrpc::value_to_token)
+        .collect();
     let has_subscribe = tokens.iter().any(|t| t.starts_with("subscribe:"));
     if is_sub && !has_subscribe {
         // plain notification subscription: first verb in the given list
         let mut clients = server.cometd.clients.lock();
         if let Some(cl) = clients.get_mut(clid) {
             let player = server.resolve_client(&mac).map(|p| p.id.to_string());
-            cl.plain.insert(response.to_string(), (tokens.clone(), player, id.clone()));
+            cl.plain
+                .insert(response.to_string(), (tokens.clone(), player, id.clone()));
         }
         return Ok(None);
     }
-    let player = if mac.is_empty() { None } else { server.resolve_client(&mac) };
+    let player = if mac.is_empty() {
+        None
+    } else {
+        server.resolve_client(&mac)
+    };
     let client = player.as_ref().map(|p| p.id);
     let connected = player.as_ref().map(|p| p.is_connected()).unwrap_or(false);
-    let raw = if mac.is_empty() { None } else { Some(mac.as_str()) };
+    let raw = if mac.is_empty() {
+        None
+    } else {
+        Some(mac.as_str())
+    };
     let mut req = server.dispatch.parse(client, raw, connected, &tokens);
     if req.status != crate::control::request::Status::Dispatchable {
         let need = req.status == crate::control::request::Status::NeedsClient;
@@ -540,7 +705,10 @@ async fn handle_request(server: &Arc<Server>, is_sub: bool, request: &Value, res
     let _ = ua;
     let req = crate::control::dispatch::execute(server, req).await;
     if req.status.is_error() {
-        return Err((format!("request failed with error: {}", status_text(&req)), false));
+        return Err((
+            format!("request failed with error: {}", status_text(&req)),
+            false,
+        ));
     }
     let id_truthy = !(id.is_null() || id == &json!(0) || id == &json!(""));
     if !id_truthy {
@@ -560,9 +728,17 @@ async fn handle_request(server: &Arc<Server>, is_sub: bool, request: &Value, res
             mgr_server.cometd.deliver(vec![ev], Some(&c));
             true
         });
-        server.subscriptions.register_with_channel(server, &format!("cometd:{}", clid), response, &req, sink);
+        server.subscriptions.register_with_channel(
+            server,
+            &format!("cometd:{}", clid),
+            response,
+            &req,
+            sink,
+        );
     }
-    Ok(Some(json!({"channel": response, "id": id, "data": Value::Object(req.results.clone()), "ext": {"priority": priority}})))
+    Ok(Some(
+        json!({"channel": response, "id": id, "data": Value::Object(req.results.clone()), "ext": {"priority": priority}}),
+    ))
 }
 
 pub fn status_text(req: &Request) -> &'static str {
@@ -586,11 +762,26 @@ mod tests {
 
     #[test]
     fn globs() {
-        assert!(channel_matches("/abcd1234/slim/**", "/abcd1234/slim/request/5"));
-        assert!(channel_matches("/abcd1234/slim/request/*", "/abcd1234/slim/request/5"));
-        assert!(!channel_matches("/abcd1234/slim/request/*", "/abcd1234/slim/request"));
-        assert!(channel_matches("/abcd1234/slim/serverstatus", "/abcd1234/slim/serverstatus"));
-        assert_eq!(clid_from_channel("/abcd1234/slim/request").as_deref(), Some("abcd1234"));
+        assert!(channel_matches(
+            "/abcd1234/slim/**",
+            "/abcd1234/slim/request/5"
+        ));
+        assert!(channel_matches(
+            "/abcd1234/slim/request/*",
+            "/abcd1234/slim/request/5"
+        ));
+        assert!(!channel_matches(
+            "/abcd1234/slim/request/*",
+            "/abcd1234/slim/request"
+        ));
+        assert!(channel_matches(
+            "/abcd1234/slim/serverstatus",
+            "/abcd1234/slim/serverstatus"
+        ));
+        assert_eq!(
+            clid_from_channel("/abcd1234/slim/request").as_deref(),
+            Some("abcd1234")
+        );
         assert_eq!(clid_from_channel("/slim/request"), None);
     }
 }
