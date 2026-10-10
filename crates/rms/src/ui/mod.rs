@@ -9,10 +9,13 @@
 //! SqueezePlay's SlimBrowser reads them.  Each player has one task that handles its
 //! button events in order and publishes the screen to show in [`View`].
 
+mod alarm;
 pub mod ir;
 pub mod irmap;
 pub mod menu;
+mod scanner;
 pub mod scroll;
+mod time;
 
 use crate::control::dispatch::execute_tokens;
 use crate::control::request::Source;
@@ -123,6 +126,8 @@ struct List {
     sorted: bool,
     /// Show the "n of N" count until then.
     count_until: f64,
+    /// Lists built by RMS itself (alarm screens) and rebuilt after changes.
+    menu_id: Option<String>,
 }
 
 impl List {
@@ -137,6 +142,7 @@ impl List {
             source: None,
             sorted,
             count_until: 0.0,
+            menu_id: None,
         }
     }
 
@@ -177,6 +183,10 @@ enum Mode {
     Bar(Bar),
     /// `INPUT.Volume`, left after `timeout` seconds without buttons.
     Volume(f64),
+    /// The song scanner (its `INPUT.Bar`).
+    Scanner(scanner::Scanner),
+    /// `INPUT.Time`.
+    Time(time::TimeInput),
 }
 
 impl Mode {
@@ -187,6 +197,8 @@ impl Mode {
             Mode::Text(_) => "INPUT.Text",
             Mode::Bar(_) => "INPUT.Bar",
             Mode::Volume(_) => "INPUT.Volume",
+            Mode::Scanner(_) => "INPUT.Bar",
+            Mode::Time(_) => "INPUT.Time",
         }
     }
 }
@@ -253,6 +265,8 @@ struct Ui {
     transition: Option<Transition>,
     published: Option<Parts>,
     last_knob: Option<i32>,
+    /// The alarm open in the alarm screens.
+    alarm: Option<alarm::AlarmDraft>,
 }
 
 async fn run(server: Arc<Server>, p: Arc<Player>, mut rx: mpsc::UnboundedReceiver<Event>) {
@@ -271,16 +285,22 @@ async fn run(server: Arc<Server>, p: Arc<Player>, mut rx: mpsc::UnboundedReceive
         transition: None,
         published: None,
         last_knob: None,
+        alarm: None,
     };
     ui.reset_home().await;
     ui.playing_index = ui.playing_song_index();
     let mut tick = tokio::time::interval(Duration::from_millis(250));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        let timer = [ui.ir.next_timer(), ui.text_timer()]
-            .into_iter()
-            .flatten()
-            .min();
+        let timer = [
+            ui.ir.next_timer(),
+            ui.text_timer(),
+            ui.time_timer(),
+            ui.scanner_timer(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         tokio::select! {
             ev = rx.recv() => match ev {
                 Some(ev) => ui.handle(ev).await,
@@ -353,7 +373,9 @@ impl Ui {
     fn mode_chain(&self) -> Vec<&'static str> {
         let top = self.top_map();
         let mut chain = vec![top];
-        if top.starts_with("INPUT.") && self.saver.is_none() {
+        if matches!(self.stack.last(), Some(Mode::Scanner(_))) && self.saver.is_none() {
+            chain.push("songscanner");
+        } else if top.starts_with("INPUT.") && self.saver.is_none() {
             if let Some(below) = self.stack.iter().rev().nth(1) {
                 chain.push(below.map_name());
             }
@@ -381,10 +403,19 @@ impl Ui {
             .unwrap_or_default();
         let mut nodes: HashMap<String, Vec<Value>> = HashMap::new();
         for it in items {
-            let id = it.get("id").and_then(Value::as_str).unwrap_or("");
+            let id = it
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             // the player's own power button and the Jive-only "settings" duplicates
             if id == "playerpower" {
                 continue;
+            }
+            // the player has its own alarm screens
+            let mut it = it;
+            if id == "settingsAlarm" {
+                it = json!({ "text": it["text"], "id": id, "node": it["node"], "weight": it["weight"], "rms": "alarm" });
             }
             let node = it
                 .get("node")
@@ -428,6 +459,7 @@ impl Ui {
                 "RADIO" => by_id("radios"),
                 "FAVORITES" => by_id("favorites"),
                 "PLUGIN_MY_APPS_MODULE_NAME" => by_id("myApps"),
+                "ALARM" => Some(json!({ "text": s("ALARM"), "rms": "alarm" })),
                 "PLUGIN_APP_GALLERY_MODULE_NAME" => by_id("appGallery"),
                 "SETTINGS" => {
                     Some(json!({ "text": s("SETTINGS"), "id": "settings", "isANode": 1 }))
@@ -473,6 +505,8 @@ impl Ui {
 
     /// `setMode(home)`.
     async fn reset_home(&mut self) {
+        // `setMode(home)` clears the whole mode stack, a screensaver included
+        self.saver = None;
         self.load_nodes().await;
         self.stack = vec![Mode::List(self.home_list())];
     }
@@ -542,6 +576,10 @@ impl Ui {
         for b in self.ir.fire_timers(mode) {
             self.execute_button(&b, true, false).await;
         }
+        if matches!(self.stack.last(), Some(Mode::Scanner(_))) {
+            self.scanner_tick().await;
+        }
+        self.time_fire().await;
         // multi-tap text entry: move to the next character
         if let Some(Mode::Text(t)) = self.stack.last_mut() {
             if t.next_char_at.is_some_and(|at| at <= Instant::now()) {
@@ -549,6 +587,12 @@ impl Ui {
                 t.array.push(0);
             }
         }
+    }
+
+    /// The song scanner's 0.1 s timer.
+    fn scanner_timer(&self) -> Option<Instant> {
+        matches!(self.stack.last(), Some(Mode::Scanner(_)))
+            .then(|| Instant::now() + Duration::from_millis(100))
     }
 
     fn text_timer(&self) -> Option<Instant> {
@@ -822,6 +866,8 @@ impl Ui {
                 "passback" => self.passback().await,
                 _ => return false,
             },
+            Some(Mode::Scanner(_)) => return self.scanner_function(name, arg).await,
+            Some(Mode::Time(_)) => return self.time_function(name, arg).await,
             Some(Mode::Volume(_)) => match name {
                 "up" | "down" => self.volume_step(name == "up").await,
                 "exit" => {
@@ -864,6 +910,8 @@ impl Ui {
     }
 
     fn push(&mut self, mode: Mode) {
+        // a new mode replaces the screensaver
+        self.saver = None;
         self.stack.push(mode);
         self.transition = Some(Transition::PushLeft);
     }
@@ -957,6 +1005,7 @@ impl Ui {
             source: Some(source),
             sorted,
             count_until: 0.0,
+            menu_id: None,
         }));
     }
 
@@ -1008,6 +1057,10 @@ impl Ui {
             Kind::Rms(r) if r == "nowplaying" => {
                 let idx = self.playing_song_index();
                 self.push(Mode::Playlist(idx));
+            }
+            Kind::Rms(r) if r == "alarm" => self.alarm_open().await,
+            Kind::Rms(r) if r.starts_with("alarm:") => {
+                self.alarm_select(&item, &r["alarm:".len()..]).await
             }
             Kind::Rms(_) | Kind::Text => self.transition = Some(Transition::BumpRight),
             Kind::Node(id) => {
@@ -1592,6 +1645,7 @@ impl Ui {
                 }
             }
             "sleep" | "snooze" => self.sleep().await,
+            "song" if arg == Some("scanner") => self.song_scanner().await,
             "shuffle" => {
                 match arg {
                     Some("on") => self.cmd(&["playlist", "shuffle", "1"]).await,
@@ -1964,6 +2018,8 @@ impl Ui {
         for m in self.stack.iter().rev() {
             match m {
                 Mode::Volume(_) => continue,
+                Mode::Scanner(sc) => return Some(self.scanner_lines(sc)),
+                Mode::Time(t) => return Some(t.lines()),
                 Mode::List(l) => {
                     let mut parts = Parts {
                         line: [l.header.clone(), String::new()],

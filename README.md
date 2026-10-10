@@ -95,7 +95,9 @@ with the `pref` / `playerpref` commands or the web UI.
   scrolling and number-key letter jumps, play / add / insert from any list, the Now Playing
   playlist browser, track info, text entry for searches and names (multi-tap number keys),
   sliders, checkboxes and radio settings, volume, presets, sleep, shuffle / repeat and the
-  screensavers, with the push and bump animations of the real firmware.  The menus are the
+  screensavers, with the push and bump animations of the real firmware.  Holding FWD/REW
+  opens the song scanner (seek within the song); Settings → Alarm Clock edits alarms on the
+  player (time entry, days, sound, shuffle, repeat, volume) like Lyrion's player screens.  The menus are the
   same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
   a small internet radio directory.
@@ -116,9 +118,8 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 * Only a few plugins exist (Favorites, alarms, radio directory).  Streaming-service
   plugins (Spotty, Qobuz, TIDAL…) and the TuneIn directory are not ported.
 * The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
-  than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first, and
-  there is no song scanner or alarm editor on the player itself.  Squeezebox 1 and SliMP3
-  (text displays) are not supported.
+  than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.
+  Squeezebox 1 and SliMP3 (text displays) are not supported.
 * No firmware updates for hardware players.
 
 ## Development

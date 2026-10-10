@@ -76,10 +76,21 @@ pub fn maps() -> &'static Maps {
         let mut codes = HashMap::new();
         parse_codes(REMOTE, &mut codes);
         parse_codes(FRONT_PANEL, &mut codes);
-        Maps {
-            codes,
-            map: parse_map(DEFAULT_MAP),
-        }
+        let mut map = parse_map(DEFAULT_MAP);
+        // `Slim::Plugin::SongScanner` registers its own defaults
+        map.insert(
+            "songscanner".into(),
+            [
+                ("fwd.repeat", "song_scanner_fwd"),
+                ("rew.repeat", "song_scanner_rew"),
+                ("fwd.hold", "dead"),
+                ("rew.hold", "dead"),
+            ]
+            .into_iter()
+            .map(|(b, f)| (b.to_string(), f.to_string()))
+            .collect(),
+        );
+        Maps { codes, map }
     })
 }
 
@@ -129,5 +140,24 @@ mod tests {
             Some("nextChar")
         );
         assert_eq!(m.function(&["home"], "0.hold"), Some("preset_0"));
+        // song scanner: held FWD keeps scanning, a quick press jumps
+        assert_eq!(m.function(&["home"], "fwd.hold"), Some("song_scanner"));
+        assert_eq!(
+            m.function(&["INPUT.Bar", "songscanner"], "fwd.repeat"),
+            Some("passback")
+        );
+        assert_eq!(
+            m.function(&["songscanner"], "fwd.repeat"),
+            Some("song_scanner_fwd")
+        );
+        assert_eq!(m.function(&["songscanner"], "fwd.single"), Some("jump_fwd"));
+        assert_eq!(
+            m.function(&["INPUT.Time", "settings"], "arrow_left"),
+            Some("left")
+        );
+        assert_eq!(
+            m.function(&["INPUT.Time", "settings"], "5"),
+            Some("numberLetter_5")
+        );
     }
 }

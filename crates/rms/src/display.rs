@@ -809,6 +809,8 @@ pub struct Parts {
     pub progress: Option<f64>,
     /// Full width slider on line 2 (`simpleSliderBar`), 0..=100.
     pub slider: Option<f64>,
+    /// Cursor on the slider (percent), e.g. the song scanner's playing position.
+    pub slider_cursor: Option<f64>,
 }
 
 /// A rendered screen: the static columns, plus line 2 if it must scroll.
@@ -825,6 +827,11 @@ const SCROLL_PAD: usize = 40;
 /// `Slim::Display::Graphics::sliderBar` (without cursor): progress symbols for a bar of
 /// `width` pixels at `value` percent, with an optional centre divider at `midpoint` percent.
 pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
+    slider_bar_cursor(width, value, midpoint, None)
+}
+
+/// [`slider_bar`] with a cursor mark at `cursor` percent (bars without a midpoint).
+pub fn slider_bar_cursor(width: usize, value: f64, midpoint: f64, cursor: Option<f64>) -> String {
     if width == 0 {
         return String::new();
     }
@@ -832,6 +839,7 @@ pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
     let spaces = width as i64 - if midpoint > 0.0 { 2 } else { 1 };
     let dots = (value / 100.0 * spaces as f64) as i64;
     let divider = (midpoint / 100.0 * spaces as f64) as i64;
+    let cursor = cursor.map(|c| (c.clamp(0.0, 100.0) / 100.0 * spaces as f64) as i64);
     // Lyrion's progress3 symbols map to progress2
     let (p1, p2, p3, p1e, p2e, p3e) = (
         PROGRESS1, PROGRESS2, PROGRESS2, PROGRESS1E, PROGRESS2E, PROGRESS2E,
@@ -874,13 +882,20 @@ pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
     for i in divider + 1..spaces {
         let edge1 = i == divider + 1 || i == spaces - 1;
         let edge2 = i == divider + 2 || i == spaces - 2;
-        chart.push(if value <= midpoint {
+        let symbol = if value <= midpoint {
             if edge1 {
                 p1e
             } else if edge2 {
                 p2e
             } else {
                 p3e
+            }
+        } else if cursor == Some(i) {
+            chart.push(CURSORPOS);
+            if i > dots {
+                p3e
+            } else {
+                p3
             }
         } else {
             let empty = i > dots;
@@ -892,7 +907,8 @@ pub fn slider_bar(width: usize, value: f64, midpoint: f64) -> String {
                 (_, _, true) => p3e,
                 _ => p3,
             }
-        });
+        };
+        chart.push(symbol);
     }
     chart.push(PROGRESS_END);
     chart.push(END_TIGHT);
@@ -932,7 +948,9 @@ pub fn render(width: usize, fonts: FontSet, parts: &Parts, allow_scroll: bool) -
         or_at(&mut bits, ov_start, &overlay);
         if l == 1 {
             if let Some(v) = parts.slider {
-                or_at(&mut bits, 0, &f.render(&slider_bar(width, v, 0.0)));
+                let bar = slider_bar_cursor(width, v, 0.0, parts.slider_cursor);
+                let cols = f.render(&bar);
+                or_at(&mut bits, 0, &cols[..cols.len().min(width)]);
                 continue;
             }
         }

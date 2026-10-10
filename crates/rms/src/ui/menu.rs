@@ -99,6 +99,9 @@ pub fn is_audio(item: &Value) -> bool {
 
 /// Right-hand overlay for an item on line 2.
 pub fn overlay(item: &Value, base: Option<&Value>) -> String {
+    if let Some(o) = item.get("rms_overlay").and_then(Value::as_str) {
+        return o.to_string();
+    }
     match kind(item, base) {
         Kind::Checkbox(on) => if on { FILLEDSQUARE } else { SQUARE }.into(),
         Kind::Radio(on) => if on { FILLEDCIRCLE } else { CIRCLE }.into(),

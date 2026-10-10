@@ -27,7 +27,7 @@ fn ucfirst(t: &str) -> String {
 
 // ---- alarms ----------------------------------------------------------------------------------
 
-fn alarms_of(p: &Player) -> Vec<Alarm> {
+pub(crate) fn alarms_of(p: &Player) -> Vec<Alarm> {
     let map: BTreeMap<String, Alarm> = p
         .prefs
         .get("alarms")
@@ -53,7 +53,7 @@ pub fn pretty_time(secs: u32) -> String {
 }
 
 /// `Slim::Utils::Alarm::displayStr`.
-fn alarm_display(a: &Alarm) -> String {
+pub(crate) fn alarm_display(a: &Alarm) -> String {
     let mut out = pretty_time(a.time);
     if !a.days.iter().all(|d| *d) {
         for day in [1, 2, 3, 4, 5, 6, 0] {
