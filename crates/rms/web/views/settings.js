@@ -197,9 +197,12 @@ export function render(node, { ctx }) {
   // ---------------------------------------------------------------- library
   async function renderLibrary() {
     libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), h('div', { class: 'loading' }, h('span', { class: 'spinner' })));
-    const [nameRes, dirsRes] = await Promise.allSettled([rpc(['pref', 'libraryname', '?']), rpc(['pref', 'mediadirs', '?'])]);
+    const [nameRes, dirsRes, artRes, onlineRes] = await Promise.allSettled([rpc(['pref', 'libraryname', '?']), rpc(['pref', 'mediadirs', '?']),
+      rpc(['pref', 'artfolder', '?']), rpc(['pref', 'onlineArtistImages', '?'])]);
     if (!alive) return;
     const libName = nameRes.status === 'fulfilled' ? nameRes.value._p2 ?? '' : '';
+    const artFolder = artRes.status === 'fulfilled' ? artRes.value._p2 ?? '' : '';
+    const onlineArt = onlineRes.status === 'fulfilled' ? +onlineRes.value._p2 || 0 : 0;
     let dirs = dirsRes.status === 'fulfilled' ? dirsRes.value._p2 : [];
     if (typeof dirs === 'string') dirs = dirs ? dirs.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean) : [];
     if (!Array.isArray(dirs)) dirs = [];
@@ -237,7 +240,25 @@ export function render(node, { ctx }) {
       h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => addDir().focus() }, icon('add'), 'Add folder'),
       h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save folders')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm);
+    // Artist pictures: <artfolder>/<Artist Name>.jpg, artist.jpg next to albums, optional download
+    const artId = fieldId();
+    const artInput = h('input', { id: artId, type: 'text', value: artFolder, placeholder: '/path/to/artist/pictures', spellcheck: 'false' });
+    const artForm = h('form', { class: 'field inline', onsubmit: async (e) => {
+      e.preventDefault();
+      const r = await ctx.serverCmd('pref', 'artfolder', artInput.value.trim());
+      if (r) toast('Artist pictures folder saved. Rescan to pick up changes.');
+    } }, h('label', { for: artId }, 'Artist pictures folder'),
+    h('p', { class: 'muted small' }, 'Optional folder with pictures named after the artist (e.g. “Miles Davis.jpg”). An artist.jpg next to the album folders is found as well.'),
+    h('div', { class: 'inline-row' }, artInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+    const onlineId = fieldId();
+    const onlineField = h('div', { class: 'field check' },
+      h('input', { id: onlineId, type: 'checkbox', checked: onlineArt !== 0, onchange: async (e) => {
+        const r = await ctx.serverCmd('pref', 'onlineArtistImages', e.target.checked ? 1 : 0);
+        if (r) toast(e.target.checked ? 'Missing artist pictures will be downloaded' : 'Artist picture downloads off');
+      } }),
+      h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, artForm, onlineField);
   }
 
   // ---------------------------------------------------------------- scan

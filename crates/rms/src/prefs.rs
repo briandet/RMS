@@ -82,6 +82,7 @@ pub fn server_defaults() -> PrefMap {
         ("disabledformats", json!([])),
         ("coverArt", json!("")),
         ("artfolder", json!("")),
+        ("onlineArtistImages", json!(0)),
         ("ignoreDirRE", json!("")),
         ("rank-PLUGIN_FAVORITES_MODULE_NAME", json!(5)),
         ("server_uuid", json!("")),

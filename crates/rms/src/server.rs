@@ -178,6 +178,8 @@ impl Server {
         }
         cfg.ignore_dir_re = opt("ignoreDirRE");
         cfg.cover_art = p.get_str("coverArt");
+        cfg.art_folder = opt("artfolder").map(Into::into);
+        cfg.contributor_pictures = !p.get_bool("noContributorPictures");
         cfg.group_discs = p.get_bool("groupdiscs");
         cfg.composer_in_artists = p.get_bool("composerInArtists");
         cfg.conductor_in_artists = p.get_bool("conductorInArtists");

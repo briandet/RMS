@@ -45,6 +45,39 @@ fn placeholder(spec: &str) -> Response {
     image_response(out.into_inner(), "image/png")
 }
 
+/// Generic artist silhouette, standing in for LMS' `html/images/artists.png`.
+fn artist_placeholder(spec: &str) -> Response {
+    let (w, h) = parse_size(spec).unwrap_or((300, 300));
+    let (w, h) = (w.clamp(1, 1600), h.clamp(1, 1600));
+    let s = w.min(h) as f64;
+    let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+    let img = image::RgbImage::from_fn(w, h, |x, y| {
+        let (dx, dy) = (x as f64 - cx, y as f64 - cy);
+        // head
+        let head = (dx * dx + (dy + 0.12 * s).powi(2)).sqrt() < 0.17 * s;
+        // shoulders: upper half of an ellipse below the head
+        let sy = dy - 0.36 * s;
+        let body = sy < 0.0 && (dx / (0.3 * s)).powi(2) + (sy / (0.25 * s)).powi(2) < 1.0;
+        if head || body {
+            image::Rgb([150, 150, 160])
+        } else {
+            image::Rgb([90, 90, 100])
+        }
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    if image::DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .is_err()
+    {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let mut r = image_response(out.into_inner(), "image/png");
+    // don't let browsers cache the stand-in
+    r.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    r
+}
+
 fn parse_size(spec: &str) -> Option<(u32, u32)> {
     let re = regex::Regex::new(r"_(\d+)x(\d+)").ok()?;
     let c = re.captures(spec)?;
@@ -107,6 +140,24 @@ pub async fn music(
     }
 }
 
+/// `/contributor/<portraitid>/<spec>`: artist portrait (`image`, `image_300x300_m`, ...), or
+/// the generic artist image when there is none (`Slim::Web::Graphics`).
+pub async fn contributor(
+    State(server): State<Arc<Server>>,
+    Path((id, spec)): Path<(String, String)>,
+) -> Response {
+    let lib = server.library.clone();
+    let spec2 = spec.clone();
+    let res = tokio::task::spawn_blocking(move || lib.contributor_image(&id, &spec2))
+        .await
+        .ok()
+        .flatten();
+    match res {
+        Some((bytes, ct)) => image_response(bytes, &ct),
+        None => artist_placeholder(&spec),
+    }
+}
+
 async fn proxy_image(server: &Arc<Server>, url: &str, spec: &str) -> Response {
     let Ok(resp) = server.http.get(url).send().await else {
         return placeholder(spec);
@@ -150,6 +201,14 @@ pub async fn html_image(Path(name): Path<String>) -> Response {
     if let Some(f) = super::ui::Assets::get(&format!("html/images/{}", name)) {
         let mime = mime_guess::from_path(&name).first_or_octet_stream();
         return image_response(f.data.to_vec(), mime.as_ref());
+    }
+    if name.starts_with("artists") {
+        let spec = if parse_size(&name).is_some() {
+            name.as_str()
+        } else {
+            "_100x100"
+        };
+        return artist_placeholder(spec);
     }
     placeholder("_100x100")
 }
