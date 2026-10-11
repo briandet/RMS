@@ -1,7 +1,7 @@
 //! Sonic analysis with [bliss](https://lelele.io/bliss.html): what a song sounds like (tempo,
 //! timbre, loudness, chroma) as a short feature vector, so mixes can pick songs that sound
 //! alike rather than only songs that are tagged alike.  Not part of LMS, which relied on the
-//! external MusicIP server for this.
+//! external MusicIP server and now on third-party plugins for this.
 //!
 //! * [`Library::analyze_pending`] runs in the background after a scan: it decodes each local
 //!   track that has no current analysis (in-process with symphonia, or with ffmpeg for formats

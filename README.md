@@ -162,7 +162,8 @@ sound like it, and how close they sound counts for more than tags do.  Tracks th
 the same recording as one in the queue or the mix (another encoding or edit of it) are left
 out; live versions sound too different to be caught this way.  Expect a second or two of
 CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
-and are redone when a file changes.  Lyrion needed the long-gone MusicIP server for this.
+and are redone when a file changes.  Lyrion itself has no audio analysis: it relied on the
+long-gone MusicIP server, and now on third-party plugins.
 
 
 ### Spotify
