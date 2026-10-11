@@ -557,6 +557,8 @@ pub struct SpotifyLoginResult {
 pub struct ServerSettings {
     pub library_name: String,
     pub media_dirs: Vec<String>,
+    /// Scan what changes in the music folders as it changes.
+    pub watch_folders: bool,
     /// Folder with pictures named after artists; empty for none.
     pub art_folder: String,
     pub online_artist_images: bool,
@@ -574,6 +576,7 @@ pub struct ServerSettings {
 pub struct ServerSettingsPatch {
     pub library_name: Option<String>,
     pub media_dirs: Option<Vec<String>>,
+    pub watch_folders: Option<bool>,
     pub art_folder: Option<String>,
     pub online_artist_images: Option<bool>,
     pub spotify_client_id: Option<String>,

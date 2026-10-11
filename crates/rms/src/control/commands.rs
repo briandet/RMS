@@ -435,6 +435,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
             ) {
                 server.apply_library_config();
             }
+            if matches!(pname.as_str(), "autorescan" | "mediadirs" | "playlistdir") {
+                crate::watch::start(server);
+            }
             if pname == "onlineArtistImages" && !server.library.is_scanning() {
                 crate::plugins::artist_images::spawn_fetch(server);
             }
@@ -480,30 +483,40 @@ pub fn abortscan(server: &Arc<Server>, r: &mut Request) {
 
 /// Run a scan in the background unless one is already running.
 pub fn start_scan(server: &Arc<Server>, mode: rms_library::ScanMode) {
-    if server
-        .scanning
-        .swap(true, std::sync::atomic::Ordering::SeqCst)
-    {
+    let s = server.clone();
+    if !claim_scan(server) {
         info!("scan already running, request ignored");
         return;
     }
-    server.apply_library_config();
-    let s = server.clone();
-    tokio::spawn(async move {
+    tokio::spawn(async move { run_scans(&s, vec![mode]).await });
+}
+
+/// Take the scanner for [`run_scans`]; false when a scan is running.
+pub fn claim_scan(server: &Server) -> bool {
+    !server
+        .scanning
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Run scans one after the other (the scanner must be claimed with [`claim_scan`]), then
+/// tell clients and start the follow-up work (artist pictures, sonic analysis).
+pub async fn run_scans(s: &Arc<Server>, modes: Vec<rms_library::ScanMode>) {
+    s.apply_library_config();
+    for mode in modes {
         let lib = s.library.clone();
         info!("library scan started: {:?}", mode);
         let res = tokio::task::spawn_blocking(move || lib.scan(mode)).await;
-        s.scanning.store(false, std::sync::atomic::Ordering::SeqCst);
         match res {
             Ok(Ok(summary)) => info!("library scan finished: {:?}", summary),
             Ok(Err(e)) => warn!("library scan failed: {}", e),
             Err(e) => warn!("library scan panicked: {}", e),
         }
-        s.notifier.notify(None, &["rescan", "done"]);
-        s.notifier.notify(None, &["library", "changed", "1"]);
-        crate::plugins::artist_images::spawn_fetch(&s);
-        crate::plugins::sonic::spawn_analysis(&s);
-    });
+    }
+    s.scanning.store(false, std::sync::atomic::Ordering::SeqCst);
+    s.notifier.notify(None, &["rescan", "done"]);
+    s.notifier.notify(None, &["library", "changed", "1"]);
+    crate::plugins::artist_images::spawn_fetch(s);
+    crate::plugins::sonic::spawn_analysis(s);
 }
 
 pub fn stopserver(server: &Arc<Server>, r: &mut Request) {

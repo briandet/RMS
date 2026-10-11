@@ -927,6 +927,59 @@ fn library_is_send_sync_and_handles_removed_media_dirs() {
     assert_eq!(f.lib.totals().songs, 3);
 }
 
+/// What a folder watcher relies on: rescanning one folder picks up new, changed and
+/// removed files and removed subfolders below it, and leaves the rest alone.
+#[test]
+fn a_folder_rescan_sees_what_changed_below_it() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let before = f.lib.totals().songs;
+    let other = f.lib.track_by_url(&rms_library::url::file_url_from_path(
+        &f.media.join("Artist A/Album One/01 - Song One.flac"),
+    ));
+    assert!(other.is_some());
+    // a file removed
+    let b = f.media.join("Artist B");
+    let removed = walkdir::WalkDir::new(&b)
+        .into_iter()
+        .filter_map(Result::ok)
+        .find(|e| {
+            e.file_type().is_file()
+                && e.path()
+                    .extension()
+                    .is_some_and(|x| x == "flac" || x == "mp3")
+        })
+        .expect("an audio file in Artist B")
+        .into_path();
+    std::fs::remove_file(&removed).unwrap();
+    f.lib.scan(ScanMode::Dir(b.clone())).unwrap();
+    assert_eq!(f.lib.totals().songs, before - 1);
+    assert!(f
+        .lib
+        .track_by_url(&rms_library::url::file_url_from_path(&removed))
+        .is_none());
+    // a whole folder removed, seen from its parent
+    let gone: usize = walkdir::WalkDir::new(&b)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_type().is_file()
+                && f.lib
+                    .track_by_url(&rms_library::url::file_url_from_path(e.path()))
+                    .is_some()
+        })
+        .count();
+    std::fs::remove_dir_all(&b).unwrap();
+    f.lib.scan(ScanMode::Dir(f.media.clone())).unwrap();
+    assert_eq!(f.lib.totals().songs, before - 1 - gone as u64);
+    // the rest kept its ids
+    let still = f.lib.track_by_url(&rms_library::url::file_url_from_path(
+        &f.media.join("Artist A/Album One/01 - Song One.flac"),
+    ));
+    assert_eq!(still.map(|t| t.id), other.map(|t| t.id));
+}
+
 #[test]
 fn contributor_portraits() {
     need_ffmpeg!();

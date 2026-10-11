@@ -225,6 +225,10 @@ user?: string, };
 
 export type ServerSettings = { library_name: string, media_dirs: Array<string>, 
 /**
+ * Scan what changes in the music folders as it changes.
+ */
+watch_folders: boolean, 
+/**
  * Folder with pictures named after artists; empty for none.
  */
 art_folder: string, online_artist_images: boolean, 
@@ -237,7 +241,7 @@ spotify_client_id: string,
  */
 spotify_bitrate: number, spotify_normalisation: boolean, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

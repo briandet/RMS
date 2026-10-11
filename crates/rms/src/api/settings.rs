@@ -20,6 +20,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
+        watch_folders: prefs.get_bool("autorescan"),
         art_folder: prefs.get_str("artfolder"),
         online_artist_images: prefs.get_bool("onlineArtistImages"),
         spotify_client_id: prefs.get_str("spotifyClientId"),
@@ -73,6 +74,9 @@ pub async fn update_server_settings(
             }
         }
         changes.push(("mediadirs", json!(unique).to_string()));
+    }
+    if let Some(v) = patch.watch_folders {
+        changes.push(("autorescan", flag(v)));
     }
     if let Some(v) = patch.art_folder {
         changes.push(("artfolder", v.trim().to_string()));

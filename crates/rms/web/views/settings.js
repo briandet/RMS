@@ -298,6 +298,7 @@ export function render(node, { ctx }) {
     const libName = settings.library_name ?? '';
     const artFolder = settings.art_folder ?? '';
     const onlineArt = !!settings.online_artist_images;
+    const watching = !!settings.watch_folders;
     const dirs = Array.isArray(settings.media_dirs) ? settings.media_dirs : [];
 
     const nameId = fieldId();
@@ -331,6 +332,14 @@ export function render(node, { ctx }) {
       h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => addDir().focus() }, icon('add'), 'Add folder'),
       h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save folders')));
 
+    const watchId = fieldId();
+    const watchField = h('div', { class: 'field check' },
+      h('input', { id: watchId, type: 'checkbox', checked: watching, onchange: async (e) => {
+        await saveServer({ watch_folders: e.target.checked },
+          e.target.checked ? 'Changes in the music folders will be scanned as they happen' : 'Music folders are no longer watched');
+      } }),
+      h('label', { for: watchId }, 'Watch the music folders', h('span', { class: 'muted small block' }, 'Music added, changed or removed shows up by itself. Changes made on another computer to a network share may not be noticed: rescan then.')));
+
     // Artist pictures: <artfolder>/<Artist Name>.jpg, artist.jpg next to albums, optional download
     const artId = fieldId();
     const artInput = h('input', { id: artId, type: 'text', value: artFolder, placeholder: '/path/to/artist/pictures', spellcheck: 'false' });
@@ -348,7 +357,7 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, artForm, onlineField);
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField);
   }
 
   // ---------------------------------------------------------------- scan

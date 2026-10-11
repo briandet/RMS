@@ -9,76 +9,17 @@
 //! Values that differ from run to run (temporary paths, ports, timestamps, cover ids derived
 //! from file times) are replaced by placeholders before comparing.
 
+#[macro_use]
 mod common;
 
 use common::*;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------------------------
 // fixture
 // ---------------------------------------------------------------------------------------------
-
-fn ffmpeg_available() -> bool {
-    Command::new("ffmpeg")
-        .arg("-version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-macro_rules! need_ffmpeg {
-    () => {
-        if !ffmpeg_available() {
-            eprintln!("ffmpeg not available - skipping");
-            return;
-        }
-    };
-}
-
-/// A short tagged audio file.  `tone` picks the sound, so no two tracks sound alike.
-fn make_audio(path: &Path, tone: u32, meta: &[(&str, &str)]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let ext = path.extension().unwrap().to_string_lossy().to_string();
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args([
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-    ]);
-    cmd.arg(format!("sine=frequency={}:duration=2", 200 + 110 * tone));
-    // deterministic output: no encoder version or creation time in the file
-    cmd.args(["-fflags", "+bitexact", "-flags:a", "+bitexact"]);
-    match ext.as_str() {
-        "flac" => cmd.args(["-c:a", "flac"]),
-        "mp3" => cmd.args(["-c:a", "libmp3lame", "-b:a", "128k", "-id3v2_version", "3"]),
-        _ => &mut cmd,
-    };
-    for (k, v) in meta {
-        cmd.arg("-metadata").arg(format!("{}={}", k, v));
-    }
-    cmd.arg(path);
-    let out = cmd.output().expect("ffmpeg");
-    assert!(
-        out.status.success(),
-        "ffmpeg failed for {}: {}",
-        path.display(),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    // a fixed time per file: "added" order and cover ids (made from mtimes) stay the same
-    let mtime = std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000 + 86_400 * tone as u64);
-    std::fs::File::options()
-        .write(true)
-        .open(path)
-        .and_then(|f| f.set_modified(mtime))
-        .unwrap();
-}
 
 /// ```text
 /// Alpha Band/First Light/01 Morning.flac, 02 Noon.flac     (rock, 1999)
@@ -161,6 +102,8 @@ fn fixture() -> Fixture {
         assert!(Instant::now() < deadline, "scan did not finish: {r}");
         std::thread::sleep(Duration::from_millis(100));
     }
+    // no rescans by themselves while clients look (tests/watch.rs tests those)
+    rpc(&server, "", json!(["pref", "autorescan", "0"]));
     let mut squeezelite = FakePlayer::connect(server.slim);
     squeezelite.expect(b"setd", Duration::from_secs(5));
     squeezelite.send(b"SETD", b"\0Kitchen\0");

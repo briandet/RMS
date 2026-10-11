@@ -16,6 +16,7 @@ mod strings;
 mod subsonic;
 mod ui;
 mod util;
+mod watch;
 mod web;
 
 use clap::Parser;
@@ -87,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(plugins::dstm::run(server.clone()));
     tokio::spawn(display::run(server.clone()));
     tokio::spawn(control::jive::run(server.clone()));
+    watch::start(&server);
 
     let shutdown = server.shutdown.clone();
     tokio::select! {

@@ -122,6 +122,12 @@ The script builds a release binary (the web UI is built in), installs it as
   an earlier release is converted on first start: it is backed up to
   `library.sqlite.lms-backup` first, history and analysis are kept, and the library is
   rescanned (going back: [docs/library-schema.md](docs/library-schema.md#converting-a-database-from-earlier-releases)).
+* **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
+  copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
+  folders that changed are scanned.  It uses the operating system's file notifications
+  (inotify on Linux), so changes made by another computer on a network share are not seen:
+  rescan then.  A very big library may need a higher `fs.inotify.max_user_watches` (one per
+  folder; the log says so).
 * **Artist pictures** (Lyrion's contributor portraits): `artist.jpg` / `<Artist Name>.jpg`
   next to or above an artist's albums, or in the *artist pictures folder* (`artfolder`),
   served at `/contributor/<id>/image` and shown in Squeezer, Jive clients and the web UI.

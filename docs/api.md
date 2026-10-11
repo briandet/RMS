@@ -312,13 +312,14 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 ### Server settings
 
 ```json
-{"library_name": "Music", "media_dirs": ["/srv/music"], "art_folder": "",
+{"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true, "art_folder": "",
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
-Unknown fields are an error.  Changed music folders take effect with the next scan:
+Unknown fields are an error.  `watch_folders` scans what changes in the music folders as
+it changes (see the README).  Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and
 removed files), `{"mode": "playlists"}` or `{"mode": "full"}` (clear the library and scan

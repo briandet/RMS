@@ -327,3 +327,67 @@ pub fn http_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
         .unwrap_or(0);
     (status, head, resp[split + 4..].to_vec())
 }
+
+// ---------------------------------------------------------------------------------------------
+// audio files
+// ---------------------------------------------------------------------------------------------
+
+pub fn ffmpeg_available() -> bool {
+    Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[allow(unused_macros)]
+macro_rules! need_ffmpeg {
+    () => {
+        if !ffmpeg_available() {
+            eprintln!("ffmpeg not available - skipping");
+            return;
+        }
+    };
+}
+
+/// A short tagged audio file.  `tone` picks the sound, so no two tracks sound alike.
+pub fn make_audio(path: &Path, tone: u32, meta: &[(&str, &str)]) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let ext = path.extension().unwrap().to_string_lossy().to_string();
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+    ]);
+    cmd.arg(format!("sine=frequency={}:duration=2", 200 + 110 * tone));
+    // deterministic output: no encoder version or creation time in the file
+    cmd.args(["-fflags", "+bitexact", "-flags:a", "+bitexact"]);
+    match ext.as_str() {
+        "flac" => cmd.args(["-c:a", "flac"]),
+        "mp3" => cmd.args(["-c:a", "libmp3lame", "-b:a", "128k", "-id3v2_version", "3"]),
+        _ => &mut cmd,
+    };
+    for (k, v) in meta {
+        cmd.arg("-metadata").arg(format!("{}={}", k, v));
+    }
+    cmd.arg(path);
+    let out = cmd.output().expect("ffmpeg");
+    assert!(
+        out.status.success(),
+        "ffmpeg failed for {}: {}",
+        path.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // a fixed time per file: "added" order and cover ids (made from mtimes) stay the same
+    let mtime = std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000 + 86_400 * tone as u64);
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|f| f.set_modified(mtime))
+        .unwrap();
+}
