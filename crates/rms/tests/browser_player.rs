@@ -99,6 +99,22 @@ async fn a_browser_plays_the_queue() {
             ],
         );
     }
+    // the first track: 20 s of noise, which FLAC can't shrink, so its stream is bigger than
+    // what the sockets buffer and the server is still sending it when the next track starts
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg("anoisesrc=duration=20:amplitude=0.5")
+        .args(["-ac", "2", "-ar", "44100", "-sample_fmt", "s16"])
+        .args(["-metadata", "title=One", "-metadata", "artist=A"])
+        .args(["-metadata", "album=Album", "-metadata", "track=1"])
+        .arg(m.join("A/Album/01 One.flac"))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let server = start_server(m);
     let http = server.http;
     for _ in 0..100 {
@@ -151,11 +167,32 @@ async fn a_browser_plays_the_queue() {
     assert_eq!(load["autostart"], true);
     let stream = load["url"].as_str().unwrap().to_string();
     assert!(stream.starts_with("/stream.mp3?player="), "{stream}");
-    // the stream is the file's audio
-    let (code, _, body) = tokio::task::spawn_blocking(move || http_bytes(http, &stream))
-        .await
-        .unwrap();
-    assert_eq!(code, 200);
+    // the stream is the file's audio; read the start of it now and the rest after the next
+    // track was asked for: a browser may still be fetching a track when the next one starts
+    let first_file = m.join("A/Album/01 One.flac");
+    let (mut conn, mut body) = tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Write};
+        let mut c = std::net::TcpStream::connect(("127.0.0.1", http)).unwrap();
+        write!(c, "GET {stream} HTTP/1.0\r\n\r\n").unwrap();
+        // the headers and the first bytes of audio
+        let mut got = Vec::new();
+        let mut chunk = [0u8; 2048];
+        while got
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .is_none_or(|i| got.len() < i + 8)
+        {
+            let n = c.read(&mut chunk).unwrap();
+            assert!(n > 0, "stream ended early");
+            got.extend_from_slice(&chunk[..n]);
+        }
+        (c, got)
+    })
+    .await
+    .unwrap();
+    let head_end = body.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    assert!(body.starts_with(b"HTTP/1.1 200") || body.starts_with(b"HTTP/1.0 200"));
+    body.drain(..head_end);
     assert!(body.starts_with(b"fLaC"), "{} bytes", body.len());
 
     send(&mut ws, json!({"type": "started"})).await;
@@ -187,6 +224,18 @@ async fn a_browser_plays_the_queue() {
     .await;
     let pre = recv(&mut ws, "preload").await;
     assert!(pre["url"].as_str().unwrap().starts_with("/stream.mp3"));
+    // the first track's stream still comes in whole
+    let body = tokio::task::spawn_blocking(move || {
+        use std::io::Read;
+        conn.read_to_end(&mut body).unwrap();
+        body
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        body.len() as u64,
+        std::fs::metadata(&first_file).unwrap().len()
+    );
     send(&mut ws, json!({"type": "started"})).await;
     let p = wait_player(http, &id, "second track", |p| p["queue"]["index"] == 1).await;
     assert_eq!(p["now_playing"]["title"], "Two");

@@ -284,6 +284,9 @@ pub struct Player {
     pub controller: RwLock<Arc<Mutex<Controller>>>,
     /// Cancelled whenever the player's current HTTP stream must stop.
     stream_cancel: Mutex<CancellationToken>,
+    /// Streams of earlier tracks still being served (bridged players read a track's
+    /// stream while the next one starts); closed with the current one.
+    earlier_streams: Mutex<Vec<CancellationToken>>,
     /// Incremented for every `strm s`; the `/stream.mp3` handler refuses stale generations.
     pub stream_generation: AtomicU64,
     /// Stream the player will fetch from `/stream.mp3` for the current generation.
@@ -365,6 +368,7 @@ impl Player {
             frames: RwLock::new(None),
             controller: RwLock::new(Arc::new(Mutex::new(Controller::placeholder(id)))),
             stream_cancel: Mutex::new(CancellationToken::new()),
+            earlier_streams: Mutex::new(Vec::new()),
             stream_generation: AtomicU64::new(0),
             pending_stream: Mutex::new(None),
             stream_password: Mutex::new(None),
@@ -425,7 +429,28 @@ impl Player {
     pub fn new_stream_generation(&self) -> u64 {
         let old = std::mem::replace(&mut *self.stream_cancel.lock(), CancellationToken::new());
         old.cancel();
+        for t in self.earlier_streams.lock().drain(..) {
+            t.cancel();
+        }
         self.stream_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Start the stream of the next track while the current one may still be read: a
+    /// bridged device asks for the next track before it has fetched all of the current one.
+    pub fn next_stream_generation(&self) -> u64 {
+        let old = std::mem::replace(&mut *self.stream_cancel.lock(), CancellationToken::new());
+        let mut earlier = self.earlier_streams.lock();
+        earlier.retain(|t| !t.is_cancelled());
+        earlier.push(old);
+        self.stream_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// A player bridged by RMS itself (a browser, a UPnP, Cast or AirPlay device).
+    pub fn is_bridged(&self) -> bool {
+        matches!(
+            self.state.lock().caps.model.as_str(),
+            "browser" | "upnp" | "chromecast" | "airplay"
+        )
     }
 
     pub fn stream_cancel_token(&self) -> CancellationToken {

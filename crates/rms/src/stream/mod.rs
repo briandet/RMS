@@ -745,7 +745,11 @@ pub fn send_stream_start(
         s.ready_to_stream = false;
         s.buffer_ready = false;
     }
-    let gen = player.new_stream_generation();
+    let gen = if player.is_bridged() {
+        player.next_stream_generation()
+    } else {
+        player.new_stream_generation()
+    };
     if let Some(spec) = &song.spec {
         let mut spec = spec.clone();
         spec.shared = p.shared.clone();
