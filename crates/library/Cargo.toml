@@ -29,6 +29,11 @@ regex = "1"
 indexmap = { version = "2", features = ["serde"] }
 parking_lot = "0.12"
 rand = "0.9"
+# Sonic analysis (tempo, timbre, chroma) for similar-song mixes; symphonia decodes in-process.
+bliss-audio = { version = "0.13", default-features = false, features = ["symphonia-all", "symphonia-alac", "symphonia-aiff"] }
+# Loudness (EBU R128) for files without ReplayGain tags, decoded with bliss's symphonia.
+ebur128 = "0.1"
+symphonia = { version = "0.6", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"

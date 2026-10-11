@@ -438,6 +438,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
             if pname == "onlineArtistImages" && !server.library.is_scanning() {
                 crate::plugins::artist_images::spawn_fetch(server);
             }
+            if pname == "sonicAnalysis" && !server.library.is_scanning() {
+                crate::plugins::sonic::spawn_analysis(server);
+            }
         }
         server
             .notifier
@@ -499,6 +502,7 @@ pub fn start_scan(server: &Arc<Server>, mode: rms_library::ScanMode) {
         s.notifier.notify(None, &["rescan", "done"]);
         s.notifier.notify(None, &["library", "changed", "1"]);
         crate::plugins::artist_images::spawn_fetch(&s);
+        crate::plugins::sonic::spawn_analysis(&s);
     });
 }
 
