@@ -8,6 +8,8 @@
 //!   symphonia lacks and for cue-sheet tracks) and stores the features in `track_analysis`,
 //!   keyed by the track's audio fingerprint, so a changed file is redone and a moved one is
 //!   not.  The same pass measures loudness for ReplayGain ([`crate::loudness`]).
+//!   The same decoded audio gives the track's rhythm and key ([`crate::rhythm`], stored in
+//!   `track_rhythm`) and its audio fingerprint ([`crate::print`], `track_chromaprint`).
 //! * [`Index`] holds every analysed track's features in memory for nearest-neighbour search
 //!   with bliss's weighted distance; the mixer uses it to rank candidates and to leave out
 //!   [near duplicates](Index::near_duplicate).
@@ -33,7 +35,7 @@ pub fn version() -> i64 {
 }
 
 /// bliss's sample format: mono f32 at 22050 Hz.
-const SAMPLE_RATE: u32 = 22050;
+pub const SAMPLE_RATE: u32 = 22050;
 /// Longer tracks (DJ mixes, audiobooks, whole-album files) are not analysed: one feature
 /// vector says little about them and decoding them takes a lot of memory.
 const MAX_SECS: f64 = 20.0 * 60.0;
@@ -52,6 +54,12 @@ struct Job {
     url: String,
     path: PathBuf,
     secs: Option<f64>,
+    /// No current sound analysis (features and loudness).
+    features: bool,
+    /// No current rhythm analysis.
+    rhythm: bool,
+    /// No current audio fingerprint.
+    print: bool,
 }
 
 /// How far the background analysis got.
@@ -81,8 +89,9 @@ impl Library {
             Ok(c) => pending(&c),
             Err(_) => return 0,
         };
-        // a scan resets the gains of the tracks it (re)stored from their tags
+        // a scan resets the gains (and genres, ids) of the tracks it (re)stored from their tags
         self.apply_loudness();
+        self.apply_musicbrainz();
         if jobs.is_empty() {
             return 0;
         }
@@ -106,31 +115,47 @@ impl Library {
                             return;
                         }
                         let job = &jobs[i];
-                        let features = analyze(job, ffmpeg);
-                        if let Err(e) = &features {
+                        let samples = decode(job, ffmpeg);
+                        if let Err(e) = &samples {
                             debug!("sonic analysis of {}: {}", job.url, e);
                         }
+                        let samples = samples.ok();
+                        if job.rhythm {
+                            let rhythm = samples.as_deref().map(crate::rhythm::analyze);
+                            let _ = store_rhythm(&c, &job.fingerprint, rhythm.as_ref());
+                        }
+                        if job.print {
+                            let print = samples
+                                .as_deref()
+                                .and_then(|s| crate::print::fingerprint(s, SAMPLE_RATE));
+                            let _ = crate::print::store(
+                                &c,
+                                &job.fingerprint,
+                                print.as_deref(),
+                                job.secs,
+                            );
+                            if let Some(p) = &print {
+                                let _ =
+                                    crate::print::match_local(&c, &job.fingerprint, p, job.secs);
+                            }
+                        }
+                        if !job.features {
+                            done.fetch_add(1, Ordering::Relaxed);
+                            continue;
+                        }
+                        let features = samples.as_deref().and_then(|s| {
+                            Song::analyze(s)
+                                .map(|a| a.as_vec())
+                                .map_err(|e| debug!("sonic analysis of {}: {}", job.url, e))
+                                .ok()
+                        });
                         let loudness = measure_loudness(job, ffmpeg);
                         if let Err(e) = &loudness {
                             debug!("loudness of {}: {}", job.url, e);
                         }
-                        let features = features.ok();
-                        let blob = features.as_ref().map(|f| to_blob(f));
                         let loudness = loudness.ok();
-                        let ok = blob.is_some() || loudness.is_some();
-                        let _ = c.execute(
-                            "INSERT OR REPLACE INTO track_analysis \
-                               (fingerprint, version, features, loudness, peak, analyzed_at) \
-                             VALUES (?, ?, ?, ?, ?, ?)",
-                            params![
-                                job.fingerprint,
-                                version(),
-                                blob,
-                                loudness.map(|l| l.lufs),
-                                loudness.map(|l| l.peak),
-                                crate::scanner::now()
-                            ],
-                        );
+                        let ok = features.is_some() || loudness.is_some();
+                        let _ = store_features(&c, &job.fingerprint, features.as_deref(), loudness);
                         if let Some(f) = features {
                             self.add_to_sound_index(&c, &job.fingerprint, f);
                         }
@@ -233,37 +258,105 @@ pub(crate) const CURRENT: &str = "a.fingerprint = t.fingerprint AND a.version = 
 
 fn pending(c: &Connection) -> Vec<Job> {
     let sql = format!(
-        "SELECT t.fingerprint, t.url, t.duration FROM tracks t \
-         LEFT JOIN track_analysis a ON {CURRENT} WHERE {LOCAL} AND a.fingerprint IS NULL \
+        "SELECT t.fingerprint, t.url, t.duration, a.fingerprint IS NULL, r.fingerprint IS NULL, \
+           p.fingerprint IS NULL \
+         FROM tracks t \
+         LEFT JOIN track_analysis a ON {CURRENT} \
+         LEFT JOIN track_rhythm r ON r.fingerprint = t.fingerprint AND r.version = ? \
+         LEFT JOIN track_chromaprint p ON p.fingerprint = t.fingerprint AND p.version = ? \
+         WHERE {LOCAL} AND (a.fingerprint IS NULL OR r.fingerprint IS NULL OR p.fingerprint IS NULL) \
          GROUP BY t.fingerprint ORDER BY t.url"
     );
     let Ok(mut st) = c.prepare(&sql) else {
         return Vec::new();
     };
-    let rows = st.query_map([version()], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<f64>>(2)?,
-        ))
-    });
+    let rows = st.query_map(
+        params![version(), crate::rhythm::VERSION, crate::print::VERSION],
+        |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<f64>>(2)?,
+                (
+                    r.get::<_, bool>(3)?,
+                    r.get::<_, bool>(4)?,
+                    r.get::<_, bool>(5)?,
+                ),
+            ))
+        },
+    );
     let Ok(rows) = rows else {
         return Vec::new();
     };
     rows.flatten()
-        .filter_map(|(fingerprint, url, secs)| {
+        .filter_map(|(fingerprint, url, secs, (features, rhythm, print))| {
             let path = path_from_file_url(&url)?;
             Some(Job {
                 fingerprint,
                 url,
                 path,
                 secs,
+                features,
+                rhythm,
+                print,
             })
         })
         .collect()
 }
 
-fn analyze(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
+/// bliss's features of a track's audio (mono f32 at [`SAMPLE_RATE`]).
+pub fn features(samples: &[f32]) -> Result<Vec<f32>, String> {
+    Song::analyze(samples)
+        .map(|a| a.as_vec())
+        .map_err(|e| e.to_string())
+}
+
+/// Store a sound analysis (`None`: could not be made).
+pub(crate) fn store_features(
+    c: &Connection,
+    fingerprint: &str,
+    features: Option<&[f32]>,
+    loudness: Option<Loudness>,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT OR REPLACE INTO track_analysis \
+           (fingerprint, version, features, loudness, peak, analyzed_at) \
+         VALUES (?, ?, ?, ?, ?, ?)",
+        params![
+            fingerprint,
+            version(),
+            features.map(to_blob),
+            loudness.map(|l| l.lufs),
+            loudness.map(|l| l.peak),
+            crate::scanner::now()
+        ],
+    )?;
+    Ok(())
+}
+
+/// Store a rhythm analysis (`None`: the audio could not be decoded).
+pub(crate) fn store_rhythm(
+    c: &Connection,
+    fingerprint: &str,
+    rhythm: Option<&crate::rhythm::Rhythm>,
+) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT OR REPLACE INTO track_rhythm (fingerprint, version, bpm, camelot, rhythm, analyzed_at) \
+         VALUES (?, ?, ?, ?, ?, ?)",
+        params![
+            fingerprint,
+            crate::rhythm::VERSION,
+            rhythm.map(|r| r.bpm as f64).filter(|b| *b > 0.0),
+            rhythm.map(|r| r.camelot()),
+            rhythm.map(|r| r.to_blob()),
+            crate::scanner::now()
+        ],
+    )?;
+    Ok(())
+}
+
+/// A track's audio in bliss's format.
+fn decode(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
     let slice = fragment(&job.url);
     let secs = slice.map(|(s, e)| e - s).or(job.secs).unwrap_or(0.0);
     if secs > MAX_SECS {
@@ -286,9 +379,7 @@ fn analyze(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
     if samples.len() < SAMPLE_RATE as usize {
         return Err("shorter than a second".into());
     }
-    Song::analyze(&samples)
-        .map(|a| a.as_vec())
-        .map_err(|e| e.to_string())
+    Ok(samples)
 }
 
 /// Loudness for any length of track: streamed through symphonia, or measured by ffmpeg.
@@ -377,7 +468,12 @@ impl Index {
             "SELECT t.id, a.features FROM tracks t JOIN track_analysis a ON {CURRENT} \
              WHERE {LOCAL} AND a.features IS NOT NULL"
         );
-        if let Ok(mut st) = c.prepare(&sql) {
+        // remote tracks under their (negative) mix ids
+        let remote = "SELECT -t.id, a.features FROM remote_tracks t \
+             JOIN track_analysis a ON a.fingerprint = t.fingerprint AND a.version = ? \
+             WHERE a.features IS NOT NULL";
+        for sql in [sql.as_str(), remote] {
+            let Ok(mut st) = c.prepare(sql) else { continue };
             let rows = st.query_map([version()], |r| {
                 Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
             });

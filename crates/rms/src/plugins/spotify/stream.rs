@@ -30,15 +30,23 @@ const FLAC_BLOCK: usize = 4096;
 /// librespot output: interleaved samples into a channel (blocking when the player is ahead).
 struct ChannelSink {
     tx: std::sync::mpsc::SyncSender<Vec<i16>>,
+    learner: super::learn::Learner,
 }
 
 impl Sink for ChannelSink {
+    fn stop(&mut self) -> SinkResult<()> {
+        self.learner.stopped();
+        Ok(())
+    }
+
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
         let AudioPacket::Samples(samples) = packet else {
             return Ok(());
         };
+        let samples = converter.f64_to_s16(&samples);
+        self.learner.samples(&samples);
         self.tx
-            .send(converter.f64_to_s16(&samples))
+            .send(samples)
             .map_err(|_| SinkError::OnWrite("stream closed".into()))
     }
 }
@@ -230,9 +238,15 @@ pub async fn open(
     let session = spotify.session().await.map_err(std::io::Error::other)?;
 
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(QUEUE);
+    let learn_events = super::learn::EventSlot::default();
+    let learner = super::learn::Learner::new(spotify.server(), learn_events.clone());
     let player = Player::new(config, session, Box::new(NoOpVolume), move || {
-        Box::new(ChannelSink { tx: sync_tx })
+        Box::new(ChannelSink {
+            tx: sync_tx,
+            learner,
+        })
     });
+    *learn_events.lock() = Some(player.get_player_event_channel());
     let mut events = player.get_player_event_channel();
     player.load(uri, true, start_ms);
 

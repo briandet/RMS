@@ -1390,6 +1390,10 @@ impl<'a> Scanner<'a> {
         let mbid = first(&attrs, "MUSICBRAINZ_ID")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        // (ID3 keeps it in TSRC)
+        let isrc = first(&attrs, "ISRC")
+            .or_else(|| first(&attrs, "TSRC"))
+            .and_then(crate::remote::normalize_isrc);
         let rating = first(&attrs, "RATING")
             .and_then(|r| r.trim().parse::<i64>().ok())
             .filter(|r| *r > 0 && *r <= 255);
@@ -1556,6 +1560,7 @@ impl<'a> Scanner<'a> {
             cover,
             cover_id,
             t,
+            isrc,
         ];
         let track_id = if let Some(id) = existing {
             self.conn.execute(
@@ -1566,8 +1571,8 @@ impl<'a> Scanner<'a> {
                    big_endian = ?24, block_align = ?25, audio_offset = ?26, audio_size = ?27, bpm = ?28,
                    tag_version = ?29, replay_gain = ?30, replay_peak = ?31, mbid = ?32, lyrics = ?33,
                    subtitle = ?34, grouping = ?35, performance = ?36, cover = ?37, cover_id = ?38,
-                   updated_at = ?39
-                 WHERE id = ?40",
+                   updated_at = ?39, isrc = ?40
+                 WHERE id = ?41",
                 rusqlite::params_from_iter(
                     values
                         .iter()
@@ -1583,10 +1588,10 @@ impl<'a> Scanner<'a> {
                    duration, format, bitrate, vbr, sample_rate, sample_size, channels, lossless,
                    big_endian, block_align, audio_offset, audio_size, bpm, tag_version, replay_gain,
                    replay_peak, mbid, lyrics, subtitle, grouping, performance, cover, cover_id,
-                   updated_at, added_at)
+                   updated_at, isrc, added_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
                    ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                   ?34, ?35, ?36, ?37, ?38, ?39, ?39)",
+                   ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?39)",
                 values,
             )?;
             self.conn.last_insert_rowid()

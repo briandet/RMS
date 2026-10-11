@@ -24,7 +24,7 @@ pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 /// `MIGRATIONS[n]` takes a database from version `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2_SEARCH];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2_SEARCH, SCHEMA_V3_REMOTE];
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE meta (
@@ -297,6 +297,80 @@ END;
 INSERT INTO tracks_fts (tracks_fts) VALUES ('rebuild');
 INSERT INTO albums_fts (albums_fts) VALUES ('rebuild');
 INSERT INTO artists_fts (artists_fts) VALUES ('rebuild');
+"#;
+
+/// Tracks heard from streaming services (`remote_tracks`, see [`crate::remote`]), the ISRC of
+/// local tracks and audio fingerprints (`track_chromaprint`, see [`crate::print`]) to tell when
+/// a streamed track is one the library has, and rhythm and key analysis (`track_rhythm`, see
+/// [`crate::rhythm`]).  None of it comes from the music
+/// folders, so a wipe keeps it; `isrc` fills in as files are rescanned.
+const SCHEMA_V3_REMOTE: &str = r#"
+ALTER TABLE tracks ADD COLUMN isrc TEXT;
+CREATE INDEX tracks_isrc ON tracks (isrc);
+
+-- A track of a streaming service, known from playing it: its metadata only.  `url` plays it
+-- (`spotify://track:<id>`); `fingerprint` (`<source>:<source_id>`) keys its analysis in
+-- `track_analysis` and `track_rhythm`, as a local track's audio fingerprint does.
+-- `artist_keys`: the artists' search keys as `|key|key|`; `match_key`: first artist and
+-- title search keys, to find the same song in the library when there is no ISRC.
+CREATE TABLE remote_tracks (
+  id          INTEGER PRIMARY KEY,
+  source      TEXT NOT NULL,
+  source_id   TEXT NOT NULL,
+  url         TEXT NOT NULL UNIQUE,
+  fingerprint TEXT NOT NULL UNIQUE,
+  title       TEXT NOT NULL,
+  artists     TEXT NOT NULL,  -- names, separated by U+001F
+  artist_keys TEXT NOT NULL,
+  match_key   TEXT NOT NULL,
+  album       TEXT,
+  year        INTEGER,
+  duration    REAL,            -- seconds
+  isrc        TEXT,
+  cover       TEXT,            -- image URL
+  -- the audio fingerprint of the library's copy of the same recording (by Chromaprint)
+  local_match TEXT,
+  added_at    INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  UNIQUE (source, source_id)
+) STRICT;
+CREATE INDEX remote_tracks_isrc ON remote_tracks (isrc);
+CREATE INDEX remote_tracks_match ON remote_tracks (match_key);
+
+-- What MusicBrainz says about the audio with that fingerprint (local tracks' audio
+-- fingerprint, or `<source>:<id>` for streamed tracks), as crate::musicbrainz stores it: the
+-- recording, its ISRC and genres (names separated by U+001F), how it was found
+-- (`tag`, `isrc`, `acoustid`, `search`; `none`: not found).  It fills in what tags leave out.
+CREATE TABLE track_musicbrainz (
+  fingerprint  TEXT PRIMARY KEY,
+  mbid         TEXT,
+  isrc         TEXT,
+  artist_mbid  TEXT,
+  genres       TEXT,
+  how          TEXT NOT NULL,
+  looked_up_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- Chromaprint audio fingerprint (crate::print) of the first two minutes of the audio with that
+-- fingerprint, to recognise the same recording in the library and a stream.
+CREATE TABLE track_chromaprint (
+  fingerprint TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL,
+  print       BLOB,
+  duration    REAL,
+  analyzed_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- Tempo, beats, key and energy of the audio with that fingerprint (crate::rhythm), for
+-- transitions; kept across wipes like `track_analysis`.  NULL `rhythm`: could not be measured.
+CREATE TABLE track_rhythm (
+  fingerprint TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL,
+  bpm         REAL,
+  camelot     TEXT,
+  rhythm      BLOB,
+  analyzed_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

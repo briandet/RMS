@@ -232,6 +232,30 @@ CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
 and follow a moved file; they are redone when the audio changes.  Lyrion itself has no audio analysis: it relied on the
 long-gone MusicIP server, and now on third-party plugins.
 
+The same pass also finds each track's **tempo, beats and key** (BPM to a hundredth, a beat
+grid, the bar's downbeat, major/minor key in Camelot notation, and an energy curve per bar),
+the groundwork for DJ-style transitions, and a **Chromaprint audio fingerprint**, so the same
+recording is recognised under other tags (or none).
+
+**MusicBrainz** (Settings → Library, *Identify recordings with MusicBrainz*, off by default):
+in the background, one request a second, RMS finds each recording on MusicBrainz — by the
+MusicBrainz id or ISRC in its tags, by its sound on AcoustID (with a free
+[AcoustID key](https://acoustid.org/new-application)), or by artist, title and length, taking
+the studio recording over live ones — and fills in what the tags leave out: genres for tracks
+without one (the recording's, or its artist's most voted), MusicBrainz ids and ISRCs.  Learned
+Spotify tracks get their genres the same way, so mixes weigh them like your files.  Your files
+are never written, and tags always win.  A large library takes some hours the first time;
+`--musicbrainz-url` points RMS at a local MusicBrainz mirror instead, without the rate limit.
+
+**Spotify in mixes** (Settings → Spotify, *Use what I play in mixes*, on by default): when a
+Spotify track plays to its end, RMS analyses the samples it was streaming anyway (sound,
+rhythm and key, fingerprint) and keeps that with the track's metadata; no audio is kept, and
+nothing is streamed just to be analysed.  Similar Songs and Create Mix then pick learned
+Spotify tracks alongside your files while you're signed in.  A Spotify track the library has
+too (the same ISRC or audio fingerprint, or the same artist and title at the same length)
+plays from your file instead.  With *Normalise volume* on, the loudness Spotify applies
+affects one of the measures slightly.
+
 **Loudness**: the same pass measures each track's loudness (EBU R128, as ReplayGain 2.0
 does, at any length) and fills in the ReplayGain that your tags leave out — track gain and
 peak, and album gain once every track of the album is measured — so `replayGainMode` evens

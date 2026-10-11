@@ -4,7 +4,8 @@
 use super::commands::{exec_for, CommandError};
 use super::library::{LIMIT, MAX_LIMIT};
 use super::model::{
-    BrowseItem, BrowseItemType, NewFavorite, Page, SpotifyLogin, SpotifyLoginResult, SpotifyStatus,
+    BrowseItem, BrowseItemType, NewFavorite, Page, SpotifyLogin, SpotifyLoginResult, SpotifyPatch,
+    SpotifyStatus,
 };
 use super::state::{artwork_path, int, string};
 use crate::server::Server;
@@ -131,7 +132,32 @@ pub async fn spotify_status(server: &Arc<Server>) -> Result<SpotifyStatus, Comma
         user: string(r.get("user")),
         product: string(r.get("product")),
         error: string(r.get("error")),
+        learn: crate::plugins::spotify::learn::enabled(server),
+        learned: server.library.remote_totals("spotify").analyzed.max(0) as u64,
     })
+}
+
+pub async fn spotify_patch(
+    server: &Arc<Server>,
+    patch: SpotifyPatch,
+) -> Result<SpotifyStatus, CommandError> {
+    if let Some(on) = patch.learn {
+        server
+            .prefs
+            .server
+            .set(crate::plugins::spotify::learn::PREF, serde_json::json!(on));
+    }
+    spotify_status(server).await
+}
+
+/// Forget the learned Spotify tracks.
+pub async fn spotify_forget(server: &Arc<Server>) -> Result<(), CommandError> {
+    let lib = server.library.clone();
+    tokio::task::spawn_blocking(move || lib.forget_remote("spotify"))
+        .await
+        .map_err(|e| CommandError::Failed(e.to_string()))?
+        .map(|_| ())
+        .map_err(|e| CommandError::Failed(e.to_string()))
 }
 
 pub async fn spotify_login(

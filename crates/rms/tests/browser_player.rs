@@ -73,9 +73,17 @@ async fn send(b: &mut Browser, v: Value) {
 async fn wait_player(http: u16, id: &str, what: &str, ok: impl Fn(&Value) -> bool) -> Value {
     let path = format!("/api/v1/players/{}", id.replace(':', "%3A"));
     for _ in 0..100 {
-        let p = get(http, &path).await;
-        if ok(&p) {
-            return p;
+        // (a player that just connected may not be there yet)
+        let path2 = path.clone();
+        let (code, body) =
+            tokio::task::spawn_blocking(move || http_json(http, "GET", &path2, None))
+                .await
+                .unwrap();
+        if code == 200 {
+            let p: Value = serde_json::from_str(&body).unwrap();
+            if ok(&p) {
+                return p;
+            }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }

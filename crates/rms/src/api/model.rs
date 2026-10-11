@@ -484,6 +484,18 @@ pub struct SpotifyStatus {
     /// Why browsing or playback doesn't work right now.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Learn what tracks played from Spotify sound like, for mixes.
+    pub learn: bool,
+    /// Tracks learned so far.
+    pub learned: u64,
+}
+
+/// `PATCH /api/v1/spotify` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default, TS)]
+#[ts(optional_fields)]
+pub struct SpotifyPatch {
+    #[serde(default)]
+    pub learn: Option<bool>,
 }
 
 /// `POST /api/v1/spotify/login` body.  Without `code`, starts a sign-in; with it (the
@@ -528,6 +540,14 @@ pub struct ServerSettings {
     /// kbps: 96, 160 or 320.
     pub spotify_bitrate: i64,
     pub spotify_normalisation: bool,
+    /// Identify recordings with MusicBrainz (and AcoustID) to fill in what tags leave out.
+    pub musicbrainz: bool,
+    /// AcoustID application key, for recognising recordings by their sound; empty for none.
+    pub acoustid_key: String,
+    /// Recordings identified on MusicBrainz so far.
+    pub musicbrainz_identified: i64,
+    /// Recordings waiting to be looked up.
+    pub musicbrainz_pending: i64,
 }
 
 /// `PATCH /api/v1/settings` body: the settings to change.
@@ -546,6 +566,8 @@ pub struct ServerSettingsPatch {
     pub spotify_client_id: Option<String>,
     pub spotify_bitrate: Option<i64>,
     pub spotify_normalisation: Option<bool>,
+    pub musicbrainz: Option<bool>,
+    pub acoustid_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]

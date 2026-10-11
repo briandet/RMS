@@ -11,6 +11,7 @@
 //!   which goes to the player like any other stream (`spotify://track:<id>` URLs).
 
 pub mod connect;
+pub mod learn;
 pub mod menu;
 pub mod session_api;
 pub mod stream;
@@ -110,6 +111,8 @@ pub struct Spotify {
     user: Mutex<Option<String>>,
     /// The Web API failed (rate limit, no usable token): use the session until then.
     web_api_down_until: Mutex<Option<Instant>>,
+    /// The server, for what plays (learning tracks, [`learn`]).
+    server: std::sync::OnceLock<std::sync::Weak<crate::server::Server>>,
 }
 
 static INSTANCE: OnceLock<Arc<Spotify>> = OnceLock::new();
@@ -136,6 +139,7 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
                 lists: Mutex::new(Default::default()),
                 user: Mutex::new(None),
                 web_api_down_until: Mutex::new(None),
+                server: std::sync::OnceLock::new(),
             })
         })
         .clone()
@@ -248,6 +252,16 @@ impl Spotify {
     }
 
     /// Signed in: credentials for a session exist.
+    /// Tell the service which server it plays for (at start).
+    pub fn attach(&self, server: &Arc<crate::server::Server>) {
+        let _ = self.server.set(Arc::downgrade(server));
+    }
+
+    /// The server it plays for.
+    pub fn server(&self) -> std::sync::Weak<crate::server::Server> {
+        self.server.get().cloned().unwrap_or_default()
+    }
+
     pub fn signed_in(&self) -> bool {
         self.dir.join("credentials.json").exists() || self.oauth.lock().is_some()
     }

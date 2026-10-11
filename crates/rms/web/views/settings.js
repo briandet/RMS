@@ -2,7 +2,7 @@
 
 import {
   serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
-  getSpotify, spotifyLogin, spotifyLogout,
+  getSpotify, spotifyLogin, spotifyLogout, patchSpotify, forgetSpotifyLearned,
 } from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
@@ -189,6 +189,7 @@ export function render(node, { ctx }) {
     if (st.signed_in) {
       clearInterval(spotifyPoll);
       const normId = fieldId();
+      const learnId = fieldId();
       spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
@@ -199,6 +200,20 @@ export function render(node, { ctx }) {
           h('input', { id: normId, type: 'checkbox', checked: !!settings?.spotify_normalisation, disabled: !settings,
             onchange: (e) => saveServer({ spotify_normalisation: e.target.checked }) }),
           h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
+        h('div', { class: 'field check' },
+          h('input', { id: learnId, type: 'checkbox', checked: !!st.learn, onchange: async (e) => {
+            try { await patchSpotify({ learn: e.target.checked }); } catch (err) { toast(`Could not save: ${err.message}`, 'error'); }
+            renderSpotify();
+          } }),
+          h('label', { for: learnId }, 'Use what I play in mixes',
+            h('span', { class: 'muted small block' },
+              'Learns how each track you play to the end sounds (tempo, key, timbre — no audio is kept), so Create Mix and Don’t Stop The Music can pick Spotify tracks next to your own. ',
+              `${st.learned} track${st.learned === 1 ? '' : 's'} learned.`))),
+        st.learned ? h('div', { class: 'button-row' }, h('button', { class: 'btn btn-small', type: 'button', onclick: async () => {
+          if (!confirm('Forget every learned Spotify track?')) return;
+          try { await forgetSpotifyLearned(); toast('Forgotten'); } catch (err) { toast(`Could not forget: ${err.message}`, 'error'); }
+          renderSpotify();
+        } }, 'Forget learned tracks')) : null,
         h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
         spotifyClientIdField(settings),
         ...spotifySignIn('Sign in again (keeps playback working)', false),
@@ -361,7 +376,33 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField);
+    // MusicBrainz identification, and AcoustID for recognising recordings by their sound
+    const mbId = fieldId();
+    const keyId = fieldId();
+    const mbOn = !!settings.musicbrainz;
+    const progress = mbOn
+      ? `${settings.musicbrainz_identified ?? 0} identified${settings.musicbrainz_pending ? `, ${settings.musicbrainz_pending} to look up` : ''}.`
+      : '';
+    const mbField = h('div', { class: 'field check' },
+      h('input', { id: mbId, type: 'checkbox', checked: mbOn, onchange: async (e) => {
+        await saveServer({ musicbrainz: e.target.checked },
+          e.target.checked ? 'Recordings will be identified on MusicBrainz in the background' : 'MusicBrainz lookups off');
+        renderLibrary();
+      } }),
+      h('label', { for: mbId }, 'Identify recordings with MusicBrainz',
+        h('span', { class: 'muted small block' },
+          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs. Your files are never changed and tags always win. One lookup a second, so a large library takes some hours the first time. ',
+          progress)));
+    const keyInput = h('input', { id: keyId, type: 'text', value: settings.acoustid_key ?? '', placeholder: 'AcoustID application key', spellcheck: 'false', autocomplete: 'off' });
+    const keyForm = h('form', { class: 'field inline', hidden: !mbOn, onsubmit: async (e) => {
+      e.preventDefault();
+      await saveServer({ acoustid_key: keyInput.value.trim() }, 'AcoustID key saved');
+    } }, h('label', { for: keyId }, 'AcoustID key (optional)'),
+    h('p', { class: 'muted small' }, 'Recognises recordings by their sound, for files with poor or no tags. Get a free key at ',
+      h('a', { href: 'https://acoustid.org/new-application', target: '_blank', rel: 'noopener' }, 'acoustid.org'), '.'),
+    h('div', { class: 'inline-row' }, keyInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm);
   }
 
   // ---------------------------------------------------------------- scan

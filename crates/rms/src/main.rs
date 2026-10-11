@@ -45,6 +45,9 @@ async fn main() -> anyhow::Result<()> {
 
     let server = server::Server::new(config.clone())?;
     if !config.scan_only {
+        if let Some(sp) = crate::plugins::spotify::get() {
+            sp.attach(&server);
+        }
         crate::plugins::spotify::connect::start(&server);
     }
     let dirs = server.prefs.server.get_string_list("mediadirs");
@@ -87,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(web::cometd::run(server.clone()));
     tokio::spawn(plugins::alarm::run(server.clone()));
     tokio::spawn(plugins::dstm::run(server.clone()));
+    tokio::spawn(plugins::musicbrainz::run(server.clone()));
     tokio::spawn(display::run(server.clone()));
     tokio::spawn(control::jive::run(server.clone()));
     watch::start(&server);

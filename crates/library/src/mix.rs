@@ -10,6 +10,9 @@
 //!   the same recording as one already in the mix, the seeds or the queue are left out.  Once the library has
 //!   been through sonic analysis ([`crate::sonic`]), songs that sound like the seeds join the
 //!   candidates and how close they sound counts most in the score.
+//! * Streamed tracks RMS has learned ([`crate::remote`], negative ids) can join a similar-songs
+//!   mix too: those that sound like the seeds or are by the seeds' artists, unless the library
+//!   has the same song.
 
 use crate::config::{ROLE_ALBUMARTIST, ROLE_ARTIST, ROLE_TRACKARTIST};
 use crate::Library;
@@ -165,8 +168,20 @@ impl Library {
         query_ids(&c, &sql, &[id])
     }
 
-    /// Up to `n` songs similar to `seeds`, none of `exclude`.
+    /// Up to `n` library songs similar to `seeds`, none of `exclude`.
     pub fn similar_tracks(&self, seeds: &[i64], n: usize, exclude: &HashSet<i64>) -> Vec<i64> {
+        self.similar_tracks_with(seeds, n, exclude, false)
+    }
+
+    /// Up to `n` songs similar to `seeds`, none of `exclude`; with `remote`, learned streamed
+    /// tracks too (negative ids, [`crate::remote`]).  Seeds may be remote tracks.
+    pub fn similar_tracks_with(
+        &self,
+        seeds: &[i64],
+        n: usize,
+        exclude: &HashSet<i64>,
+        remote: bool,
+    ) -> Vec<i64> {
         let Ok(c) = self.conn() else {
             return Vec::new();
         };
@@ -209,6 +224,11 @@ impl Library {
             pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
         }
         profile.sound = sound.map(|s| s.rank);
+        if remote {
+            pool.extend(remote_by_artists(&c, &profile, seeds));
+        } else {
+            pool.retain(|id| !crate::remote::is_remote(*id));
+        }
         if pool.len() < 4 * n {
             let sql = "SELECT id FROM tracks ORDER BY RANDOM() LIMIT ?";
             pool.extend(query_ids(&c, sql, &[(4 * n) as i64]));
@@ -216,8 +236,12 @@ impl Library {
         let seed_set: HashSet<i64> = seeds.iter().copied().collect();
         let mut seen = HashSet::new();
         pool.retain(|id| !exclude.contains(id) && !seed_set.contains(id) && seen.insert(*id));
+        // the library's copy of a streamed song is the one to play
+        let owned = self.remote_with_local_copy(&pool);
+        pool.retain(|id| !owned.contains(id));
 
         let candidates = load_candidates(&c, &pool);
+        let candidates = self.with_remote_genres(&c, candidates);
         let mut avoid: Vec<i64> = seeds.to_vec();
         avoid.extend(exclude.iter().filter(|id| !seed_set.contains(id)));
         let duplicate = |a: i64, b: i64| {
@@ -252,12 +276,17 @@ pub struct Candidate {
     pub last_played: Option<i64>,
     /// 0..100
     pub rating: i64,
+    /// A streamed track: its genres are unknown.
+    pub remote: bool,
 }
 
 /// Tracks with their artists, genres and play statistics.
 fn load_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::with_capacity(ids.len());
-    for chunk in ids.chunks(500) {
+    let (remote, local): (Vec<i64>, Vec<i64>) =
+        ids.iter().partition(|id| crate::remote::is_remote(**id));
+    out.extend(load_remote_candidates(c, &remote));
+    for chunk in local.chunks(500) {
         let sql = format!(
             "SELECT tracks.id, tracks.album_id, tracks.year, \
                (SELECT GROUP_CONCAT(artist_id) FROM track_artists WHERE track_id = tracks.id \
@@ -285,6 +314,7 @@ fn load_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
                 play_count: r.get::<_, Option<i64>>(5)?.unwrap_or(0),
                 last_played: r.get(6)?,
                 rating: r.get::<_, Option<i64>>(7)?.unwrap_or(0),
+                remote: false,
             })
         });
         if let Ok(rows) = rows {
@@ -295,6 +325,117 @@ fn load_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
     let pos: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
     out.sort_by_key(|t| pos.get(&t.id).copied().unwrap_or(usize::MAX));
     out
+}
+
+/// Streamed tracks as candidates: their artists as the library's artists of the same names,
+/// their album as a key of its own (negative, apart from the library's album ids).
+fn load_remote_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
+    let Ok(mut st) = c.prepare_cached(
+        "SELECT r.artist_keys, r.album, r.year, s.play_count, s.last_played, s.rating \
+         FROM remote_tracks r LEFT JOIN track_stats s ON s.url = r.url WHERE r.id = ?",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(mut artist) = c.prepare_cached("SELECT id FROM artists WHERE name_search = ?") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for id in ids {
+        let row = st.query_row([-id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<i64>>(4)?,
+                r.get::<_, Option<i64>>(5)?,
+            ))
+        });
+        let Ok((keys, album, year, plays, last, rating)) = row else {
+            continue;
+        };
+        let artists: Vec<i64> = keys
+            .split('|')
+            .filter(|k| !k.is_empty())
+            .filter_map(|k| artist.query_row([k], |r| r.get(0)).ok())
+            .collect();
+        let album = album.map(|a| {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (a.to_lowercase(), keys.split('|').nth(1).unwrap_or("")).hash(&mut h);
+            -((h.finish() >> 2) as i64) - 1
+        });
+        out.push(Candidate {
+            id: *id,
+            album,
+            artists,
+            genres: Vec::new(),
+            year: year.filter(|y| *y > 0),
+            play_count: plays.unwrap_or(0),
+            last_played: last,
+            rating: rating.unwrap_or(0),
+            remote: true,
+        });
+    }
+    out
+}
+
+impl Library {
+    /// Streamed tracks' genres as the library's genres of the same names (from MusicBrainz).
+    fn with_remote_genres(&self, c: &Connection, mut cands: Vec<Candidate>) -> Vec<Candidate> {
+        let cfg = self.config();
+        let rules = crate::text::TextRules::new(&cfg.ignored_articles, &cfg.split_list);
+        let Ok(mut fp) = c.prepare_cached("SELECT fingerprint FROM remote_tracks WHERE id = ?")
+        else {
+            return cands;
+        };
+        let Ok(mut genre) = c.prepare_cached("SELECT id FROM genres WHERE name_search = ?") else {
+            return cands;
+        };
+        for cand in cands.iter_mut().filter(|c| c.remote) {
+            let Ok(f) = fp.query_row([-cand.id], |r| r.get::<_, String>(0)) else {
+                continue;
+            };
+            cand.genres = self
+                .musicbrainz_genres(&f)
+                .iter()
+                .filter_map(|g| genre.query_row([rules.search_key(g)], |r| r.get(0)).ok())
+                .collect();
+        }
+        cands
+    }
+}
+
+/// Streamed tracks by the seeds' artists (local seeds' artists matched by name).
+fn remote_by_artists(c: &Connection, p: &Profile, seeds: &[i64]) -> Vec<i64> {
+    let mut keys: HashSet<String> = HashSet::new();
+    if let Ok(mut st) = c.prepare_cached("SELECT name_search FROM artists WHERE id = ?") {
+        for a in p.artists.keys() {
+            if let Ok(k) = st.query_row([a], |r| r.get::<_, String>(0)) {
+                keys.insert(k);
+            }
+        }
+    }
+    if let Ok(mut st) = c.prepare_cached("SELECT artist_keys FROM remote_tracks WHERE id = ?") {
+        for s in seeds.iter().filter(|s| crate::remote::is_remote(**s)) {
+            if let Ok(k) = st.query_row([-s], |r| r.get::<_, String>(0)) {
+                keys.extend(k.split('|').filter(|k| !k.is_empty()).map(str::to_string));
+            }
+        }
+    }
+    let Ok(mut st) = c.prepare_cached(
+        "SELECT -id FROM remote_tracks WHERE instr(artist_keys, '|' || ? || '|') > 0 \
+         ORDER BY RANDOM() LIMIT 200",
+    ) else {
+        return Vec::new();
+    };
+    keys.iter()
+        .flat_map(|k| {
+            st.query_map([k], |r| r.get::<_, i64>(0))
+                .map(|rows| rows.flatten().collect::<Vec<_>>())
+                .unwrap_or_default()
+        })
+        .collect()
 }
 
 /// Artists played within an hour of the seed artists' songs (by last-played time), and
@@ -387,7 +528,12 @@ impl Profile {
         if !self.genres.is_empty() {
             let total: f64 = self.genres.values().sum();
             let shared: f64 = c.genres.iter().filter_map(|g| self.genres.get(g)).sum();
-            s += 3.0 * shared / total;
+            // a streamed track's genres are unknown: neither a match nor a miss
+            s += if c.remote && c.genres.is_empty() {
+                1.5
+            } else {
+                3.0 * shared / total
+            };
         }
         // same artist as a seed, or one played / appearing with them
         let same = c

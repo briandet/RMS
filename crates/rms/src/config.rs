@@ -45,6 +45,23 @@ pub struct Config {
     #[arg(long, env = "RMS_TLS_KEY", requires = "tls_cert")]
     pub tls_key: Option<PathBuf>,
 
+    /// MusicBrainz web service to identify recordings with (a local mirror needs no rate limit).
+    #[arg(
+        long,
+        env = "RMS_MUSICBRAINZ_URL",
+        default_value = "https://musicbrainz.org"
+    )]
+    pub musicbrainz_url: String,
+
+    /// AcoustID web service, for recognising recordings by their sound.
+    #[arg(
+        long,
+        env = "RMS_ACOUSTID_URL",
+        default_value = "https://api.acoustid.org",
+        hide = true
+    )]
+    pub acoustid_url: String,
+
     /// Telnet CLI port.  Overrides the saved preference when given.
     #[arg(long, env = "RMS_CLI_PORT")]
     pub cli_port: Option<u16>,
