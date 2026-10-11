@@ -1532,7 +1532,9 @@
   "GET /api/v1/spotify (no spotify)": {
     "status": 200,
     "body": {
-      "signed_in": false
+      "signed_in": false,
+      "learn": true,
+      "learned": 0
     }
   }
 }

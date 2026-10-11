@@ -1069,7 +1069,8 @@ fn full_text_search() {
     assert_eq!(titles_found(&f.lib, "mp3 song"), ["The Mp3 Song"]);
 }
 
-/// A database from before the search index gets it, filled, when it is opened.
+/// A database from before the search index (and the later versions) gets it, filled, when it
+/// is opened.
 #[test]
 fn the_search_index_is_built_for_an_older_database() {
     need_ffmpeg!();
@@ -1086,12 +1087,22 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TRIGGER albums_fts_delete; DROP TRIGGER albums_fts_update;
              DROP TRIGGER artists_fts_insert; DROP TRIGGER artists_fts_delete;
              DROP TRIGGER artists_fts_update;
+             DROP TABLE remote_tracks; DROP TABLE track_rhythm; DROP TABLE track_chromaprint;
+             DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
         )
         .unwrap();
     }
     let lib = Library::open(&db, &f.dir.path().join("cache")).unwrap();
     assert_eq!(titles_found(&lib, "mp3"), ["The Mp3 Song"]);
+    // and version 3's tables
+    let c = rusqlite::Connection::open(&db).unwrap();
+    for t in ["remote_tracks", "track_rhythm", "track_chromaprint"] {
+        let n: i64 = c
+            .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+    }
 }
 
 #[test]
