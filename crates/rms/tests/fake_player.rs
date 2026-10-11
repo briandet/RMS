@@ -922,3 +922,207 @@ fn dont_stop_the_music_adds_songs_and_create_mix_plays_a_mix() {
     let first = cli(server.cli, &format!("{MAC_S} playlist path 0 ?"));
     assert_eq!(first.last(), Some(seed_url), "{first:?}");
 }
+
+/// HTTP/1.0 request with a JSON body; returns status and body.
+fn http_json(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let body = body.unwrap_or("");
+    write!(
+        s,
+        "{} {} HTTP/1.0\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        method,
+        path,
+        body.len(),
+        body
+    )
+    .unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    let status = resp
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    let body = resp[resp.find("\r\n\r\n").unwrap() + 4..].to_string();
+    (status, body)
+}
+
+/// Reads `/api/v1/events` on a thread and hands over `(event, data)` pairs.
+struct Events {
+    rx: std::sync::mpsc::Receiver<(String, serde_json::Value)>,
+}
+
+impl Events {
+    fn open(port: u16) -> Events {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        // HTTP/1.0: the body is the raw stream, no chunked encoding
+        write!(
+            s,
+            "GET /api/v1/events HTTP/1.0\r\nAccept: text/event-stream\r\n\r\n"
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut r = BufReader::new(s);
+            let mut line = String::new();
+            // headers
+            loop {
+                line.clear();
+                if r.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            let (mut event, mut data) = (String::new(), String::new());
+            loop {
+                line.clear();
+                if r.read_line(&mut line).unwrap_or(0) == 0 {
+                    return;
+                }
+                let l = line.trim_end_matches(['\r', '\n']);
+                if let Some(v) = l.strip_prefix("event:") {
+                    event = v.trim().to_string();
+                } else if let Some(v) = l.strip_prefix("data:") {
+                    data.push_str(v.trim_start());
+                } else if l.is_empty() && !data.is_empty() {
+                    let json = serde_json::from_str(&data).expect("event data is JSON");
+                    if tx.send((std::mem::take(&mut event), json)).is_err() {
+                        return;
+                    }
+                    data.clear();
+                }
+            }
+        });
+        Events { rx }
+    }
+
+    fn next(&self, timeout: Duration) -> (String, serde_json::Value) {
+        self.rx.recv_timeout(timeout).expect("event")
+    }
+
+    /// Wait for a `player` event matching `pred`; returns the player.
+    fn player_where(&self, pred: impl Fn(&serde_json::Value) -> bool) -> serde_json::Value {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let (name, data) = self.next(left);
+            if name == "player" && pred(&data["player"]) {
+                return data["player"].clone();
+            }
+        }
+    }
+}
+
+#[test]
+fn native_api_pushes_player_state() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let events = Events::open(server.http);
+    let (name, snap) = events.next(Duration::from_secs(5));
+    assert_eq!(name, "snapshot");
+    assert_eq!(snap["type"], "snapshot");
+    assert!(snap["server"]["version"].is_string());
+    assert_eq!(snap["players"], serde_json::json!([]));
+
+    // a player connects and names itself: pushed without asking
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"setd", Duration::from_secs(5));
+    p.send(b"SETD", b"\0Kitchen\0");
+    let pl = events.player_where(|p| p["name"] == "Kitchen");
+    assert_eq!(pl["id"], MAC_S);
+    assert_eq!(pl["connected"], true);
+    assert_eq!(pl["mode"], "stop");
+    assert_eq!(pl["queue"]["length"], 0);
+
+    // play a folder through the command endpoint
+    let cmd = |body: serde_json::Value| {
+        http_json(
+            server.http,
+            "POST",
+            &format!("/api/v1/players/{MAC_S}/command"),
+            Some(&body.to_string()),
+        )
+    };
+    let dir = music.path().to_str().unwrap();
+    let (code, body) = cmd(serde_json::json!({
+        "command": "enqueue", "item": {"type": "url", "url": dir}, "mode": "play"
+    }));
+    assert_eq!(code, 200, "{body}");
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    let pl = events.player_where(|p| {
+        p["mode"] == "play" && p["buffering"] == false && p["queue"]["length"] == 3
+    });
+    assert_eq!(pl["power"], true);
+    assert_eq!(pl["queue"]["index"], 0);
+    assert_eq!(pl["now_playing"]["title"], "01 track");
+
+    // pause and volume arrive as events too
+    assert_eq!(cmd(serde_json::json!({"command": "pause"})).0, 200);
+    p.expect_strm(b'p', Duration::from_secs(5));
+    events.player_where(|p| p["mode"] == "pause");
+    assert_eq!(
+        cmd(serde_json::json!({"command": "volume", "value": 25})).0,
+        200
+    );
+    p.expect(b"audg", Duration::from_secs(5));
+    events.player_where(|p| p["volume"] == 25);
+
+    // reordering the queue changes its version
+    let before = pl["queue"]["version"].as_f64().unwrap();
+    assert_eq!(
+        cmd(serde_json::json!({"command": "move", "from": 2, "to": 1})).0,
+        200
+    );
+    let pl = events.player_where(|p| p["queue"]["version"].as_f64() != Some(before));
+    assert_eq!(pl["queue"]["length"], 3);
+
+    // the queue itself is a resource
+    let (code, body) = http_json(
+        server.http,
+        "GET",
+        &format!("/api/v1/players/{MAC_S}/queue"),
+        None,
+    );
+    assert_eq!(code, 200);
+    let q: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let titles: Vec<&str> = q["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles, ["01 track", "03 track", "02 track"]);
+    let (_, body) = http_json(
+        server.http,
+        "GET",
+        &format!("/api/v1/players/{MAC_S}/queue?offset=1&limit=1"),
+        None,
+    );
+    let q: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(q["offset"], 1);
+    assert_eq!(q["items"].as_array().unwrap().len(), 1);
+
+    // errors
+    assert_eq!(
+        cmd(serde_json::json!({"command": "jump", "index": 9})).0,
+        400
+    );
+    assert_eq!(cmd(serde_json::json!({"command": "dance"})).0, 400);
+    let (code, _) = http_json(
+        server.http,
+        "GET",
+        "/api/v1/players/00:00:00:00:00:99",
+        None,
+    );
+    assert_eq!(code, 404);
+    let (code, body) = http_json(server.http, "GET", "/api/v1/players", None);
+    assert_eq!(code, 200);
+    let list: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(list[0]["name"], "Kitchen");
+
+    // the player going away is pushed too
+    drop(p);
+    events.player_where(|p| p["connected"] == false);
+}

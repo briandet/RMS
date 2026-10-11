@@ -1,20 +1,24 @@
-// Shared application state plus a tiny pub/sub bus.
+// Shared application state plus a tiny pub/sub bus.  Player and server objects are the
+// native API's (docs/api.md), kept current by the server's event stream.
 //
 // Events:
-//   'players'  players list changed           (store.players)
+//   'players'  players list changed (added, removed, renamed, connected, power)  (store.players)
 //   'player'   selected player changed        (store.playerId)
-//   'status'   new status for selected player (store.status)
+//   'status'   state of the selected player changed                          (currentPlayer())
 //   'queue'    queue contents changed         (store.queue)
-//   'server'   new serverstatus               (store.server)
+//   'server'   server info changed            (store.server)
 //   'online'   connectivity changed           (store.online)
 
 export const store = {
   players: [],
   playerId: null,
   server: null,
-  status: null,
-  statusAt: 0, // performance.now() when status was received (for time interpolation)
+  /** performance.now() when each player's state arrived (for time interpolation), by id. */
+  receivedAt: new Map(),
+  /** Tracks of the selected player's queue. */
   queue: [],
+  /** `queue.version` / `queue.length` the queue was fetched for. */
+  queueKey: null,
   online: true,
 };
 
@@ -32,29 +36,31 @@ export function emit(event, payload) {
   }
 }
 
+/** The selected player's state, or null. */
 export function currentPlayer() {
-  return store.players.find((p) => p.playerid === store.playerId) || null;
+  return store.players.find((p) => p.id === store.playerId) || null;
 }
 
-/** Current track item (from `status - 1`), or null. */
+/** Track playing (or about to play) on the selected player, or null. */
 export function currentTrack() {
-  return store.status?.playlist_loop?.[0] || null;
+  return currentPlayer()?.now_playing || null;
 }
 
-/** Elapsed seconds, interpolated locally while playing. */
+/** Elapsed seconds on the selected player, interpolated locally while playing. */
 export function elapsed() {
-  const s = store.status;
-  if (!s) return 0;
-  let t = +s.time || 0;
-  if (s.mode === 'play') t += (performance.now() - store.statusAt) / 1000;
-  const d = +s.duration || 0;
+  const p = currentPlayer();
+  if (!p) return 0;
+  let t = p.elapsed || 0;
+  if (p.mode === 'play' && !p.buffering) t += (performance.now() - (store.receivedAt.get(p.id) || 0)) / 1000;
+  const d = p.duration || 0;
   return d > 0 ? Math.min(t, d) : t;
 }
 
-/** Apply a local optimistic change to the status and notify listeners. */
-export function patchStatus(patch) {
-  if (!store.status) return;
-  if ('time' in patch) store.statusAt = performance.now();
-  Object.assign(store.status, patch);
-  emit('status', store.status);
+/** Apply a local optimistic change to the selected player and notify listeners. */
+export function patchPlayer(patch) {
+  const p = currentPlayer();
+  if (!p) return;
+  if ('elapsed' in patch) store.receivedAt.set(p.id, performance.now());
+  Object.assign(p, patch);
+  emit('status', p);
 }

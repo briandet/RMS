@@ -1,8 +1,8 @@
 // Play queue: highlight current, click to jump, remove, drag (or arrow keys) to reorder, clear.
 
-import { store, on, emit, patchStatus } from '../store.js';
+import { store, on, emit, currentPlayer, patchPlayer } from '../store.js';
 import { h, icon, fmtTime, fmtDuration, plural, scrollParent } from '../util.js';
-import { itemArt } from '../api.js';
+import { sizedArtwork } from '../api.js';
 
 let ctx;
 const el = {};
@@ -39,7 +39,7 @@ function render() {
   const hasPlayer = !!store.playerId;
   el.empty.hidden = q.length > 0 || !hasPlayer;
   el.clear.hidden = !q.length;
-  const total = q.reduce((s, t) => s + (+t.duration || 0), 0);
+  const total = q.reduce((s, t) => s + (t.duration || 0), 0);
   el.info.textContent = q.length ? `${plural(q.length, 'track')}${total ? ' · ' + fmtDuration(total) : ''}` : '';
 
   const frag = document.createDocumentFragment();
@@ -49,12 +49,11 @@ function render() {
   updateCurrent();
 }
 
-function item(t, i) {
-  const idx = t['playlist index'] ?? i;
+function item(t, idx) {
   const title = t.title || t.url || 'Untitled';
   const sub = [t.artist, t.album].filter(Boolean).join(' · ');
-  const art = itemArt(t, 100);
-  const thumb = h('span', { class: 'art thumb' }, icon(+t.remote ? 'radio' : 'album', 'icon art-fallback'));
+  const art = sizedArtwork(t.artwork, 100);
+  const thumb = h('span', { class: 'art thumb' }, icon(t.remote ? 'radio' : 'album', 'icon art-fallback'));
   if (art) {
     const img = h('img', { alt: '', loading: 'lazy', decoding: 'async', src: art, draggable: 'false' });
     img.addEventListener('load', () => thumb.classList.add('loaded'));
@@ -66,13 +65,12 @@ function item(t, i) {
     h('button', { class: 'q-main', type: 'button', 'aria-label': `Play ${title}${t.artist ? ' by ' + t.artist : ''}` },
       thumb,
       h('span', { class: 'q-text' }, h('span', { class: 'q-title' }, title), sub && h('span', { class: 'q-sub' }, sub))),
-    h('span', { class: 'q-dur' }, +t.duration ? fmtTime(t.duration) : ''),
+    h('span', { class: 'q-dur' }, t.duration ? fmtTime(t.duration) : ''),
     h('button', { class: 'icon-btn q-remove', type: 'button', 'aria-label': `Remove ${title} from queue`, title: 'Remove' }, icon('close')));
 }
 
 function updateCurrent() {
-  const st = store.status;
-  const idx = st && (+st.playlist_tracks || 0) > 0 ? +st.playlist_cur_index : -1;
+  const idx = currentPlayer()?.queue.index ?? -1;
   if (idx === currentIndex) return;
   el.list.querySelector('.current')?.classList.remove('current');
   el.list.querySelector('[aria-current]')?.removeAttribute('aria-current');
@@ -96,16 +94,15 @@ function onClick(e) {
   const idx = +li.dataset.index;
   if (e.target.closest('.q-remove')) {
     // Optimistic removal; indices after it shift down by one.
-    const q = store.queue.filter((t, i) => (t['playlist index'] ?? i) !== idx);
-    q.forEach((x, i) => { x['playlist index'] = i; });
-    const cur = +store.status?.playlist_cur_index;
-    if (store.status && cur > idx) store.status.playlist_cur_index = cur - 1;
-    store.queue = q;
-    emit('queue', q);
-    ctx.cmd('playlist', 'delete', idx).then(() => ctx.refreshQueue());
+    store.queue = store.queue.filter((t, i) => i !== idx);
+    const p = currentPlayer();
+    if (p && p.queue.index > idx) p.queue.index -= 1;
+    emit('queue', store.queue);
+    ctx.send({ command: 'remove', index: idx }).then((r) => { if (!r) ctx.refreshQueue(); });
   } else if (e.target.closest('.q-main')) {
-    patchStatus({ playlist_cur_index: idx, time: 0 });
-    ctx.cmd('playlist', 'index', idx);
+    const p = currentPlayer();
+    if (p) patchPlayer({ queue: { ...p.queue, index: idx }, elapsed: 0 });
+    ctx.send({ command: 'jump', index: idx });
   }
 }
 
@@ -114,7 +111,7 @@ function clearQueue() {
   if (!confirm(`Remove all ${store.queue.length} tracks from the queue?`)) return;
   store.queue = [];
   emit('queue', store.queue);
-  ctx.cmd('playlist', 'clear').then(() => ctx.refreshQueue());
+  ctx.send({ command: 'clear' }).then((r) => { if (!r) ctx.refreshQueue(); });
 }
 
 /** Reorder locally (optimistic), then tell the server. */
@@ -123,19 +120,19 @@ function move(from, to) {
   const q = store.queue.slice();
   const [t] = q.splice(from, 1);
   q.splice(to, 0, t);
-  q.forEach((x, i) => { x['playlist index'] = i; });
   // Keep the "current" highlight on the same track.
-  const cur = +store.status?.playlist_cur_index;
-  if (store.status && Number.isFinite(cur)) {
+  const p = currentPlayer();
+  const cur = p?.queue.index;
+  if (Number.isFinite(cur)) {
     let n = cur;
     if (cur === from) n = to;
     else if (from < cur && to >= cur) n = cur - 1;
     else if (from > cur && to <= cur) n = cur + 1;
-    store.status.playlist_cur_index = n;
+    p.queue.index = n;
   }
   store.queue = q;
   emit('queue', q);
-  ctx.cmd('playlist', 'move', from, to).then(() => ctx.refreshQueue());
+  ctx.send({ command: 'move', from, to }).then((r) => { if (!r) ctx.refreshQueue(); });
 }
 
 function onKeyDown(e) {

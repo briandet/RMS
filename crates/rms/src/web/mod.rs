@@ -28,6 +28,7 @@ pub fn router(server: Arc<Server>) -> Router {
             "/jsonrpc.js",
             post(jsonrpc::handle_post).get(jsonrpc::handle_get),
         )
+        .merge(crate::api::router())
         .route("/cometd", any(cometd::handle))
         .route("/cometd/{*rest}", any(cometd::handle))
         .route("/music/{id}/{spec}", get(artwork::music))
