@@ -17,11 +17,7 @@ pub fn remote_id(url: &str) -> i64 {
 /// Render one track.  `song` (when given) supplies live metadata for remote streams.
 pub fn song_row(server: &Server, entry: &Entry, song: Option<&Song>, tags: &str) -> Row {
     if !crate::util::is_remote_url(&entry.url) {
-        let t = entry
-            .track_id
-            .and_then(|id| server.library.track(id))
-            .or_else(|| server.library.track_by_url(&entry.url));
-        if let Some(t) = t {
+        if let Some(t) = server.library_track(entry) {
             return server.library.track_row(&t, tags);
         }
         let mut r = Row::new();

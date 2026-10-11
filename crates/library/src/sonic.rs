@@ -6,8 +6,8 @@
 //! * [`Library::analyze_pending`] runs in the background after a scan: it decodes each local
 //!   track that has no current analysis (in-process with symphonia, or with ffmpeg for formats
 //!   symphonia lacks and for cue-sheet tracks) and stores the features in `track_analysis`,
-//!   keyed by `urlmd5` with the file's mtime and size so changed files are redone.  The same
-//!   pass measures loudness for ReplayGain ([`crate::loudness`]).
+//!   keyed by the track's audio fingerprint, so a changed file is redone and a moved one is
+//!   not.  The same pass measures loudness for ReplayGain ([`crate::loudness`]).
 //! * [`Index`] holds every analysed track's features in memory for nearest-neighbour search
 //!   with bliss's weighted distance; the mixer uses it to rank candidates and to leave out
 //!   [near duplicates](Index::near_duplicate).
@@ -47,11 +47,9 @@ const DUPLICATE_DISTANCE: f32 = 0.12;
 /// A track waiting for analysis.
 #[derive(Debug, Clone)]
 struct Job {
-    urlmd5: String,
+    fingerprint: String,
     url: String,
     path: PathBuf,
-    timestamp: Option<i64>,
-    filesize: Option<i64>,
     secs: Option<f64>,
 }
 
@@ -120,13 +118,11 @@ impl Library {
                         let ok = blob.is_some() || loudness.is_some();
                         let _ = c.execute(
                             "INSERT OR REPLACE INTO track_analysis \
-                               (urlmd5, version, timestamp, filesize, features, loudness, peak, analyzed) \
-                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                               (fingerprint, version, features, loudness, peak, analyzed_at) \
+                             VALUES (?, ?, ?, ?, ?, ?)",
                             params![
-                                job.urlmd5,
+                                job.fingerprint,
                                 version(),
-                                job.timestamp,
-                                job.filesize,
                                 blob,
                                 loudness.map(|l| l.lufs),
                                 loudness.map(|l| l.peak),
@@ -161,7 +157,7 @@ impl Library {
         };
         c.query_row(
             &format!(
-                "SELECT COUNT(*), COUNT(a.features), COUNT(a.urlmd5) - COUNT(a.features), \
+                "SELECT COUNT(*), COUNT(a.features), COUNT(a.fingerprint) - COUNT(a.features), \
                    COUNT(a.loudness) \
                  FROM tracks t LEFT JOIN track_analysis a ON {CURRENT} WHERE {LOCAL}"
             ),
@@ -179,17 +175,16 @@ impl Library {
     }
 }
 
-/// Local audio files (and cue-sheet tracks in them).
-const LOCAL: &str = "t.audio = 1 AND IFNULL(t.remote, 0) = 0 AND t.url LIKE 'file:%' \
-     AND t.content_type NOT IN ('cpl', 'src', 'ssp', 'dir')";
-/// Joins the analysis of `t` that is still valid for its file (bind the version).
-const CURRENT: &str = "a.urlmd5 = t.urlmd5 AND a.version = ? \
-     AND a.timestamp IS t.timestamp AND a.filesize IS t.filesize";
+/// Tracks that can be analysed.
+const LOCAL: &str = "t.fingerprint IS NOT NULL";
+/// Joins the analysis of `t`'s audio (bind the version).
+pub(crate) const CURRENT: &str = "a.fingerprint = t.fingerprint AND a.version = ?";
 
 fn pending(c: &Connection) -> Vec<Job> {
     let sql = format!(
-        "SELECT t.urlmd5, t.url, t.timestamp, t.filesize, t.secs FROM tracks t \
-         LEFT JOIN track_analysis a ON {CURRENT} WHERE {LOCAL} AND a.urlmd5 IS NULL ORDER BY t.url"
+        "SELECT t.fingerprint, t.url, t.duration FROM tracks t \
+         LEFT JOIN track_analysis a ON {CURRENT} WHERE {LOCAL} AND a.fingerprint IS NULL \
+         GROUP BY t.fingerprint ORDER BY t.url"
     );
     let Ok(mut st) = c.prepare(&sql) else {
         return Vec::new();
@@ -198,23 +193,19 @@ fn pending(c: &Connection) -> Vec<Job> {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,
-            r.get::<_, Option<i64>>(2)?,
-            r.get::<_, Option<i64>>(3)?,
-            r.get::<_, Option<f64>>(4)?,
+            r.get::<_, Option<f64>>(2)?,
         ))
     });
     let Ok(rows) = rows else {
         return Vec::new();
     };
     rows.flatten()
-        .filter_map(|(urlmd5, url, timestamp, filesize, secs)| {
+        .filter_map(|(fingerprint, url, secs)| {
             let path = path_from_file_url(&url)?;
             Some(Job {
-                urlmd5,
+                fingerprint,
                 url,
                 path,
-                timestamp,
-                filesize,
                 secs,
             })
         })

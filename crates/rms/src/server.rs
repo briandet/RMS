@@ -661,6 +661,15 @@ impl Server {
         }
     }
 
+    /// The library track of a playlist entry.  The entry's URL decides: its stored track id
+    /// is only a shortcut, and after a rescan or wipe it may name another track.
+    pub fn library_track(&self, e: &Entry) -> Option<rms_library::Track> {
+        e.track_id
+            .and_then(|id| self.library.track(id))
+            .filter(|t| t.url == e.url)
+            .or_else(|| self.library.track_by_url(&e.url))
+    }
+
     /// Metadata for a playlist entry (`Slim::Schema::objectForUrl`).
     pub fn track_info_for(&self, e: &Entry) -> TrackInfo {
         if crate::plugins::spotify::is_spotify(&e.url) {
@@ -684,11 +693,7 @@ impl Server {
                 ..Default::default()
             };
         }
-        let t = e
-            .track_id
-            .and_then(|id| self.library.track(id))
-            .or_else(|| self.library.track_by_url(&e.url));
-        match t {
+        match self.library_track(e) {
             Some(t) => track_info_from_library(&t),
             None => {
                 // Not (yet) in the library: derive what we can from the file itself.

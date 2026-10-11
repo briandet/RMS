@@ -204,8 +204,7 @@ impl Library {
         let Ok(c) = self.conn() else { return (0, 0) };
         let version = crate::sonic::version();
         const MEASURED: &str = "FROM track_analysis a \
-             WHERE a.urlmd5 = tracks.urlmd5 AND a.version = ? AND a.timestamp IS tracks.timestamp \
-               AND a.filesize IS tracks.filesize AND a.loudness IS NOT NULL";
+             WHERE a.fingerprint = tracks.fingerprint AND a.version = ? AND a.loudness IS NOT NULL";
         let tracks = c
             .execute(
                 &format!(
@@ -227,10 +226,9 @@ impl Library {
         // albums without a gain: (seconds, measurement) of each track
         let mut albums: BTreeMap<i64, Vec<(f64, Option<Loudness>)>> = BTreeMap::new();
         if let Ok(mut st) = c.prepare(
-            "SELECT t.album, t.secs, a.loudness, a.peak FROM tracks t JOIN albums al ON al.id = t.album \
-             LEFT JOIN track_analysis a ON a.urlmd5 = t.urlmd5 AND a.version = ? \
-               AND a.timestamp IS t.timestamp AND a.filesize IS t.filesize \
-             WHERE al.replay_gain IS NULL AND t.audio = 1",
+            "SELECT t.album_id, t.duration, a.loudness, a.peak FROM tracks t JOIN albums al ON al.id = t.album_id \
+             LEFT JOIN track_analysis a ON a.fingerprint = t.fingerprint AND a.version = ? \
+             WHERE al.replay_gain IS NULL",
         ) {
             let rows = st.query_map([version], |r| {
                 Ok((

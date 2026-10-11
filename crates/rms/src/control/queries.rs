@@ -786,7 +786,7 @@ pub fn status(server: &Arc<Server>, r: &mut Request) {
         r.add_result("seq_no", seq);
     }
     if let (Some(n), Some(u)) = (&c.playlist.name, &c.playlist.url) {
-        if let Some(id) = server.library.track_by_url(u).map(|t| t.id) {
+        if let Some(id) = server.library.playlist_id_by_url(u) {
             r.add_result("playlist_id", id);
         }
         r.add_result("playlist_name", n.clone());

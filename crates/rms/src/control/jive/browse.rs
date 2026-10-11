@@ -869,14 +869,8 @@ pub fn bmf_result(results: &Obj) -> ModeResult {
                             u
                         }
                     });
+                    // a playlist's id is not a track id: no track info for it
                     it.playall = true;
-                    it.item_actions = Some(Actions {
-                        info: Some(ActionDef::cmd(
-                            &["trackinfo", "items"],
-                            obj(json!({ "track_id": id })),
-                        )),
-                        ..Default::default()
-                    });
                 }
                 _ => it.kind = Some("text".into()),
             }

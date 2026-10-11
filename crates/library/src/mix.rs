@@ -19,10 +19,6 @@ use rusqlite::{params_from_iter, Connection};
 use std::collections::{HashMap, HashSet};
 use tracing::debug;
 
-/// Audio tracks a mix may contain (`RandomPlay::Mixer::getIdList`).
-const PLAYABLE: &str =
-    "tracks.audio = 1 AND tracks.content_type NOT IN ('cpl', 'src', 'ssp', 'dir')";
-
 /// Largest number of candidates scored for a similar-songs mix.
 const POOL: usize = 3000;
 /// Candidates added for sounding like the seeds.
@@ -63,11 +59,11 @@ impl Library {
         let Ok(c) = self.conn() else {
             return Vec::new();
         };
-        let mut sql = format!("SELECT tracks.id FROM tracks WHERE {PLAYABLE}");
+        let mut sql = String::from("SELECT tracks.id FROM tracks WHERE 1");
         let mut params: Vec<i64> = Vec::new();
         if !genres.is_empty() {
             sql += &format!(
-                " AND tracks.id IN (SELECT track FROM genre_track WHERE genre IN ({}))",
+                " AND tracks.id IN (SELECT track_id FROM track_genres WHERE genre_id IN ({}))",
                 ids_sql(genres.len())
             );
             params.extend(genres);
@@ -88,10 +84,12 @@ impl Library {
     /// A random album with playable tracks, in `genres` when not empty.
     pub fn random_album(&self, genres: &[i64]) -> Option<i64> {
         let c = self.conn().ok()?;
-        let mut sql = format!("SELECT DISTINCT tracks.album FROM tracks WHERE {PLAYABLE} AND tracks.album IS NOT NULL");
+        let mut sql = String::from(
+            "SELECT DISTINCT tracks.album_id FROM tracks WHERE tracks.album_id IS NOT NULL",
+        );
         if !genres.is_empty() {
             sql += &format!(
-                " AND tracks.id IN (SELECT track FROM genre_track WHERE genre IN ({}))",
+                " AND tracks.id IN (SELECT track_id FROM track_genres WHERE genre_id IN ({}))",
                 ids_sql(genres.len())
             );
         }
@@ -103,9 +101,9 @@ impl Library {
     pub fn random_artist(&self) -> Option<i64> {
         let c = self.conn().ok()?;
         let sql = format!(
-            "SELECT DISTINCT contributor_track.contributor FROM contributor_track \
-             JOIN tracks ON tracks.id = contributor_track.track \
-             WHERE {PLAYABLE} AND contributor_track.role IN ({ROLE_ARTIST}, {ROLE_ALBUMARTIST}, {ROLE_TRACKARTIST}) \
+            "SELECT DISTINCT track_artists.artist_id FROM track_artists \
+             JOIN tracks ON tracks.id = track_artists.track_id \
+             WHERE track_artists.role IN ({ROLE_ARTIST}, {ROLE_ALBUMARTIST}, {ROLE_TRACKARTIST}) \
              ORDER BY RANDOM() LIMIT 1"
         );
         query_ids(&c, &sql, &[]).into_iter().next()
@@ -114,10 +112,9 @@ impl Library {
     /// A random year that has songs (`RandomPlay::Mixer::getRandomYear`).
     pub fn random_year(&self) -> Option<i64> {
         let c = self.conn().ok()?;
-        let sql = format!(
-            "SELECT DISTINCT tracks.year FROM tracks WHERE {PLAYABLE} AND tracks.year > 0 ORDER BY RANDOM() LIMIT 1"
-        );
-        query_ids(&c, &sql, &[]).into_iter().next()
+        let sql =
+            "SELECT DISTINCT tracks.year FROM tracks WHERE tracks.year > 0 ORDER BY RANDOM() LIMIT 1";
+        query_ids(&c, sql, &[]).into_iter().next()
     }
 
     /// Genres of the given tracks.
@@ -129,7 +126,7 @@ impl Library {
             return Vec::new();
         }
         let sql = format!(
-            "SELECT DISTINCT genre FROM genre_track WHERE track IN ({})",
+            "SELECT DISTINCT genre_id FROM track_genres WHERE track_id IN ({})",
             ids_sql(tracks.len())
         );
         query_ids(&c, &sql, tracks)
@@ -140,29 +137,28 @@ impl Library {
         let Ok(c) = self.conn() else {
             return Vec::new();
         };
-        let order = "ORDER BY tracks.album, tracks.disc, tracks.tracknum, tracks.id";
+        let order = "ORDER BY tracks.album_id, tracks.disc, tracks.track_number, tracks.id";
         let (sql, id) = match seed {
-            Seed::Track(id) => (format!("SELECT id FROM tracks WHERE id = ? AND {PLAYABLE}"), id),
+            Seed::Track(id) => ("SELECT id FROM tracks WHERE id = ?".to_string(), id),
             Seed::Album(id) => (
-                format!("SELECT id FROM tracks WHERE album = ? AND {PLAYABLE} {order}"),
+                format!("SELECT id FROM tracks WHERE album_id = ? {order}"),
                 id,
             ),
             Seed::Artist(id) => (
                 format!(
-                    "SELECT DISTINCT tracks.id FROM tracks JOIN contributor_track ON contributor_track.track = tracks.id \
-                     WHERE contributor_track.contributor = ? AND {PLAYABLE} {order}"
+                    "SELECT DISTINCT tracks.id FROM tracks JOIN track_artists ON track_artists.track_id = tracks.id \
+                     WHERE track_artists.artist_id = ? {order}"
                 ),
                 id,
             ),
             Seed::Genre(id) => (
-                format!(
-                    "SELECT tracks.id FROM tracks JOIN genre_track ON genre_track.track = tracks.id \
-                     WHERE genre_track.genre = ? AND {PLAYABLE} ORDER BY RANDOM() LIMIT 50"
-                ),
+                "SELECT tracks.id FROM tracks JOIN track_genres ON track_genres.track_id = tracks.id \
+                 WHERE track_genres.genre_id = ? ORDER BY RANDOM() LIMIT 50"
+                    .to_string(),
                 id,
             ),
             Seed::Year(y) => (
-                format!("SELECT id FROM tracks WHERE year = ? AND {PLAYABLE} ORDER BY RANDOM() LIMIT 50"),
+                "SELECT id FROM tracks WHERE year = ? ORDER BY RANDOM() LIMIT 50".to_string(),
                 y,
             ),
         };
@@ -192,16 +188,16 @@ impl Library {
         let mut pool: Vec<i64> = Vec::new();
         if !genres.is_empty() {
             let sql = format!(
-                "SELECT DISTINCT track FROM genre_track JOIN tracks ON tracks.id = genre_track.track \
-                 WHERE genre IN ({}) AND {PLAYABLE} ORDER BY RANDOM() LIMIT {POOL}",
+                "SELECT DISTINCT track_id FROM track_genres JOIN tracks ON tracks.id = track_genres.track_id \
+                 WHERE genre_id IN ({}) ORDER BY RANDOM() LIMIT {POOL}",
                 ids_sql(genres.len())
             );
             pool.extend(query_ids(&c, &sql, &genres));
         }
         if !artists.is_empty() {
             let sql = format!(
-                "SELECT DISTINCT track FROM contributor_track JOIN tracks ON tracks.id = contributor_track.track \
-                 WHERE contributor IN ({}) AND {PLAYABLE} ORDER BY RANDOM() LIMIT {POOL}",
+                "SELECT DISTINCT track_id FROM track_artists JOIN tracks ON tracks.id = track_artists.track_id \
+                 WHERE artist_id IN ({}) ORDER BY RANDOM() LIMIT {POOL}",
                 ids_sql(artists.len())
             );
             pool.extend(query_ids(&c, &sql, &artists));
@@ -214,8 +210,8 @@ impl Library {
         }
         profile.sound = sound.map(|s| s.rank);
         if pool.len() < 4 * n {
-            let sql = format!("SELECT id FROM tracks WHERE {PLAYABLE} ORDER BY RANDOM() LIMIT ?");
-            pool.extend(query_ids(&c, &sql, &[(4 * n) as i64]));
+            let sql = "SELECT id FROM tracks ORDER BY RANDOM() LIMIT ?";
+            pool.extend(query_ids(&c, sql, &[(4 * n) as i64]));
         }
         let seed_set: HashSet<i64> = seeds.iter().copied().collect();
         let mut seen = HashSet::new();
@@ -263,12 +259,12 @@ fn load_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
     let mut out: Vec<Candidate> = Vec::with_capacity(ids.len());
     for chunk in ids.chunks(500) {
         let sql = format!(
-            "SELECT tracks.id, tracks.album, tracks.year, \
-               (SELECT GROUP_CONCAT(contributor) FROM contributor_track WHERE track = tracks.id \
+            "SELECT tracks.id, tracks.album_id, tracks.year, \
+               (SELECT GROUP_CONCAT(artist_id) FROM track_artists WHERE track_id = tracks.id \
                   AND role IN ({ROLE_ARTIST}, {ROLE_ALBUMARTIST}, {ROLE_TRACKARTIST})), \
-               (SELECT GROUP_CONCAT(genre) FROM genre_track WHERE track = tracks.id), \
-               tracks_persistent.playCount, tracks_persistent.lastPlayed, tracks_persistent.rating \
-             FROM tracks LEFT JOIN tracks_persistent ON tracks_persistent.urlmd5 = tracks.urlmd5 \
+               (SELECT GROUP_CONCAT(genre_id) FROM track_genres WHERE track_id = tracks.id), \
+               track_stats.play_count, track_stats.last_played, track_stats.rating \
+             FROM tracks LEFT JOIN track_stats ON track_stats.url = tracks.url \
              WHERE tracks.id IN ({})",
             ids_sql(chunk.len())
         );
@@ -325,22 +321,22 @@ fn related_artists(c: &Connection, p: &Profile) -> HashMap<i64, f64> {
     add(
         format!(
             "WITH seedplays AS ( \
-               SELECT tp.lastPlayed AS t FROM tracks_persistent tp JOIN tracks ON tracks.urlmd5 = tp.urlmd5 \
-               WHERE tracks.primary_artist IN ({list}) AND tp.lastPlayed > 0) \
-             SELECT tracks.primary_artist, COUNT(*) AS n FROM tracks_persistent tp \
-               JOIN tracks ON tracks.urlmd5 = tp.urlmd5 JOIN seedplays s \
-               ON tp.lastPlayed BETWEEN s.t - 3600 AND s.t + 3600 \
-             WHERE tracks.primary_artist IS NOT NULL AND tracks.primary_artist NOT IN ({list}) \
+               SELECT tp.last_played AS t FROM track_stats tp JOIN tracks ON tracks.url = tp.url \
+               WHERE tracks.artist_id IN ({list}) AND tp.last_played > 0) \
+             SELECT tracks.artist_id, COUNT(*) AS n FROM track_stats tp \
+               JOIN tracks ON tracks.url = tp.url JOIN seedplays s \
+               ON tp.last_played BETWEEN s.t - 3600 AND s.t + 3600 \
+             WHERE tracks.artist_id IS NOT NULL AND tracks.artist_id NOT IN ({list}) \
              GROUP BY 1 ORDER BY n DESC LIMIT 25"
         ),
         1.0,
     );
     add(
         format!(
-            "SELECT ct.contributor, COUNT(*) AS n FROM contributor_track ct JOIN tracks ON tracks.id = ct.track \
-             WHERE tracks.album IN (SELECT DISTINCT tracks.album FROM tracks JOIN contributor_track s ON s.track = tracks.id \
-                                    WHERE s.contributor IN ({list})) \
-               AND ct.role IN ({ROLE_ARTIST}, {ROLE_ALBUMARTIST}, {ROLE_TRACKARTIST}) AND ct.contributor NOT IN ({list}) \
+            "SELECT ct.artist_id, COUNT(*) AS n FROM track_artists ct JOIN tracks ON tracks.id = ct.track_id \
+             WHERE tracks.album_id IN (SELECT DISTINCT tracks.album_id FROM tracks JOIN track_artists s ON s.track_id = tracks.id \
+                                    WHERE s.artist_id IN ({list})) \
+               AND ct.role IN ({ROLE_ARTIST}, {ROLE_ALBUMARTIST}, {ROLE_TRACKARTIST}) AND ct.artist_id NOT IN ({list}) \
              GROUP BY 1 ORDER BY n DESC LIMIT 25"
         ),
         0.6,

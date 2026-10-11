@@ -349,13 +349,13 @@ fn cue_sheets() {
     assert_eq!(tr.cue_start, Some(3.0));
     assert_eq!(tr.cue_end, Some(6.0));
     assert_eq!(tr.year, Some(1985));
-    // the referenced file is a hidden container
-    let base = f
-        .lib
-        .track_by_url(&rms_library::url::strip_anchor(&tr.url).to_string())
-        .unwrap();
-    assert_eq!(base.content_type, "cur");
-    assert!(!base.audio);
+    // the referenced file is split into tracks: a file, not a track itself
+    let base = rms_library::url::strip_anchor(&tr.url).to_string();
+    assert!(f.lib.track_by_url(&base).is_none());
+    assert!(matches!(
+        f.lib.ensure_item(&base),
+        Some(rms_library::queries::FolderItem::File { .. })
+    ));
 
     // embedded CUESHEET → fec container + 2 virtual tracks
     let r = run(
@@ -1037,4 +1037,192 @@ fn mixes_from_the_library() {
     assert!(f.lib.random_album(&[]).is_some());
     assert!(f.lib.random_artist().is_some());
     assert!(f.lib.random_year().is_some());
+}
+
+/// Open the library database directly (alongside the library's own connections).
+fn raw_db(f: &common::Fixture) -> rusqlite::Connection {
+    rusqlite::Connection::open(f.dir.path().join("library.db")).unwrap()
+}
+
+#[test]
+fn converts_a_lyrion_schema_database() {
+    need_ffmpeg!();
+    let f = common::build();
+    let song_one = f.media.join("Artist A/Album One/01 - Song One.flac");
+    let song_url = rms_library::url::file_url_from_path(&song_one);
+    let md = std::fs::metadata(&song_one).unwrap();
+    let (mtime, size) = {
+        use std::os::unix::fs::MetadataExt;
+        (md.mtime(), md.len() as i64)
+    };
+
+    // a database as earlier RMS releases wrote it
+    let db = f.dir.path().join("old.db");
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(include_str!("data/lms_schema.sql"))
+            .unwrap();
+        c.execute_batch(
+            "INSERT INTO metainformation (name, value) VALUES ('lastRescanTime', '1700000000');
+             CREATE INDEX extra ON tracks (title);",
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tracks (url, title, content_type, audio) VALUES (?, 'Song One', 'flc', 1)",
+            [&song_url],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tracks_persistent (url, urlmd5, added, rating, playCount, lastPlayed)
+             VALUES (?, ?, 1600000000, 80, 7, 1700000000)",
+            rusqlite::params![song_url, rms_library::url::md5_hex(&song_url)],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO tracks_persistent (url, urlmd5, added, playCount) VALUES ('file:///gone.mp3', 'x', 1, 3)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO track_analysis (urlmd5, version, timestamp, filesize, features, loudness, peak, analyzed)
+             VALUES (?, ?, ?, ?, ?, -14.0, 0.9, 1700000000)",
+            rusqlite::params![
+                rms_library::url::md5_hex(&song_url),
+                rms_library::sonic::version(),
+                mtime,
+                size,
+                vec![0u8; 4 * 23]
+            ],
+        )
+        .unwrap();
+    }
+
+    let lib = Library::open(&db, &f.dir.path().join("cache2")).unwrap();
+    // the old database is kept as it was
+    let backup = f.dir.path().join("old.db.lms-backup");
+    {
+        let b = rusqlite::Connection::open(&backup).unwrap();
+        let n: i64 = b
+            .query_row(
+                "SELECT playCount FROM tracks_persistent WHERE url = ?",
+                [&song_url],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 7);
+    }
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        let v: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 1);
+        let old: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name IN ('metainformation', 'tracks_persistent', 'contributors')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old, 0);
+        let stats: i64 = c
+            .query_row("SELECT COUNT(*) FROM track_stats", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stats, 2);
+    }
+    // the library itself is rebuilt by a scan
+    assert_eq!(lib.totals().songs, 0);
+    lib.set_config(f.lib.config());
+    lib.scan(ScanMode::Full).unwrap();
+    let t = lib.track_by_url(&song_url).unwrap();
+    assert_eq!((t.playcount, t.rating), (Some(7), Some(80)));
+    // the analysis went to the track, and the leftovers are gone
+    let a = lib.analysis_totals();
+    assert_eq!((a.analyzed, a.measured), (1, 1));
+    let c = rusqlite::Connection::open(&db).unwrap();
+    let left: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'legacy_analysis'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+    // opening again changes nothing and makes no second backup
+    drop(lib);
+    let lib = Library::open(&db, &f.dir.path().join("cache2")).unwrap();
+    assert!(!f.dir.path().join("old.db.lms-backup.1").exists());
+    assert_eq!(lib.totals().songs, 10);
+}
+
+#[test]
+fn history_and_analysis_follow_a_moved_file() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let from = f.media.join("Artist A/Album One/01 - Song One.flac");
+    let u = rms_library::url::file_url_from_path(&from);
+    f.lib.mark_played(&u);
+    f.lib.mark_played(&u);
+    f.lib.set_rating(&u, 60);
+    {
+        let c = raw_db(&f);
+        c.execute(
+            "INSERT INTO track_analysis (fingerprint, version, features, loudness, peak, analyzed_at)
+             SELECT fingerprint, ?, NULL, -12.0, 0.5, 1 FROM tracks WHERE url = ?",
+            rusqlite::params![rms_library::sonic::version(), u],
+        )
+        .unwrap();
+    }
+    assert_eq!(f.lib.analysis_totals().measured, 1);
+
+    // move and rename the file
+    let to = f.media.join("Moved/Song One (renamed).flac");
+    std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+    std::fs::rename(&from, &to).unwrap();
+    let s = f.lib.scan(ScanMode::Full).unwrap();
+    assert_eq!((s.new, s.deleted), (1, 1), "{s:?}");
+    assert!(f.lib.track_by_url(&u).is_none());
+    let t = f
+        .lib
+        .track_by_url(&rms_library::url::file_url_from_path(&to))
+        .unwrap();
+    assert_eq!((t.playcount, t.rating), (Some(2), Some(60)));
+    assert_eq!(f.lib.analysis_totals().measured, 1);
+}
+
+#[test]
+fn a_failed_conversion_leaves_the_old_database_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("broken.db");
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        // tracks_persistent without the columns the conversion reads
+        c.execute_batch(
+            "CREATE TABLE metainformation (name TEXT PRIMARY KEY, value TEXT);
+             CREATE TABLE tracks (id INTEGER PRIMARY KEY, url TEXT);
+             CREATE TABLE tracks_persistent (id INTEGER PRIMARY KEY, something TEXT);
+             INSERT INTO tracks (url) VALUES ('file:///a.flac');",
+        )
+        .unwrap();
+    }
+    assert!(Library::open(&db, &dir.path().join("cache")).is_err());
+    let c = rusqlite::Connection::open(&db).unwrap();
+    let v: i64 = c
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(v, 0);
+    let tables: Vec<String> = c
+        .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(tables, ["metainformation", "tracks", "tracks_persistent"]);
+    let n: i64 = c
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 1);
+    assert!(dir.path().join("broken.db.lms-backup").exists());
 }

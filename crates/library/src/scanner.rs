@@ -1,4 +1,4 @@
-//! Library scanner: discovery, deleted/changed/new diffing and the LMS insert logic
+//! Library scanner: discovery, deleted/changed/new diffing and the track/album/artist logic
 //! (`Slim::Utils::Scanner::Local`, `Slim::Schema::_newTrack`, `_createOrUpdateAlbum`, ...).
 
 use std::collections::{HashMap, HashSet};
@@ -204,25 +204,27 @@ struct LastAlbum {
 struct AlbumRow {
     id: Option<i64>,
     title: Option<String>,
-    titlesort: Option<String>,
-    titlesearch: Option<String>,
+    title_sort: Option<String>,
+    title_search: Option<String>,
     compilation: Option<i64>,
     year: Option<i64>,
     artwork: Option<String>,
     disc: Option<i64>,
-    discc: Option<i64>,
+    disc_count: Option<i64>,
     replay_gain: Option<f64>,
     replay_peak: Option<f64>,
-    musicbrainz_id: Option<String>,
-    contributor: Option<i64>,
-    extid: Option<String>,
+    mbid: Option<String>,
+    artist_id: Option<i64>,
     release_type: Option<String>,
 }
 
+const ALBUM_COLS: &str = "albums.id, albums.title, albums.title_sort, albums.title_search, albums.compilation,
+    albums.year, albums.artwork, albums.disc, albums.disc_count, albums.replay_gain, albums.replay_peak,
+    albums.mbid, albums.artist_id, albums.release_type";
+
 fn load_album(c: &Connection, id: i64) -> Option<AlbumRow> {
     c.query_row(
-        "SELECT id, title, titlesort, titlesearch, compilation, year, artwork, disc, discc, replay_gain, replay_peak,
-                musicbrainz_id, contributor, extid, release_type FROM albums WHERE id = ?",
+        &format!("SELECT {ALBUM_COLS} FROM albums WHERE id = ?"),
         [id],
         album_from_row,
     )
@@ -233,19 +235,18 @@ fn album_from_row(r: &rusqlite::Row) -> rusqlite::Result<AlbumRow> {
     Ok(AlbumRow {
         id: r.get(0)?,
         title: r.get(1)?,
-        titlesort: r.get(2)?,
-        titlesearch: r.get(3)?,
+        title_sort: r.get(2)?,
+        title_search: r.get(3)?,
         compilation: r.get(4)?,
         year: r.get(5)?,
         artwork: r.get(6)?,
         disc: r.get(7)?,
-        discc: r.get(8)?,
+        disc_count: r.get(8)?,
         replay_gain: r.get(9)?,
         replay_peak: r.get(10)?,
-        musicbrainz_id: r.get(11)?,
-        contributor: r.get(12)?,
-        extid: r.get(13)?,
-        release_type: r.get(14)?,
+        mbid: r.get(11)?,
+        artist_id: r.get(12)?,
+        release_type: r.get(13)?,
     })
 }
 
@@ -254,15 +255,82 @@ fn album_from_row(r: &rusqlite::Row) -> rusqlite::Result<AlbumRow> {
 pub struct TrackInput {
     pub url: String,
     pub path: PathBuf,
+    pub file_id: i64,
     pub attrs: Attrs,
     pub content_type: String,
     pub info: AudioInfo,
     /// embedded cover length
     pub cover_len: Option<usize>,
+    /// the file's mtime and size
     pub timestamp: i64,
     pub filesize: i64,
-    pub is_virtual: bool,
-    pub audio: bool,
+    /// segment of the file (cue sheets)
+    pub cue: Option<(f64, f64)>,
+}
+
+/// A row of `files`.
+#[derive(Debug, Clone)]
+pub struct FileRow {
+    pub id: i64,
+    pub kind: String,
+    pub cue: Option<String>,
+}
+
+pub fn file_row(c: &Connection, u: &str) -> rusqlite::Result<Option<FileRow>> {
+    c.query_row("SELECT id, kind, cue FROM files WHERE url = ?", [u], |r| {
+        Ok(FileRow {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            cue: r.get(2)?,
+        })
+    })
+    .optional()
+}
+
+/// Insert or update a `files` row; returns its id.
+pub fn upsert_file(
+    c: &Connection,
+    u: &str,
+    kind: &str,
+    cue: Option<&str>,
+    mtime: i64,
+    size: i64,
+) -> rusqlite::Result<i64> {
+    c.query_row(
+        "INSERT INTO files (url, kind, cue, mtime, size) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (url) DO UPDATE SET kind = excluded.kind, cue = excluded.cue,
+           mtime = excluded.mtime, size = excluded.size
+         RETURNING id",
+        params![u, kind, cue, mtime, size],
+        |r| r.get(0),
+    )
+}
+
+/// Identifies a track's audio so its statistics and analysis follow it when the file is
+/// moved or renamed: MD5 over the audio size and 8 KiB from the middle and from the end of
+/// the audio data (where tags rarely are), plus the cue segment.
+pub fn fingerprint(path: &Path, info: &AudioInfo, cue: Option<(f64, f64)>) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 8192;
+    let mut f = std::fs::File::open(path).ok()?;
+    let file_len = f.metadata().ok()?.len();
+    let start = info.offset.unwrap_or(0).min(file_len);
+    let len = info.size.unwrap_or(file_len - start).min(file_len - start);
+    if len == 0 {
+        return None;
+    }
+    let mut ctx = md5::Context::new();
+    ctx.consume(len.to_le_bytes());
+    let mut buf = vec![0u8; CHUNK as usize];
+    for at in [start + len / 2, start + len.saturating_sub(CHUNK)] {
+        f.seek(SeekFrom::Start(at)).ok()?;
+        let n = (&mut f).take(CHUNK).read(&mut buf).ok()?;
+        ctx.consume(&buf[..n]);
+    }
+    if let Some((s, e)) = cue {
+        ctx.consume(format!("#{}-{}", cue::fmt_secs(s), cue::fmt_secs(e)));
+    }
+    Some(format!("{:x}", ctx.finalize()))
 }
 
 pub struct Scanner<'a> {
@@ -279,6 +347,8 @@ pub struct Scanner<'a> {
     pub changes: usize,
     pub summary: ScanSummary,
     first_scan: bool,
+    /// analysis results converted from a Lyrion-schema database, not yet matched to tracks
+    legacy_analysis: bool,
     in_tx: bool,
     pending: usize,
     pub touched_albums: HashSet<i64>,
@@ -293,9 +363,8 @@ impl<'a> Scanner<'a> {
         abort: &'a AtomicBool,
         progress: Arc<Mutex<ScanProgress>>,
     ) -> Self {
-        let first_scan = crate::db::get_meta(conn, "lastRescanTime")
-            .map(|v| v == "0" || v.is_empty())
-            .unwrap_or(true);
+        let first_scan = crate::db::get_meta(conn, "last_scan").is_none();
+        let legacy_analysis = crate::db::table_exists(conn, "legacy_analysis").unwrap_or(false);
         Scanner {
             conn,
             cfg,
@@ -313,6 +382,7 @@ impl<'a> Scanner<'a> {
             changes: 0,
             summary: ScanSummary::default(),
             first_scan,
+            legacy_analysis,
             in_tx: false,
             pending: 0,
             touched_albums: HashSet::new(),
@@ -357,11 +427,6 @@ impl<'a> Scanner<'a> {
         p.total = total;
         p.done = 0;
         p.steps.push(name.to_string());
-        drop(p);
-        let _ = self.conn.execute(
-            "INSERT INTO progress (type, name, active, total, done, start) VALUES ('importer', ?, 1, ?, 0, ?)",
-            params![name, total as i64, now()],
-        );
     }
 
     pub(crate) fn step_done(&self, done: usize, info: Option<&str>) {
@@ -372,14 +437,8 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub(crate) fn finish_step(&self, name: &str) {
-        let p = self.progress.lock();
-        let (total, done) = (p.total, p.done);
-        drop(p);
-        let _ = self.conn.execute(
-            "UPDATE progress SET active = 0, finish = ?, done = ?, total = ?, info = NULL WHERE name = ? AND active = 1",
-            params![now(), done as i64, total as i64, name],
-        );
+    pub(crate) fn finish_step(&self, _name: &str) {
+        self.progress.lock().info = None;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -399,7 +458,7 @@ impl<'a> Scanner<'a> {
     // scanning a root
     // -----------------------------------------------------------------------------------------
 
-    /// Audio scan of one media dir (types => 'audio').
+    /// Audio scan of one media dir.
     pub fn scan_audio_root(
         &mut self,
         root: &Path,
@@ -418,11 +477,13 @@ impl<'a> Scanner<'a> {
         if self.aborted() {
             return Ok(());
         }
-        let ct_filter = "NOT IN ('dir', 'ssp')";
-        self.process_diff(root, &base, ct_filter, wipe, recursive, false)
+        // audio files and cue sheets, but not saved playlists (the playlist scan has those)
+        let scope = "files.kind IN ('audio', 'cue') AND NOT EXISTS (SELECT 1 FROM playlists
+            WHERE playlists.file_id = files.id AND playlists.kind = 'saved')";
+        self.process_diff(root, &base, scope, wipe, recursive, false)
     }
 
-    /// Playlist folder scan (types => 'list').
+    /// Playlist folder scan.
     pub fn scan_playlist_dir(&mut self, root: &Path) -> anyhow::Result<()> {
         let disabled = self.cfg.disabled_extensions_playlist.clone();
         let want = move |ext: &str| types::is_playlist_ext(ext, &disabled);
@@ -440,7 +501,9 @@ impl<'a> Scanner<'a> {
         let base = file_url_from_path(root);
         self.fill_scanned_files(&base, &found, true)?;
         self.finish_step(&step);
-        self.process_diff(root, &base, "= 'ssp'", false, true, true)
+        let scope = "EXISTS (SELECT 1 FROM playlists
+            WHERE playlists.file_id = files.id AND playlists.kind = 'saved')";
+        self.process_diff(root, &base, scope, false, true, true)
     }
 
     fn fill_scanned_files(
@@ -449,22 +512,27 @@ impl<'a> Scanner<'a> {
         found: &[Found],
         recursive: bool,
     ) -> rusqlite::Result<()> {
+        // per connection, so concurrent scanners (folder browsing) don't see each other's
+        self.conn.execute_batch(
+            "CREATE TEMP TABLE IF NOT EXISTS scanned (url TEXT NOT NULL, mtime INTEGER, size INTEGER);
+             CREATE INDEX IF NOT EXISTS temp.scanned_url ON scanned (url);",
+        )?;
         self.begin()?;
         if recursive {
             self.conn.execute(
-                "DELETE FROM scanned_files WHERE url = ? OR url LIKE ?",
+                "DELETE FROM scanned WHERE url = ? OR url LIKE ? ESCAPE '\\'",
                 params![base, format!("{}/%", like_escape(base))],
             )?;
         } else {
             for f in found {
                 self.conn
-                    .execute("DELETE FROM scanned_files WHERE url = ?", [&f.url])?;
+                    .execute("DELETE FROM scanned WHERE url = ?", [&f.url])?;
             }
         }
         {
-            let mut st = self.conn.prepare_cached(
-                "INSERT INTO scanned_files (url, timestamp, filesize) VALUES (?, ?, ?)",
-            )?;
+            let mut st = self
+                .conn
+                .prepare_cached("INSERT INTO scanned (url, mtime, size) VALUES (?, ?, ?)")?;
             for f in found {
                 st.execute(params![f.url, f.mtime, f.size])?;
             }
@@ -472,11 +540,13 @@ impl<'a> Scanner<'a> {
         self.commit()
     }
 
+    /// Compare what was found below `base` with the `files` in `scope` and process the
+    /// deleted, changed and new files.
     fn process_diff(
         &mut self,
         root: &Path,
         base: &str,
-        ct_filter: &str,
+        scope: &str,
         wipe: bool,
         recursive: bool,
         playlists: bool,
@@ -484,31 +554,31 @@ impl<'a> Scanner<'a> {
         let like = format!("{}%", like_escape(base));
         let max_id: i64 =
             self.conn
-                .query_row("SELECT COALESCE(MAX(id), 0) FROM tracks", [], |r| r.get(0))?;
+                .query_row("SELECT COALESCE(MAX(id), 0) FROM files", [], |r| r.get(0))?;
         let dir_clause = if recursive {
             String::new()
         } else {
             // only direct children of base
-            format!(" AND instr(substr(url, {}), '/') = 0", base.len() + 2)
+            format!(" AND instr(substr(files.url, {}), '/') = 0", base.len() + 2)
         };
         let deleted: Vec<String> = if wipe {
             Vec::new()
         } else {
             let sql = format!(
-                "SELECT DISTINCT(url) FROM tracks WHERE url NOT IN (SELECT url FROM scanned_files WHERE filesize != 0)
-                 AND url LIKE ? ESCAPE '\\' AND virtual IS NULL AND content_type {ct_filter} AND (remote IS NULL OR remote = 0){dir_clause}"
+                "SELECT files.url FROM files WHERE files.url NOT IN (SELECT url FROM scanned WHERE size != 0)
+                 AND files.url LIKE ? ESCAPE '\\' AND {scope}{dir_clause}"
             );
             let mut st = self.conn.prepare(&sql)?;
             let rows = st.query_map([&like], |r| r.get::<_, String>(0))?;
             rows.filter_map(|r| r.ok()).collect()
         };
         let new: Vec<String> = {
-            let sql = "SELECT DISTINCT(url) FROM scanned_files WHERE url NOT IN (SELECT url FROM tracks WHERE id <= ?)
-                       AND url LIKE ? ESCAPE '\\' AND filesize != 0";
+            let sql = "SELECT DISTINCT url FROM scanned WHERE url NOT IN (SELECT url FROM files WHERE id <= ?)
+                       AND url LIKE ? ESCAPE '\\' AND size != 0";
             let mut st = self.conn.prepare(sql)?;
             let rows = st.query_map(params![max_id, &like], |r| r.get::<_, String>(0))?;
             let mut v: Vec<String> = rows.filter_map(|r| r.ok()).collect();
-            // process cue sheets first, so referenced files are turned into containers once
+            // process cue sheets first, so referenced files are split into tracks once
             v.sort_by_key(|u| {
                 if u.to_ascii_lowercase().ends_with(".cue") {
                     0
@@ -522,9 +592,9 @@ impl<'a> Scanner<'a> {
             Vec::new()
         } else {
             let sql = format!(
-                "SELECT DISTINCT(scanned_files.url) FROM scanned_files JOIN tracks ON (scanned_files.url = tracks.url
-                   AND (scanned_files.timestamp != tracks.timestamp OR scanned_files.filesize != tracks.filesize)
-                   AND tracks.content_type {ct_filter}) WHERE scanned_files.url LIKE ? ESCAPE '\\'"
+                "SELECT DISTINCT scanned.url FROM scanned JOIN files ON (scanned.url = files.url
+                   AND (scanned.mtime != files.mtime OR scanned.size != files.size) AND {scope})
+                 WHERE scanned.url LIKE ? ESCAPE '\\'"
             );
             let mut st = self.conn.prepare(&sql)?;
             let rows = st.query_map([&like], |r| r.get::<_, String>(0))?;
@@ -565,33 +635,18 @@ impl<'a> Scanner<'a> {
                 if self.aborted() {
                     break;
                 }
-                if let Ok(Some(a)) =
-                    self.conn
-                        .query_row("SELECT album FROM tracks WHERE url = ?", [u], |r| {
-                            r.get::<_, Option<i64>>(0)
-                        })
-                {
-                    changed_albums.insert(a);
-                }
+                changed_albums.extend(self.albums_of_file(u)?);
                 if let Err(e) = self.changed(u) {
                     tracing::warn!("error rescanning {}: {}", u, e);
                 }
-                if let Ok(Some(a)) =
-                    self.conn
-                        .query_row("SELECT album FROM tracks WHERE url = ?", [u], |r| {
-                            r.get::<_, Option<i64>>(0)
-                        })
-                {
-                    changed_albums.insert(a);
-                }
+                changed_albums.extend(self.albums_of_file(u)?);
                 self.summary.changed += 1;
                 self.changes += 1;
                 self.step_done(i + 1, Some(u));
                 self.tick()?;
             }
-            // contributor_album rebuild for changed albums
             for a in &changed_albums {
-                self.rebuild_contributor_album(*a)?;
+                self.rebuild_album_artists(*a)?;
             }
             self.commit()?;
             self.finish_step(&step);
@@ -626,13 +681,23 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn rebuild_contributor_album(&self, album: i64) -> rusqlite::Result<()> {
+    fn albums_of_file(&self, u: &str) -> rusqlite::Result<Vec<i64>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT DISTINCT tracks.album_id FROM tracks JOIN files ON files.id = tracks.file_id
+             WHERE files.url = ? AND tracks.album_id IS NOT NULL",
+        )?;
+        let rows = st.query_map([u], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    fn rebuild_album_artists(&self, album: i64) -> rusqlite::Result<()> {
         self.conn
-            .execute("DELETE FROM contributor_album WHERE album = ?", [album])?;
+            .execute("DELETE FROM album_artists WHERE album_id = ?", [album])?;
         self.conn.execute(
-            "INSERT OR IGNORE INTO contributor_album (role, contributor, album)
-             SELECT DISTINCT role, contributor, tracks.album FROM contributor_track
-             JOIN tracks ON tracks.id = contributor_track.track WHERE tracks.album = ?",
+            "INSERT OR IGNORE INTO album_artists (album_id, artist_id, role)
+             SELECT DISTINCT tracks.album_id, track_artists.artist_id, track_artists.role
+             FROM track_artists JOIN tracks ON tracks.id = track_artists.track_id
+             WHERE tracks.album_id = ?",
             [album],
         )?;
         Ok(())
@@ -649,89 +714,53 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    /// `Slim::Utils::Scanner::Local::new`
+    /// A file found for the first time.  Returns whether it was added.
     pub fn new_url(&mut self, u: &str, playlist_scan: bool) -> anyhow::Result<bool> {
         let Some(path) = path_from_file_url(u) else {
             return Ok(false);
         };
-        let existing_ct: Option<String> = self
-            .conn
-            .query_row("SELECT content_type FROM tracks WHERE url = ?", [u], |r| {
-                r.get(0)
-            })
-            .optional()?
-            .flatten();
-        let ct = existing_ct
-            .clone()
-            .unwrap_or_else(|| types::type_from_path(u).to_string());
-        if types::is_song_type(&ct) && !playlist_scan {
-            if existing_ct.as_deref() == Some("cur") {
-                return Ok(false);
-            }
-            if existing_ct.is_some() {
-                // already in the DB (e.g. created through a playlist)
-                return Ok(false);
-            }
+        // already known: e.g. split by a cue sheet, or added through a playlist
+        if file_row(self.conn, u)?.is_some() {
+            return Ok(false);
+        }
+        let ct = types::type_from_path(u);
+        if types::is_song_type(ct) && !playlist_scan {
             self.scan_audio_file(u, &path, None)?;
             return Ok(true);
         }
-        if ct == "cue" || ct == "cur" {
-            if ct == "cue" {
-                self.scan_cue_file(u, &path)?;
-                return Ok(true);
-            }
-            return Ok(false);
+        if ct == "cue" {
+            self.scan_cue_file(u, &path)?;
+            return Ok(true);
         }
-        if types::is_playlist_type(&ct) && self.in_playlist_dir(&path) {
+        if types::is_playlist_type(ct) && self.in_playlist_dir(&path) {
             self.scan_playlist_file(u, &path)?;
             return Ok(true);
         }
         Ok(false)
     }
 
-    /// `changed($url)`
+    /// A known file whose mtime or size changed.
     pub fn changed(&mut self, u: &str) -> anyhow::Result<()> {
-        let row: Option<(i64, String)> = self
-            .conn
-            .query_row(
-                "SELECT id, content_type FROM tracks WHERE url = ?",
-                [u],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((id, ct)) = row else { return Ok(()) };
+        let Some(file) = file_row(self.conn, u)? else {
+            return Ok(());
+        };
         let Some(path) = path_from_file_url(u) else {
             return Ok(());
         };
-        match ct.as_str() {
-            "fec" => {
-                // FLAC with embedded cue: drop virtual tracks and rescan as new
-                self.delete_virtual_children(u)?;
-                self.conn.execute("DELETE FROM tracks WHERE id = ?", [id])?;
+        match (file.kind.as_str(), file.cue.as_deref()) {
+            ("audio", Some("embedded")) => {
+                // its own cue sheet may have changed: drop the segments and read it again
+                self.delete_file_tracks(file.id)?;
                 self.scan_audio_file(u, &path, None)?;
             }
-            "cur" => {
-                // referenced by an external cue sheet: re-run those cue sheets
+            ("audio", Some("external")) => {
+                // split by .cue files: read those again
                 let (mt, sz, _) = file_stat(&path).unwrap_or((0, 0, false));
                 self.conn.execute(
-                    "UPDATE tracks SET timestamp = ?, filesize = ? WHERE id = ?",
-                    params![mt, sz, id],
+                    "UPDATE files SET mtime = ?, size = ? WHERE id = ?",
+                    params![mt, sz, file.id],
                 )?;
-                let cues: Vec<String> = {
-                    let mut st = self.conn.prepare(
-                        "SELECT DISTINCT p.url FROM playlist_track pt JOIN tracks p ON p.id = pt.playlist
-                         WHERE pt.track LIKE ? ESCAPE '\\' AND p.content_type = 'cue'",
-                    )?;
-                    let rows =
-                        st.query_map([format!("{}#%", like_escape(u))], |r| r.get::<_, String>(0))?;
-                    rows.filter_map(|r| r.ok()).collect()
-                };
-                for c in cues {
+                for c in self.cue_sheets_splitting(u)? {
                     self.deleted(&c)?;
                     if let Some(p) = path_from_file_url(&c) {
                         if p.is_file() {
@@ -740,156 +769,143 @@ impl<'a> Scanner<'a> {
                     }
                 }
             }
-            "cue" => {
+            ("audio", _) => {
+                let existing: Option<i64> = self
+                    .conn
+                    .query_row("SELECT id FROM tracks WHERE url = ?", [u], |r| r.get(0))
+                    .optional()?;
+                self.scan_audio_file(u, &path, existing)?;
+            }
+            ("cue", _) => {
                 self.deleted(u)?;
                 self.scan_cue_file(u, &path)?;
             }
-            c if types::is_playlist_type(c) => {
+            ("playlist", _) => {
                 self.deleted(u)?;
                 if self.in_playlist_dir(&path) {
                     self.scan_playlist_file(u, &path)?;
                 }
             }
-            c if types::is_song_type(c) => {
-                self.scan_audio_file(u, &path, Some(id))?;
-            }
             _ => {
                 let (mt, sz, _) = file_stat(&path).unwrap_or((0, 0, false));
                 self.conn.execute(
-                    "UPDATE tracks SET timestamp = ?, filesize = ? WHERE id = ?",
-                    params![mt, sz, id],
+                    "UPDATE files SET mtime = ?, size = ? WHERE id = ?",
+                    params![mt, sz, file.id],
                 )?;
             }
         }
         Ok(())
     }
 
-    fn delete_virtual_children(&mut self, base: &str) -> anyhow::Result<()> {
-        let ids: Vec<i64> = {
-            let mut st = self
-                .conn
-                .prepare("SELECT id FROM tracks WHERE url LIKE ? ESCAPE '\\' AND virtual = 1")?;
-            let rows =
-                st.query_map([format!("{}#%", like_escape(base))], |r| r.get::<_, i64>(0))?;
-            rows.filter_map(|r| r.ok()).collect()
-        };
-        for id in ids {
+    /// URLs of the cue sheets that split the audio file `u` into tracks.
+    fn cue_sheets_splitting(&self, u: &str) -> rusqlite::Result<Vec<String>> {
+        let mut st = self.conn.prepare(
+            "SELECT DISTINCT playlists.url FROM playlist_items
+             JOIN playlists ON playlists.id = playlist_items.playlist_id
+             JOIN files ON files.id = playlists.file_id
+             WHERE playlist_items.url LIKE ? ESCAPE '\\' AND files.kind = 'cue'",
+        )?;
+        let rows = st.query_map([format!("{}#%", like_escape(u))], |r| r.get(0))?;
+        rows.collect()
+    }
+
+    /// Delete every track of a file, with the usual cleanup.
+    fn delete_file_tracks(&mut self, file_id: i64) -> anyhow::Result<()> {
+        for id in ids_for(
+            self.conn,
+            "SELECT id FROM tracks WHERE file_id = ?",
+            file_id,
+        )? {
             self.delete_track_id(id)?;
         }
         Ok(())
     }
 
-    /// `deleted($url)`
+    /// A known file that is gone.
     pub fn deleted(&mut self, u: &str) -> anyhow::Result<()> {
-        let row: Option<(i64, String)> = self
-            .conn
-            .query_row(
-                "SELECT id, content_type FROM tracks WHERE url = ?",
-                [u],
-                |r| {
-                    Ok((
-                        r.get(0)?,
-                        r.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    ))
-                },
-            )
-            .optional()?;
-        let Some((id, ct)) = row else { return Ok(()) };
-        if ct == "cue" {
+        let Some(file) = file_row(self.conn, u)? else {
+            return Ok(());
+        };
+        if file.kind == "cue" {
             let entries: Vec<String> = {
                 let mut st = self.conn.prepare(
-                    "SELECT track FROM playlist_track WHERE playlist = ? ORDER BY position",
+                    "SELECT playlist_items.url FROM playlist_items
+                     JOIN playlists ON playlists.id = playlist_items.playlist_id
+                     WHERE playlists.file_id = ? ORDER BY position",
                 )?;
-                let rows = st.query_map([id], |r| r.get::<_, String>(0))?;
+                let rows = st.query_map([file.id], |r| r.get::<_, String>(0))?;
                 rows.filter_map(|r| r.ok()).collect()
             };
-            self.conn.execute("DELETE FROM tracks WHERE id = ?", [id])?;
+            self.conn
+                .execute("DELETE FROM files WHERE id = ?", [file.id])?;
             let mut bases: HashSet<String> = HashSet::new();
             for e in entries {
-                let vid: Option<i64> = self
+                let seg: Option<i64> = self
                     .conn
                     .query_row(
-                        "SELECT id FROM tracks WHERE url = ? AND virtual = 1",
+                        "SELECT id FROM tracks WHERE url = ? AND cue_start IS NOT NULL",
                         [&e],
                         |r| r.get(0),
                     )
                     .optional()?;
-                if let Some(vid) = vid {
-                    self.delete_track_id(vid)?;
+                if let Some(id) = seg {
+                    self.delete_track_id(id)?;
                 }
                 bases.insert(url::strip_anchor(&e).to_string());
             }
-            // containers that are no longer referenced become normal tracks again
+            // audio files no cue sheet splits any more are whole tracks again
             for b in bases {
-                let still: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM tracks WHERE url LIKE ? ESCAPE '\\' AND virtual = 1",
-                    [format!("{}#%", like_escape(&b))],
+                let Some(container) = file_row(self.conn, &b)? else {
+                    continue;
+                };
+                let left: i64 = self.conn.query_row(
+                    "SELECT COUNT(*) FROM tracks WHERE file_id = ?",
+                    [container.id],
                     |r| r.get(0),
                 )?;
-                if still == 0 {
-                    let cur: Option<i64> = self
-                        .conn
-                        .query_row(
-                            "SELECT id FROM tracks WHERE url = ? AND content_type = 'cur'",
-                            [&b],
-                            |r| r.get(0),
-                        )
-                        .optional()?;
-                    if let Some(cid) = cur {
-                        self.conn
-                            .execute("DELETE FROM tracks WHERE id = ?", [cid])?;
-                        if let (Some(p), true) = (path_from_file_url(&b), self.resurrect_containers)
-                        {
-                            if p.is_file() {
-                                let _ = self.scan_audio_file(&b, &p, None);
-                            }
+                if left == 0 && container.cue.as_deref() == Some("external") {
+                    self.conn
+                        .execute("DELETE FROM files WHERE id = ?", [container.id])?;
+                    if let (Some(p), true) = (path_from_file_url(&b), self.resurrect_containers) {
+                        if p.is_file() {
+                            let _ = self.scan_audio_file(&b, &p, None);
                         }
                     }
                 }
             }
             return Ok(());
         }
-        if ct == "fec" {
-            self.delete_virtual_children(u)?;
-            self.conn.execute("DELETE FROM tracks WHERE id = ?", [id])?;
-            return Ok(());
+        if file.kind == "audio" {
+            self.delete_file_tracks(file.id)?;
         }
-        if types::is_song_type(&ct) {
-            self.delete_track_id(id)?;
-            return Ok(());
-        }
-        // playlists / dirs / others
-        self.conn.execute("DELETE FROM tracks WHERE id = ?", [id])?;
+        // playlists and their items go with the file
+        self.conn
+            .execute("DELETE FROM files WHERE id = ?", [file.id])?;
         Ok(())
     }
 
-    /// Delete an audio track and clean up albums/contributors/genres/years.
+    /// Delete a track and clean up albums, artists and genres.
     pub fn delete_track_id(&mut self, id: i64) -> anyhow::Result<()> {
-        let (album, year): (Option<i64>, Option<i64>) = self
+        let album: Option<i64> = self
             .conn
-            .query_row("SELECT album, year FROM tracks WHERE id = ?", [id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
+            .query_row("SELECT album_id FROM tracks WHERE id = ?", [id], |r| {
+                r.get(0)
             })
             .optional()?
-            .unwrap_or((None, None));
-        let contributors = ids_for(
+            .flatten();
+        let artists = ids_for(
             self.conn,
-            "SELECT DISTINCT contributor FROM contributor_track WHERE track = ?",
+            "SELECT DISTINCT artist_id FROM track_artists WHERE track_id = ?",
             id,
         )?;
         let genres = ids_for(
             self.conn,
-            "SELECT DISTINCT genre FROM genre_track WHERE track = ?",
+            "SELECT genre_id FROM track_genres WHERE track_id = ?",
             id,
         )?;
-        self.conn
-            .execute("DELETE FROM contributor_track WHERE track = ?", [id])?;
-        self.conn
-            .execute("DELETE FROM genre_track WHERE track = ?", [id])?;
-        self.conn
-            .execute("DELETE FROM comments WHERE track = ?", [id])?;
+        // relations cascade
         self.conn.execute("DELETE FROM tracks WHERE id = ?", [id])?;
-        self.rescan_contributors(&contributors)?;
+        self.rescan_artists(&artists)?;
         if let Some(a) = album {
             let comp: Option<i64> = self
                 .conn
@@ -904,51 +920,36 @@ impl<'a> Scanner<'a> {
                 self.merge_single_va_album(a)?;
             }
             self.rescan_album(a)?;
-            self.rebuild_contributor_album(a)?;
+            self.rebuild_album_artists(a)?;
             self.touched_albums.insert(a);
-        }
-        if let Some(y) = year {
-            self.rescan_year(y)?;
         }
         self.rescan_genres(&genres)?;
         Ok(())
     }
 
-    fn rescan_contributors(&mut self, ids: &[i64]) -> rusqlite::Result<()> {
+    fn rescan_artists(&mut self, ids: &[i64]) -> rusqlite::Result<()> {
         let va = self.va_id()?;
         for id in ids {
             if *id == va {
                 continue;
             }
-            let n: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM contributor_track WHERE contributor = ?",
+            // keep artists still on a track or credited for an album
+            self.conn.execute(
+                "DELETE FROM artists WHERE id = ?1
+                   AND NOT EXISTS (SELECT 1 FROM track_artists WHERE artist_id = ?1)
+                   AND NOT EXISTS (SELECT 1 FROM albums WHERE artist_id = ?1)",
                 [id],
-                |r| r.get(0),
             )?;
-            if n == 0 {
-                // keep contributors still referenced as album contributor
-                let a: i64 = self.conn.query_row(
-                    "SELECT COUNT(*) FROM albums WHERE contributor = ?",
-                    [id],
-                    |r| r.get(0),
-                )?;
-                if a == 0 {
-                    self.conn
-                        .execute("DELETE FROM contributors WHERE id = ?", [id])?;
-                }
-            }
         }
         Ok(())
     }
 
     fn rescan_album(&mut self, id: i64) -> rusqlite::Result<()> {
-        let n: i64 =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM tracks WHERE album = ?", [id], |r| {
-                    r.get(0)
-                })?;
-        if n == 0 {
-            self.conn.execute("DELETE FROM albums WHERE id = ?", [id])?;
+        let n = self.conn.execute(
+            "DELETE FROM albums WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM tracks WHERE album_id = ?1)",
+            [id],
+        )?;
+        if n > 0 {
             if self.last_album.as_ref().map(|l| l.id) == Some(id) {
                 self.last_album = None;
             }
@@ -959,28 +960,12 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn rescan_year(&mut self, y: i64) -> rusqlite::Result<()> {
-        let n: i64 =
-            self.conn
-                .query_row("SELECT COUNT(*) FROM tracks WHERE year = ?", [y], |r| {
-                    r.get(0)
-                })?;
-        if n == 0 {
-            self.conn.execute("DELETE FROM years WHERE id = ?", [y])?;
-        }
-        Ok(())
-    }
-
     fn rescan_genres(&mut self, ids: &[i64]) -> rusqlite::Result<()> {
         for id in ids {
-            let n: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM genre_track WHERE genre = ?",
+            self.conn.execute(
+                "DELETE FROM genres WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM track_genres WHERE genre_id = ?1)",
                 [id],
-                |r| r.get(0),
             )?;
-            if n == 0 {
-                self.conn.execute("DELETE FROM genres WHERE id = ?", [id])?;
-            }
         }
         Ok(())
     }
@@ -990,6 +975,7 @@ impl<'a> Scanner<'a> {
     // -----------------------------------------------------------------------------------------
 
     /// Read tags and store an audio file (new or changed). Handles embedded cue sheets.
+    /// Returns the id of its file.
     pub fn scan_audio_file(
         &mut self,
         u: &str,
@@ -1021,7 +1007,7 @@ impl<'a> Scanner<'a> {
         }
         tags::post_process(&mut rt, path, u, &self.cfg.guess_file_formats);
 
-        // FLAC with embedded cue sheet → container 'fec' + virtual tracks
+        // FLAC with its own cue sheet: one track per cue sheet entry
         if let Some(lines) = rt.cuesheet.clone() {
             if rt.content_type == "flc" {
                 let dir = path.parent().unwrap_or(Path::new("/")).to_path_buf();
@@ -1042,15 +1028,8 @@ impl<'a> Scanner<'a> {
                             }
                         }
                     }
-                    let container_title = sheet
-                        .album
-                        .get("ALBUM")
-                        .cloned()
-                        .or_else(|| first(&rt.attrs, "ALBUM").map(|s| s.to_string()))
-                        .unwrap_or_else(|| url::plain_title(u, false));
-                    let cid =
-                        self.insert_container(u, path, "fec", &container_title, mtime, size, &rt)?;
-                    let _ = cid;
+                    let file_id =
+                        upsert_file(self.conn, u, "audio", Some("embedded"), mtime, size)?;
                     let base_attrs = rt.attrs.clone();
                     for tr in &sheet.tracks {
                         let mut attrs: Attrs = Attrs::new();
@@ -1071,41 +1050,40 @@ impl<'a> Scanner<'a> {
                             attrs.entry(k.clone()).or_insert_with(|| v.clone());
                         }
                         attrs.insert("TRACKNUM".into(), vec![tr.tracknum.to_string()]);
-                        let vurl = format!(
-                            "{}#{}-{}",
-                            u,
-                            cue::fmt_secs(tr.start),
-                            cue::fmt_secs(tr.end)
+                        let input = self.segment_input(
+                            u, path, file_id, attrs, &rt, tr.start, tr.end, mtime, size,
                         );
-                        let input = self
-                            .virtual_input(&vurl, path, attrs, &rt, tr.start, tr.end, mtime, size);
                         self.store_track(input, None)?;
                     }
-                    return Ok(cid);
+                    return Ok(file_id);
                 }
             }
         }
 
+        let file_id = upsert_file(self.conn, u, "audio", None, mtime, size)?;
         let input = TrackInput {
             url: u.to_string(),
             path: path.to_path_buf(),
+            file_id,
             attrs: rt.attrs,
             content_type: rt.content_type,
             info: rt.info,
             cover_len: rt.cover_len,
             timestamp: mtime,
             filesize: size,
-            is_virtual: false,
-            audio: true,
+            cue: None,
         };
-        self.store_track(input, existing)
+        self.store_track(input, existing)?;
+        Ok(file_id)
     }
 
+    /// The track for one cue sheet entry of `file_url`.
     #[allow(clippy::too_many_arguments)]
-    fn virtual_input(
+    fn segment_input(
         &self,
-        vurl: &str,
+        file_url: &str,
         path: &Path,
+        file_id: i64,
         attrs: Attrs,
         base: &tags::ReadTags,
         start: f64,
@@ -1128,131 +1106,75 @@ impl<'a> Scanner<'a> {
         }
         info.secs = Some(dur);
         TrackInput {
-            url: vurl.to_string(),
+            url: format!(
+                "{}#{}-{}",
+                file_url,
+                cue::fmt_secs(start),
+                cue::fmt_secs(end)
+            ),
             path: path.to_path_buf(),
+            file_id,
             attrs,
             content_type: base.content_type.clone(),
             info,
             cover_len: base.cover_len,
             timestamp: mtime,
             filesize: size,
-            is_virtual: true,
-            audio: true,
+            cue: Some((start, end)),
         }
     }
 
-    /// A hidden container row (`cur` / `fec`): audio = 0, no relations.
-    #[allow(clippy::too_many_arguments)]
-    fn insert_container(
-        &mut self,
-        u: &str,
-        _path: &Path,
-        ct: &str,
-        title: &str,
-        mtime: i64,
-        size: i64,
-        rt: &tags::ReadTags,
-    ) -> anyhow::Result<i64> {
-        let existing: Option<i64> = self
-            .conn
-            .query_row("SELECT id FROM tracks WHERE url = ?", [u], |r| r.get(0))
-            .optional()?;
-        if let Some(id) = existing {
-            // turn an existing audio track into a container
-            let was_audio: Option<i64> = self
-                .conn
-                .query_row("SELECT audio FROM tracks WHERE id = ?", [id], |r| r.get(0))
-                .optional()?
-                .flatten();
-            if was_audio == Some(1) {
-                self.delete_track_id(id)?;
-            } else {
-                self.conn.execute(
-                    "UPDATE tracks SET content_type = ?, audio = 0, timestamp = ?, filesize = ?, updated_time = ? WHERE id = ?",
-                    params![ct, mtime, size, now(), id],
-                )?;
-                return Ok(id);
+    /// Mark an audio file as split by a separate cue sheet (its whole-file track goes).
+    fn split_by_cue_sheet(&mut self, u: &str, mtime: i64, size: i64) -> anyhow::Result<i64> {
+        if let Some(f) = file_row(self.conn, u)? {
+            if f.cue.is_none() {
+                self.delete_file_tracks(f.id)?;
             }
         }
-        let t = now();
-        self.conn.execute(
-            "INSERT INTO tracks (url, urlmd5, title, titlesort, titlesearch, content_type, timestamp, filesize, secs, audio, remote,
-                                 lossless, samplerate, samplesize, channels, bitrate, audio_size, audio_offset, added_time, updated_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            params![
-                u,
-                md5_hex(u),
-                title,
-                self.rules.sort_key(title),
-                self.rules.search_key(title),
-                ct,
-                mtime,
-                size,
-                rt.info.secs,
-                rt.info.lossless as i64,
-                rt.info.samplerate,
-                rt.info.samplesize,
-                rt.info.channels,
-                rt.info.bitrate,
-                rt.info.size.map(|v| v as i64),
-                rt.info.offset.map(|v| v as i64),
-                t,
-                t
-            ],
-        )?;
-        Ok(self.conn.last_insert_rowid())
+        Ok(upsert_file(
+            self.conn,
+            u,
+            "audio",
+            Some("external"),
+            mtime,
+            size,
+        )?)
     }
 
     // -----------------------------------------------------------------------------------------
     // cue sheets & playlists
     // -----------------------------------------------------------------------------------------
 
-    fn insert_playlist_row(
+    /// The `playlists` row of a cue sheet or playlist file; its items are cleared.
+    fn playlist_row(
         &mut self,
         u: &str,
-        ct: &str,
-        title: &str,
+        file_kind: &str,
+        kind: &str,
+        name: &str,
         mtime: i64,
         size: i64,
     ) -> anyhow::Result<i64> {
-        let t = now();
-        let existing: Option<i64> = self
-            .conn
-            .query_row("SELECT id FROM tracks WHERE url = ?", [u], |r| r.get(0))
-            .optional()?;
-        if let Some(id) = existing {
-            self.conn.execute(
-                "UPDATE tracks SET content_type = ?, title = ?, titlesort = ?, titlesearch = ?, timestamp = ?, filesize = ?, updated_time = ?,
-                 musicmagic_mixable = 1 WHERE id = ?",
-                params![ct, title, self.rules.sort_key(title), self.rules.search_key(title), mtime, size, t, id],
-            )?;
-            self.conn
-                .execute("DELETE FROM playlist_track WHERE playlist = ?", [id])?;
-            return Ok(id);
-        }
-        self.conn.execute(
-            "INSERT INTO tracks (url, urlmd5, title, titlesort, titlesearch, content_type, timestamp, filesize, remote, musicmagic_mixable,
-                                 added_time, updated_time)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)",
-            params![u, md5_hex(u), title, self.rules.sort_key(title), self.rules.search_key(title), ct, mtime, size, t, t],
+        let file_id = upsert_file(self.conn, u, file_kind, None, mtime, size)?;
+        let id: i64 = self.conn.query_row(
+            "INSERT INTO playlists (file_id, url, kind, name, name_sort, name_search) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT (url) DO UPDATE SET file_id = excluded.file_id, kind = excluded.kind,
+               name = excluded.name, name_sort = excluded.name_sort, name_search = excluded.name_search
+             RETURNING id",
+            params![file_id, u, kind, name, self.rules.sort_key(name), self.rules.search_key(name)],
+            |r| r.get(0),
         )?;
-        Ok(self.conn.last_insert_rowid())
+        self.conn
+            .execute("DELETE FROM playlist_items WHERE playlist_id = ?", [id])?;
+        Ok(id)
     }
 
     pub fn set_playlist_tracks(&self, playlist: i64, urls: &[String]) -> rusqlite::Result<()> {
-        self.conn
-            .execute("DELETE FROM playlist_track WHERE playlist = ?", [playlist])?;
-        let mut st = self.conn.prepare_cached(
-            "INSERT INTO playlist_track (position, playlist, track) VALUES (?, ?, ?)",
-        )?;
-        for (i, u) in urls.iter().enumerate() {
-            st.execute(params![i as i64, playlist, u])?;
-        }
-        Ok(())
+        crate::set_playlist_tracks(self.conn, playlist, urls)
     }
 
-    /// External `.cue` file: playlist row (ct `cue`, or `ssp` inside the playlist dir) +
-    /// container rows (`cur`) + virtual tracks.
+    /// A `.cue` file: a playlist of its entries (saved when in the playlist folder), and one
+    /// track per entry in the audio files it splits.
     pub fn scan_cue_file(&mut self, u: &str, path: &Path) -> anyhow::Result<()> {
         let (mtime, size, _) = file_stat(path).ok_or_else(|| anyhow::anyhow!("cannot stat"))?;
         let bytes = std::fs::read(path)?;
@@ -1274,18 +1196,18 @@ impl<'a> Scanner<'a> {
             file_cache.insert(p.to_path_buf(), rt);
             Some((secs, attrs))
         });
-        let ct = if self.in_playlist_dir(path) {
-            "ssp"
+        let kind = if self.in_playlist_dir(path) {
+            "saved"
         } else {
             "cue"
         };
         let title = url::plain_title(u, false);
-        let pid = self.insert_playlist_row(u, ct, &title, mtime, size)?;
+        let pid = self.playlist_row(u, "cue", kind, &title, mtime, size)?;
         let Some(sheet) = sheet else {
             return Ok(());
         };
         let mut uris = Vec::new();
-        let mut containers: HashSet<PathBuf> = HashSet::new();
+        let mut containers: HashMap<PathBuf, i64> = HashMap::new();
         for tr in &sheet.tracks {
             let base_rt = match file_cache.get(&tr.file) {
                 Some(rt) => rt.clone(),
@@ -1302,10 +1224,14 @@ impl<'a> Scanner<'a> {
             };
             let furl = file_url_from_path(&tr.file);
             let (fm, fs, _) = file_stat(&tr.file).unwrap_or((0, 0, false));
-            if containers.insert(tr.file.clone()) {
-                let t = url::plain_title(&furl, false);
-                self.insert_container(&furl, &tr.file, "cur", &t, fm, fs, &base_rt)?;
-            }
+            let file_id = match containers.get(&tr.file) {
+                Some(id) => *id,
+                None => {
+                    let id = self.split_by_cue_sheet(&furl, fm, fs)?;
+                    containers.insert(tr.file.clone(), id);
+                    id
+                }
+            };
             let mut attrs: Attrs = Attrs::new();
             for (k, v) in &tr.attrs {
                 if k == "CONTENT_TYPE" {
@@ -1314,26 +1240,18 @@ impl<'a> Scanner<'a> {
                 attrs.insert(k.clone(), vec![v.clone()]);
             }
             attrs.insert("TRACKNUM".into(), vec![tr.tracknum.to_string()]);
-            let vurl = format!(
-                "{}#{}-{}",
-                furl,
-                cue::fmt_secs(tr.start),
-                cue::fmt_secs(tr.end)
+            let input = self.segment_input(
+                &furl, &tr.file, file_id, attrs, &base_rt, tr.start, tr.end, fm, fs,
             );
-            let input =
-                self.virtual_input(&vurl, &tr.file, attrs, &base_rt, tr.start, tr.end, fm, fs);
-            let existing: Option<i64> = self
-                .conn
-                .query_row("SELECT id FROM tracks WHERE url = ?", [&vurl], |r| r.get(0))
-                .optional()?;
-            self.store_track(input, existing)?;
+            let vurl = input.url.clone();
+            self.store_track(input, None)?;
             uris.push(vurl);
         }
         self.set_playlist_tracks(pid, &uris)?;
         Ok(())
     }
 
-    /// Playlist file inside the playlist folder (ct `ssp`).
+    /// A playlist file (`.m3u`, `.pls`, …); saved when in the playlist folder.
     pub fn scan_playlist_file(&mut self, u: &str, path: &Path) -> anyhow::Result<()> {
         let ext = path
             .extension()
@@ -1349,28 +1267,23 @@ impl<'a> Scanner<'a> {
             "pls" => crate::playlist_files::parse_pls(&bytes, &dir, &self.cfg.media_dirs, u),
             _ => crate::playlist_files::parse_m3u(&bytes, &dir, &self.cfg.media_dirs, u),
         };
-        let ct = if self.in_playlist_dir(path) {
-            "ssp"
+        let kind = if self.in_playlist_dir(path) {
+            "saved"
         } else {
-            types::type_from_path(u)
+            "file"
         };
         let title = url::plain_title(u, false);
-        let pid = self.insert_playlist_row(u, ct, &title, mtime, size)?;
+        let pid = self.playlist_row(u, "playlist", kind, &title, mtime, size)?;
         let mut urls = Vec::new();
         for e in entries {
-            // make sure local files referenced by the playlist exist in the DB
-            if url::is_file_url(&e.url) && url::anchor_from_url(&e.url).is_none() {
-                let exists: Option<i64> = self
-                    .conn
-                    .query_row("SELECT id FROM tracks WHERE url = ?", [&e.url], |r| {
-                        r.get(0)
-                    })
-                    .optional()?;
-                if exists.is_none() {
-                    if let Some(p) = path_from_file_url(&e.url) {
-                        if types::is_song_type(types::type_from_path(&e.url)) && p.is_file() {
-                            let _ = self.scan_audio_file(&e.url, &p, None);
-                        }
+            // make sure local files referenced by the playlist are in the library
+            if url::is_file_url(&e.url)
+                && url::anchor_from_url(&e.url).is_none()
+                && file_row(self.conn, &e.url)?.is_none()
+            {
+                if let Some(p) = path_from_file_url(&e.url) {
+                    if types::is_song_type(types::type_from_path(&e.url)) && p.is_file() {
+                        let _ = self.scan_audio_file(&e.url, &p, None);
                     }
                 }
             }
@@ -1396,10 +1309,20 @@ impl<'a> Scanner<'a> {
         res
     }
 
-    /// Store a track (insert or update `existing`). Returns the track id.
+    /// Store a track (insert, or update `existing` / the track with the same URL).
+    /// Returns the track id.
     pub fn store_track(&mut self, input: TrackInput, existing: Option<i64>) -> anyhow::Result<i64> {
         let cfg = self.cfg;
         let mut attrs = input.attrs.clone();
+        let existing = match existing {
+            Some(id) => Some(id),
+            None => self
+                .conn
+                .query_row("SELECT id FROM tracks WHERE url = ?", [&input.url], |r| {
+                    r.get(0)
+                })
+                .optional()?,
+        };
 
         // --- _preCheckAttributes ---
         let title = attrs
@@ -1407,12 +1330,12 @@ impl<'a> Scanner<'a> {
             .map(|v| v.join(" / "))
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| url::plain_title(&input.url, false));
-        let titlesort_src = first(&attrs, "TITLESORT")
+        let title_sort_src = first(&attrs, "TITLESORT")
             .map(|s| s.to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| title.clone());
-        let titlesort = self.rules.sort_key(&titlesort_src);
-        let titlesearch = self.rules.search_key(&title);
+        let title_sort = self.rules.sort_key(&title_sort_src);
+        let title_search = self.rules.search_key(&title);
         if let Some(d) = first(&attrs, "DISC").map(|s| s.to_string()) {
             let re = crate::re!(r"^(\d+)[-/](\d+)$");
             if let Some(c) = re.captures(d.trim()) {
@@ -1436,9 +1359,9 @@ impl<'a> Scanner<'a> {
         };
         let year = num(&attrs, "YEAR").unwrap_or(0);
         let disc = num(&attrs, "DISC").map(|d| d.min(254));
-        let discc = num(&attrs, "DISCC").map(|d| d.min(254));
+        let disc_count = num(&attrs, "DISCC").map(|d| d.min(254));
         let bpm = num(&attrs, "BPM");
-        let tracknum = first(&attrs, "TRACKNUM").and_then(text::clean_track_number);
+        let track_number = first(&attrs, "TRACKNUM").and_then(text::clean_track_number);
         let replay_gain = first(&attrs, "REPLAYGAIN_TRACK_GAIN").and_then(text::clean_gain);
         let replay_peak = first(&attrs, "REPLAYGAIN_TRACK_PEAK").and_then(text::clean_gain);
         let mut comments: Vec<String> = attrs.get("COMMENT").cloned().unwrap_or_default();
@@ -1462,9 +1385,11 @@ impl<'a> Scanner<'a> {
         };
         let performance = trimmed("PERFORMANCE");
         let grouping = trimmed("GROUPING");
-        let discsubtitle = trimmed("DISCSUBTITLE");
+        let disc_subtitle = trimmed("DISCSUBTITLE");
         let subtitle = trimmed("SUBTITLE");
-        let musicbrainz_id = first(&attrs, "MUSICBRAINZ_ID").map(|s| s.to_string());
+        let mbid = first(&attrs, "MUSICBRAINZ_ID")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         let rating = first(&attrs, "RATING")
             .and_then(|r| r.trim().parse::<i64>().ok())
             .filter(|r| *r > 0 && *r <= 255);
@@ -1481,46 +1406,42 @@ impl<'a> Scanner<'a> {
 
         // old state for change handling
         let mut old_album: Option<i64> = None;
-        let mut old_year: Option<i64> = None;
-        let mut old_contribs: Vec<i64> = Vec::new();
+        let mut old_artists: Vec<i64> = Vec::new();
         let mut old_genres: Vec<i64> = Vec::new();
         if let Some(id) = existing {
-            let r: Option<(Option<i64>, Option<i64>)> = self
+            old_album = self
                 .conn
-                .query_row("SELECT album, year FROM tracks WHERE id = ?", [id], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
+                .query_row("SELECT album_id FROM tracks WHERE id = ?", [id], |r| {
+                    r.get(0)
                 })
-                .optional()?;
-            if let Some((a, y)) = r {
-                old_album = a;
-                old_year = y;
-            }
-            old_contribs = ids_for(
+                .optional()?
+                .flatten();
+            old_artists = ids_for(
                 self.conn,
-                "SELECT DISTINCT contributor FROM contributor_track WHERE track = ?",
+                "SELECT DISTINCT artist_id FROM track_artists WHERE track_id = ?",
                 id,
             )?;
             old_genres = ids_for(
                 self.conn,
-                "SELECT DISTINCT genre FROM genre_track WHERE track = ?",
+                "SELECT genre_id FROM track_genres WHERE track_id = ?",
                 id,
             )?;
         }
 
-        // --- contributors ---
-        let contributors = self.merge_and_create_contributors(&mut attrs, is_compilation)?;
+        // --- artists ---
+        let artists = self.merge_and_create_artists(&mut attrs, is_compilation)?;
         let get_first = |r: &str| {
-            contributors
+            artists
                 .iter()
                 .find(|(n, _)| n == r)
                 .and_then(|(_, ids)| ids.first().copied())
         };
         let primary_artist = get_first("ARTIST").or_else(|| get_first("TRACKARTIST"));
-        let album_contributor = get_first("ALBUMARTIST").or_else(|| get_first("ARTIST"));
+        let album_artist = get_first("ALBUMARTIST").or_else(|| get_first("ARTIST"));
         let has_album_artist = get_first("ALBUMARTIST").is_some();
 
         // --- artwork ---
-        let (cover, coverid) = if let Some(len) = input.cover_len {
+        let (cover, cover_id) = if let Some(len) = input.cover_len {
             let cid = image_id(&input.url, input.timestamp, input.filesize);
             (Some(len.to_string()), cid)
         } else {
@@ -1549,8 +1470,8 @@ impl<'a> Scanner<'a> {
             title: album_title,
             albumsort: first(&attrs, "ALBUMSORT").map(|s| s.to_string()),
             disc,
-            discc,
-            brainz_id: first(&attrs, "MUSICBRAINZ_ALBUM_ID").map(|s| s.to_string()),
+            disc_count,
+            mbid: first(&attrs, "MUSICBRAINZ_ALBUM_ID").map(|s| s.to_string()),
             release_types: attrs.get("RELEASETYPE").cloned().unwrap_or_default(),
             rg_gain: attrs
                 .get("REPLAYGAIN_ALBUM_GAIN")
@@ -1561,12 +1482,12 @@ impl<'a> Scanner<'a> {
                 .and_then(|v| v.first())
                 .cloned(),
             is_compilation,
-            contributor_id: album_contributor,
+            artist_id: album_artist,
             has_album_artist,
             basename: dirname,
-            tracknum,
+            track_number,
             year,
-            coverid: coverid.clone(),
+            cover_id: cover_id.clone(),
             update_from: old_album,
         })?;
 
@@ -1589,62 +1510,105 @@ impl<'a> Scanner<'a> {
 
         // --- tracks row ---
         let t = now();
-        let urlmd5 = md5_hex(&input.url);
         let info = &input.info;
-        let vbr: Option<i64> = info.vbr.map(|v| v as i64);
-        let remote = url::is_remote_url(&input.url) as i64;
+        let fingerprint = fingerprint(&input.path, info, input.cue);
+        let (cue_start, cue_end) = match input.cue {
+            Some((s, e)) => (Some(s), Some(e)),
+            None => (None, None),
+        };
+        let values = params![
+            input.file_id,
+            input.url,
+            cue_start,
+            cue_end,
+            fingerprint,
+            title,
+            title_sort,
+            title_search,
+            album_id,
+            primary_artist,
+            work_id,
+            track_number,
+            disc,
+            disc_subtitle,
+            year,
+            info.secs,
+            input.content_type,
+            info.bitrate.map(|b| b.round() as i64),
+            info.vbr.unwrap_or(false) as i64,
+            info.samplerate,
+            info.samplesize,
+            info.channels,
+            info.lossless as i64,
+            info.endian,
+            info.block_align,
+            info.offset.map(|v| v as i64),
+            info.size.map(|v| v as i64),
+            bpm,
+            info.tagversion,
+            replay_gain,
+            replay_peak,
+            mbid,
+            lyrics,
+            subtitle,
+            grouping,
+            performance,
+            cover,
+            cover_id,
+            t,
+        ];
         let track_id = if let Some(id) = existing {
             self.conn.execute(
-                "UPDATE tracks SET url = ?, urlmd5 = ?, title = ?, titlesort = ?, titlesearch = ?, album = ?, tracknum = ?, content_type = ?,
-                   timestamp = ?, filesize = ?, audio_size = ?, audio_offset = ?, year = ?, secs = ?, cover = ?, vbr_scale = ?, bitrate = ?,
-                   samplerate = ?, samplesize = ?, channels = ?, block_alignment = ?, endian = ?, bpm = ?, tagversion = ?, drm = 0, disc = ?,
-                   audio = 1, remote = ?, lossless = ?, lyrics = ?, musicbrainz_id = ?, replay_gain = ?, replay_peak = ?, primary_artist = ?,
-                   coverid = ?, cover_cached = NULL, virtual = ?, updated_time = ?, work = ?, subtitle = ?, grouping = ?, performance = ?,
-                   discsubtitle = ? WHERE id = ?",
-                params![
-                    input.url, urlmd5, title, titlesort, titlesearch, album_id, tracknum, input.content_type, input.timestamp,
-                    input.filesize, info.size.map(|v| v as i64), info.offset.map(|v| v as i64), year, info.secs, cover, vbr,
-                    info.bitrate, info.samplerate, info.samplesize, info.channels, info.block_align, info.endian, bpm,
-                    info.tagversion, disc, remote, info.lossless as i64, lyrics, musicbrainz_id, replay_gain, replay_peak,
-                    primary_artist, coverid, if input.is_virtual { Some("1") } else { None }, t, work_id, subtitle, grouping,
-                    performance, discsubtitle, id
-                ],
+                "UPDATE tracks SET file_id = ?1, url = ?2, cue_start = ?3, cue_end = ?4, fingerprint = ?5,
+                   title = ?6, title_sort = ?7, title_search = ?8, album_id = ?9, artist_id = ?10, work_id = ?11,
+                   track_number = ?12, disc = ?13, disc_subtitle = ?14, year = ?15, duration = ?16, format = ?17,
+                   bitrate = ?18, vbr = ?19, sample_rate = ?20, sample_size = ?21, channels = ?22, lossless = ?23,
+                   big_endian = ?24, block_align = ?25, audio_offset = ?26, audio_size = ?27, bpm = ?28,
+                   tag_version = ?29, replay_gain = ?30, replay_peak = ?31, mbid = ?32, lyrics = ?33,
+                   subtitle = ?34, grouping = ?35, performance = ?36, cover = ?37, cover_id = ?38,
+                   updated_at = ?39
+                 WHERE id = ?40",
+                rusqlite::params_from_iter(
+                    values
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(&id as &dyn rusqlite::ToSql)),
+                ),
             )?;
             id
         } else {
             self.conn.execute(
-                "INSERT INTO tracks (url, urlmd5, title, titlesort, titlesearch, album, tracknum, content_type, timestamp, filesize,
-                   audio_size, audio_offset, year, secs, cover, vbr_scale, bitrate, samplerate, samplesize, channels, block_alignment,
-                   endian, bpm, tagversion, drm, disc, audio, remote, lossless, lyrics, musicbrainz_id, replay_gain, replay_peak,
-                   primary_artist, coverid, virtual, added_time, updated_time, work, subtitle, grouping, performance, discsubtitle)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    input.url, urlmd5, title, titlesort, titlesearch, album_id, tracknum, input.content_type, input.timestamp,
-                    input.filesize, info.size.map(|v| v as i64), info.offset.map(|v| v as i64), year, info.secs, cover, vbr,
-                    info.bitrate, info.samplerate, info.samplesize, info.channels, info.block_align, info.endian, bpm,
-                    info.tagversion, disc, remote, info.lossless as i64, lyrics, musicbrainz_id, replay_gain, replay_peak,
-                    primary_artist, coverid, if input.is_virtual { Some("1") } else { None }, t, t, work_id, subtitle, grouping,
-                    performance, discsubtitle
-                ],
+                "INSERT INTO tracks (file_id, url, cue_start, cue_end, fingerprint, title, title_sort,
+                   title_search, album_id, artist_id, work_id, track_number, disc, disc_subtitle, year,
+                   duration, format, bitrate, vbr, sample_rate, sample_size, channels, lossless,
+                   big_endian, block_align, audio_offset, audio_size, bpm, tag_version, replay_gain,
+                   replay_peak, mbid, lyrics, subtitle, grouping, performance, cover, cover_id,
+                   updated_at, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                   ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
+                   ?34, ?35, ?36, ?37, ?38, ?39, ?39)",
+                values,
             )?;
             self.conn.last_insert_rowid()
         };
 
         // --- relations ---
         self.conn
-            .execute("DELETE FROM contributor_track WHERE track = ?", [track_id])?;
+            .execute("DELETE FROM track_artists WHERE track_id = ?", [track_id])?;
         {
             let mut st_t = self.conn.prepare_cached(
-                "REPLACE INTO contributor_track (role, contributor, track) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO track_artists (track_id, artist_id, role, position) VALUES (?, ?, ?, ?)",
             )?;
             let mut st_a = self.conn.prepare_cached(
-                "REPLACE INTO contributor_album (role, contributor, album) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO album_artists (album_id, artist_id, role) VALUES (?, ?, ?)",
             )?;
-            for (role, ids) in &contributors {
+            let mut position = 0i64;
+            for (role, ids) in &artists {
                 let rid = type_to_role(role).unwrap_or(1);
-                for cid in ids {
-                    st_t.execute(params![rid, cid, track_id])?;
-                    st_a.execute(params![rid, cid, album_id])?;
+                for aid in ids {
+                    st_t.execute(params![track_id, aid, rid, position])?;
+                    st_a.execute(params![album_id, aid, rid])?;
+                    position += 1;
                 }
             }
         }
@@ -1659,7 +1623,7 @@ impl<'a> Scanner<'a> {
             None => Vec::new(),
         };
         self.conn
-            .execute("DELETE FROM genre_track WHERE track = ?", [track_id])?;
+            .execute("DELETE FROM track_genres WHERE track_id = ?", [track_id])?;
         let genre_names = if genre_names.is_empty() {
             vec![cfg.no_genre_string.clone()]
         } else {
@@ -1668,29 +1632,32 @@ impl<'a> Scanner<'a> {
         for g in &genre_names {
             let gid = self.genre_id(g.trim())?;
             self.conn.execute(
-                "REPLACE INTO genre_track (genre, track) VALUES (?, ?)",
-                params![gid, track_id],
+                "INSERT OR IGNORE INTO track_genres (track_id, genre_id) VALUES (?, ?)",
+                params![track_id, gid],
             )?;
         }
         // comments
         self.conn
-            .execute("DELETE FROM comments WHERE track = ?", [track_id])?;
-        for c in &comments {
+            .execute("DELETE FROM track_comments WHERE track_id = ?", [track_id])?;
+        for (i, c) in comments.iter().enumerate() {
             self.conn.execute(
-                "INSERT INTO comments (track, value) VALUES (?, ?)",
-                params![track_id, c],
+                "INSERT INTO track_comments (track_id, position, text) VALUES (?, ?, ?)",
+                params![track_id, i as i64, c],
             )?;
         }
-        // persistent
-        self.update_persistent(
+        // listening history and analysis that belong to this audio
+        self.link_stats(
             &input.url,
-            &urlmd5,
-            musicbrainz_id.as_deref(),
+            mbid.as_deref(),
+            fingerprint.as_deref(),
             input.timestamp,
             rating,
         )?;
+        if let Some(fp) = &fingerprint {
+            self.adopt_legacy_analysis(&input.url, fp, input.timestamp, input.filesize)?;
+        }
 
-        // compilation detection (after the track's contributors are known)
+        // compilation detection (after the track's artists are known)
         if is_compilation.is_none() {
             self.merge_single_va_album(album_id)?;
         }
@@ -1698,18 +1665,12 @@ impl<'a> Scanner<'a> {
 
         // change bookkeeping
         if existing.is_some() {
-            let old_contribs: Vec<i64> = old_contribs.into_iter().collect();
-            self.rescan_contributors(&old_contribs)?;
+            self.rescan_artists(&old_artists)?;
             if let Some(a) = old_album {
                 if a != album_id {
                     self.rescan_album(a)?;
                     self.touched_albums.insert(a);
-                    self.rebuild_contributor_album(a)?;
-                }
-            }
-            if let Some(y) = old_year {
-                if y != year {
-                    self.rescan_year(y)?;
+                    self.rebuild_album_artists(a)?;
                 }
             }
             self.rescan_genres(&old_genres)?;
@@ -1735,7 +1696,7 @@ impl<'a> Scanner<'a> {
         let id: Option<i64> = self
             .conn
             .query_row(
-                "SELECT id FROM works WHERE titlesearch = ? AND composer = ?",
+                "SELECT id FROM works WHERE title_search = ? AND composer_id = ?",
                 params![search, composer],
                 |r| r.get(0),
             )
@@ -1755,45 +1716,93 @@ impl<'a> Scanner<'a> {
             }
         };
         self.conn.execute(
-            "INSERT INTO works (composer, title, titlesort, titlesearch) VALUES (?, ?, ?, ?)",
+            "INSERT INTO works (composer_id, title, title_sort, title_search) VALUES (?, ?, ?, ?)",
             params![composer, title, sort, search],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
-    fn update_persistent(
+    /// Find this track's listening history — by URL, else (for a moved or renamed file) by
+    /// MusicBrainz id or fingerprint of a track no longer in the library — or start it.
+    fn link_stats(
         &mut self,
         u: &str,
-        urlmd5: &str,
         mbid: Option<&str>,
+        fingerprint: Option<&str>,
         timestamp: i64,
         rating: Option<i64>,
     ) -> rusqlite::Result<()> {
-        let id: Option<i64> = match mbid {
-            Some(m) => self
-                .conn
-                .query_row("SELECT id FROM tracks_persistent WHERE urlmd5 = ? OR musicbrainz_id = ? LIMIT 1", params![urlmd5, m], |r| r.get(0))
-                .optional()?,
-            None => self.conn.query_row("SELECT id FROM tracks_persistent WHERE urlmd5 = ? LIMIT 1", [urlmd5], |r| r.get(0)).optional()?,
-        };
+        let mut id: Option<i64> = self
+            .conn
+            .query_row("SELECT id FROM track_stats WHERE url = ?", [u], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if id.is_none() {
+            // only history whose track is gone can move; two copies keep their own
+            const ORPHAN: &str =
+                "NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.url = track_stats.url)";
+            if let Some(m) = mbid {
+                id = self
+                    .conn
+                    .query_row(
+                        &format!("SELECT id FROM track_stats WHERE mbid = ? AND {ORPHAN} LIMIT 1"),
+                        [m],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+            }
+            if let (None, Some(fp)) = (id, fingerprint) {
+                id = self
+                    .conn
+                    .query_row(
+                        &format!(
+                            "SELECT id FROM track_stats WHERE fingerprint = ? AND {ORPHAN} LIMIT 1"
+                        ),
+                        [fp],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+            }
+        }
         match id {
             Some(id) => {
                 self.conn.execute(
-                    "UPDATE tracks_persistent SET url = ?, urlmd5 = ?, musicbrainz_id = COALESCE(?, musicbrainz_id) WHERE id = ?",
-                    params![u, urlmd5, mbid, id],
+                    "UPDATE track_stats SET url = ?, mbid = COALESCE(?, mbid),
+                       fingerprint = COALESCE(?, fingerprint),
+                       rating = COALESCE(rating, ?) WHERE id = ?",
+                    params![u, mbid, fingerprint, rating, id],
                 )?;
-                if let Some(r) = rating {
-                    self.conn.execute("UPDATE tracks_persistent SET rating = ? WHERE id = ? AND (rating IS NULL OR rating = 0)", params![r, id])?;
-                }
             }
             None => {
                 let added = if self.first_scan { timestamp } else { now() };
                 self.conn.execute(
-                    "INSERT INTO tracks_persistent (url, urlmd5, musicbrainz_id, added, rating) VALUES (?, ?, ?, ?, ?)",
-                    params![u, urlmd5, mbid, added, rating],
+                    "INSERT INTO track_stats (url, mbid, fingerprint, added_at, rating) VALUES (?, ?, ?, ?, ?)",
+                    params![u, mbid, fingerprint, added, rating],
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// Analysis converted from a Lyrion-schema database is keyed by URL; file it under the
+    /// track's fingerprint when the file is unchanged since.
+    fn adopt_legacy_analysis(
+        &mut self,
+        u: &str,
+        fingerprint: &str,
+        mtime: i64,
+        size: i64,
+    ) -> rusqlite::Result<()> {
+        if !self.legacy_analysis {
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT OR IGNORE INTO track_analysis (fingerprint, version, features, loudness, peak, analyzed_at)
+             SELECT ?, version, features, loudness, peak, COALESCE(analyzed, 0) FROM legacy_analysis
+             WHERE urlmd5 = ? AND timestamp IS ? AND filesize IS ? AND version IS NOT NULL",
+            params![fingerprint, url::md5_hex(u), mtime, size],
+        )?;
         Ok(())
     }
 
@@ -1802,7 +1811,7 @@ impl<'a> Scanner<'a> {
         let id: Option<i64> = self
             .conn
             .query_row(
-                "SELECT id FROM genres WHERE namesearch = ? LIMIT 1",
+                "SELECT id FROM genres WHERE name_search = ?",
                 [&search],
                 |r| r.get(0),
             )
@@ -1811,14 +1820,14 @@ impl<'a> Scanner<'a> {
             return Ok(id);
         }
         self.conn.execute(
-            "INSERT INTO genres (name, namesort, namesearch) VALUES (?, ?, ?)",
+            "INSERT INTO genres (name, name_sort, name_search) VALUES (?, ?, ?)",
             params![name, self.rules.sort_key(name), search],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// `_mergeAndCreateContributors` → [(ROLE, [ids])] in `contributorRoles` order.
-    fn merge_and_create_contributors(
+    /// `_mergeAndCreateContributors` → [(ROLE, [ids])] in `CONTRIBUTOR_ROLES` order.
+    fn merge_and_create_artists(
         &mut self,
         attrs: &mut Attrs,
         is_compilation: Option<i64>,
@@ -1852,7 +1861,7 @@ impl<'a> Scanner<'a> {
             }
             let sort = attrs.get(&format!("{}SORT", role)).cloned();
             let mbid = attrs.get(&format!("MUSICBRAINZ_{}_ID", role)).cloned();
-            let ids = self.add_contributors(&vals, sort.as_deref(), mbid.as_deref())?;
+            let ids = self.add_artists(&vals, sort.as_deref(), mbid.as_deref())?;
             if !ids.is_empty() {
                 out.push((role.to_string(), ids));
             }
@@ -1860,7 +1869,7 @@ impl<'a> Scanner<'a> {
         let has = |r: &str| out.iter().any(|(n, _)| n == r);
         if !has("ALBUMARTIST") && !has("ARTIST") {
             let name = self.cfg.no_artist_string.clone();
-            let ids = self.add_contributors(&[name], None, None)?;
+            let ids = self.add_artists(&[name], None, None)?;
             // insert ARTIST keeping alphabetical role order
             let pos = out
                 .iter()
@@ -1872,7 +1881,7 @@ impl<'a> Scanner<'a> {
     }
 
     /// `Slim::Schema::Contributor->add`
-    fn add_contributors(
+    fn add_artists(
         &mut self,
         vals: &[String],
         sort: Option<&[String]>,
@@ -1904,23 +1913,25 @@ impl<'a> Scanner<'a> {
             if let Some(m) = &mbid {
                 found = self
                     .conn
-                    .query_row(
-                        "SELECT id, musicbrainz_id FROM contributors WHERE musicbrainz_id = ?",
-                        [m],
-                        |r| Ok((r.get(0)?, r.get(1)?)),
-                    )
+                    .query_row("SELECT id, mbid FROM artists WHERE mbid = ?", [m], |r| {
+                        Ok((r.get(0)?, r.get(1)?))
+                    })
                     .optional()?;
                 if found.is_none() {
                     found = self
                         .conn
-                        .query_row("SELECT id, musicbrainz_id FROM contributors WHERE name = ? AND musicbrainz_id IS NULL", [name], |r| Ok((r.get(0)?, r.get(1)?)))
+                        .query_row(
+                            "SELECT id, mbid FROM artists WHERE name = ? AND mbid IS NULL",
+                            [name],
+                            |r| Ok((r.get(0)?, r.get(1)?)),
+                        )
                         .optional()?;
                 }
             } else {
                 found = self
                     .conn
                     .query_row(
-                        "SELECT id, musicbrainz_id FROM contributors WHERE name = ? LIMIT 1",
+                        "SELECT id, mbid FROM artists WHERE name = ? LIMIT 1",
                         [name],
                         |r| Ok((r.get(0)?, r.get(1)?)),
                     )
@@ -1929,7 +1940,7 @@ impl<'a> Scanner<'a> {
             let id = match found {
                 None => {
                     self.conn.execute(
-                        "INSERT INTO contributors (name, namesort, namesearch, musicbrainz_id) VALUES (?, ?, ?, ?)",
+                        "INSERT INTO artists (name, name_sort, name_search, mbid) VALUES (?, ?, ?, ?)",
                         params![name, sortkey, search, mbid],
                     )?;
                     self.conn.last_insert_rowid()
@@ -1937,14 +1948,14 @@ impl<'a> Scanner<'a> {
                 Some((id, old_mbid)) => {
                     if search != text::transliterate_latin1(&sortkey) {
                         self.conn.execute(
-                            "UPDATE contributors SET namesort = ? WHERE id = ?",
+                            "UPDATE artists SET name_sort = ? WHERE id = ?",
                             params![sortkey, id],
                         )?;
                     }
                     if let Some(m) = &mbid {
                         if old_mbid.as_deref() != Some(m.as_str()) {
                             self.conn.execute(
-                                "UPDATE contributors SET musicbrainz_id = ? WHERE id = ?",
+                                "UPDATE artists SET mbid = ? WHERE id = ?",
                                 params![m, id],
                             )?;
                         }
@@ -1974,7 +1985,7 @@ impl<'a> Scanner<'a> {
         if is_comp {
             let va = self.va_id()?;
             self.conn.execute(
-                "UPDATE albums SET compilation = 1, contributor = ? WHERE id = ?",
+                "UPDATE albums SET compilation = 1, artist_id = ? WHERE id = ?",
                 params![va, album],
             )?;
         } else if comp.is_none() || comp == Some(0) {
@@ -1989,7 +2000,7 @@ impl<'a> Scanner<'a> {
         let no_album = self.cfg.no_album_string.clone();
         let mut create = true;
         let mut exclude_id: Option<i64> = None;
-        let mut hash: AlbumRow = AlbumRow::default();
+        let mut row: AlbumRow = AlbumRow::default();
 
         if let Some(old) = a.update_from {
             if let Some(old_row) = load_album(self.conn, old) {
@@ -1997,8 +2008,7 @@ impl<'a> Scanner<'a> {
                 let new_title = title.clone().unwrap_or_default();
                 let different = text::transliterate_latin1(&new_title)
                     != text::transliterate_latin1(&old_title);
-                if old_row.extid.is_none()
-                    && !new_title.is_empty()
+                if !new_title.is_empty()
                     && !old_title.is_empty()
                     && ((old_title == no_album && new_title != no_album) || different)
                 {
@@ -2007,7 +2017,7 @@ impl<'a> Scanner<'a> {
                     }
                     create = true;
                 } else if !new_title.is_empty() && old_title != no_album {
-                    hash = old_row;
+                    row = old_row;
                     create = false;
                 }
             }
@@ -2018,20 +2028,22 @@ impl<'a> Scanner<'a> {
             if self.no_album_id.is_none() {
                 self.no_album_id = self
                     .conn
-                    .query_row("SELECT id FROM albums WHERE title = ?", [&no_album], |r| {
-                        r.get(0)
-                    })
+                    .query_row(
+                        "SELECT id FROM albums WHERE title = ? LIMIT 1",
+                        [&no_album],
+                        |r| r.get(0),
+                    )
                     .optional()?;
             }
             match self.no_album_id {
                 None => {
                     let va = self.va_id()?;
                     self.conn.execute(
-                        "INSERT INTO albums (title, titlesort, titlesearch, compilation, year, contributor, release_type) VALUES (?, ?, ?, 0, 0, ?, 'ALBUM')",
+                        "INSERT INTO albums (title, title_sort, title_search, compilation, year, artist_id, release_type)
+                         VALUES (?, ?, ?, 0, 0, ?, 'ALBUM')",
                         params![no_album, self.rules.sort_key(&no_album), self.rules.search_key(&no_album), va],
                     )?;
                     let id = self.conn.last_insert_rowid();
-                    self.create_year(0)?;
                     self.no_album_id = Some(id);
                     return Ok(id);
                 }
@@ -2042,7 +2054,7 @@ impl<'a> Scanner<'a> {
         let basename = a.basename.clone();
 
         if create {
-            let check_disc = !self.cfg.group_discs && (a.disc.is_some() || a.brainz_id.is_some());
+            let check_disc = !self.cfg.group_discs && (a.disc.is_some() || a.mbid.is_some());
             let fast = match &self.last_album {
                 Some(l) => {
                     l.dirname == basename && l.title == title_s && (!check_disc || a.disc == l.disc)
@@ -2058,62 +2070,64 @@ impl<'a> Scanner<'a> {
                 let mut search: Vec<String> = vec!["albums.title = ?".into()];
                 let mut values: Vec<rusqlite::types::Value> = vec![title_s.clone().into()];
                 let mut join = false;
-                if let Some(b) = &a.brainz_id {
-                    search.push("albums.musicbrainz_id = ?".into());
+                if let Some(b) = &a.mbid {
+                    search.push("albums.mbid = ?".into());
                     values.push(b.clone().into());
                 }
                 if let Some(x) = exclude_id {
                     search.push("albums.id != ?".into());
                     values.push(x.into());
                 }
-                let mut check_contributor = false;
+                let mut check_artist = false;
                 if check_disc {
                     if let Some(d) = a.disc {
                         search.push("albums.disc = ?".into());
                         values.push(d.into());
                     }
-                    check_contributor = true;
-                } else if let Some(dc) = a.discc {
-                    search.push("albums.discc = ?".into());
+                    check_artist = true;
+                } else if let Some(dc) = a.disc_count {
+                    search.push("albums.disc_count = ?".into());
                     values.push(dc.into());
-                    check_contributor = true;
-                } else if a.disc.is_some() && a.discc.is_none() {
+                    check_artist = true;
+                } else if a.disc.is_some() && a.disc_count.is_none() {
                     search.push("albums.disc IS NOT NULL".into());
-                    check_contributor = true;
+                    check_artist = true;
                 }
-                if check_contributor {
-                    if let Some(cid) = a.contributor_id {
+                if check_artist {
+                    if let Some(cid) = a.artist_id {
                         let c = if a.is_compilation == Some(1) && !a.has_album_artist {
                             self.va_id()?
                         } else {
                             cid
                         };
-                        search.push("albums.contributor = ?".into());
+                        search.push("albums.artist_id = ?".into());
                         values.push(c.into());
                     }
                 }
                 if a.disc.is_none() {
                     search.push("albums.disc IS NULL".into());
-                    if a.discc.is_none() {
-                        search.push("albums.discc IS NULL".into());
+                    if a.disc_count.is_none() {
+                        search.push("albums.disc_count IS NULL".into());
                     }
                 }
                 if let Some(c) = a.is_compilation {
                     search.push("albums.compilation = ?".into());
                     values.push(c.into());
                 }
-                if (check_disc && a.brainz_id.is_none() && a.disc.is_none() && a.discc.is_none())
-                    || (!check_disc && a.disc.is_none() && a.discc.is_none())
+                if (check_disc && a.mbid.is_none() && a.disc.is_none() && a.disc_count.is_none())
+                    || (!check_disc && a.disc.is_none() && a.disc_count.is_none())
                 {
                     search.push("tracks.url LIKE ? ESCAPE '\\'".into());
                     values.push(format!("{}%", like_escape(&basename)).into());
                     join = true;
                 }
                 let sql = format!(
-                    "SELECT albums.id, albums.title, albums.titlesort, albums.titlesearch, albums.compilation, albums.year, albums.artwork,
-                            albums.disc, albums.discc, albums.replay_gain, albums.replay_peak, albums.musicbrainz_id, albums.contributor,
-                            albums.extid, albums.release_type FROM albums {} WHERE {} LIMIT 1",
-                    if join { "JOIN tracks ON (albums.id = tracks.album)" } else { "" },
+                    "SELECT {ALBUM_COLS} FROM albums {} WHERE {} LIMIT 1",
+                    if join {
+                        "JOIN tracks ON (albums.id = tracks.album_id)"
+                    } else {
+                        ""
+                    },
                     search.join(" AND ")
                 );
                 found = self
@@ -2125,11 +2139,11 @@ impl<'a> Scanner<'a> {
                     )
                     .optional()?;
                 if let (Some(f), true, None) = (&found, check_disc, a.is_compilation) {
-                    if let Some(tn) = a.tracknum {
+                    if let Some(tn) = a.track_number {
                         let m: Option<String> = self
                             .conn
                             .query_row(
-                                "SELECT url FROM tracks WHERE album = ? AND tracknum = ? LIMIT 1",
+                                "SELECT url FROM tracks WHERE album_id = ? AND track_number = ? LIMIT 1",
                                 params![f.id, tn],
                                 |r| r.get(0),
                             )
@@ -2143,9 +2157,9 @@ impl<'a> Scanner<'a> {
                 }
             }
             match found {
-                Some(f) => hash = f,
+                Some(f) => row = f,
                 None => {
-                    hash = AlbumRow {
+                    row = AlbumRow {
                         title: Some(title_s.clone()),
                         ..Default::default()
                     };
@@ -2159,80 +2173,95 @@ impl<'a> Scanner<'a> {
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| title_s.clone());
-        hash.titlesort = Some(self.rules.sort_key(&sort_src));
-        hash.titlesearch = Some(self.rules.search_key(&title_s));
-        let existing_comp = hash.compilation;
-        hash.compilation = a.is_compilation;
+        row.title_sort = Some(self.rules.sort_key(&sort_src));
+        row.title_search = Some(self.rules.search_key(&title_s));
+        let existing_comp = row.compilation;
+        row.compilation = a.is_compilation;
         let release = a
             .release_types
             .iter()
             .flat_map(|r| self.rules.split_tag(r))
             .find(|r| !r.eq_ignore_ascii_case("compilation"))
             .unwrap_or_else(|| "album".into());
-        hash.release_type = Some(self.rules.search_key(&release));
+        row.release_type = Some(self.rules.search_key(&release));
         let va = self.va_id()?;
         if a.is_compilation == Some(1) && !a.has_album_artist {
-            hash.contributor = Some(va);
-        } else if let Some(c) = a.contributor_id {
-            hash.contributor = Some(c);
+            row.artist_id = Some(va);
+        } else if let Some(c) = a.artist_id {
+            row.artist_id = Some(c);
             if c == va {
-                hash.compilation = Some(1);
+                row.compilation = Some(1);
             }
         }
-        hash.musicbrainz_id = a.brainz_id.clone();
-        hash.replay_gain = a.rg_gain.as_deref().and_then(text::clean_gain);
-        hash.replay_peak = a.rg_peak.as_deref().and_then(text::clean_gain);
-        let mut discc = a.discc;
-        if discc.is_some() || self.cfg.group_discs {
+        row.mbid = a.mbid.clone();
+        row.replay_gain = a.rg_gain.as_deref().and_then(text::clean_gain);
+        row.replay_peak = a.rg_peak.as_deref().and_then(text::clean_gain);
+        let mut disc_count = a.disc_count;
+        if disc_count.is_some() || self.cfg.group_discs {
             let m = a
                 .disc
                 .unwrap_or(0)
-                .max(a.discc.unwrap_or(0))
-                .max(hash.discc.unwrap_or(0));
-            discc = if m == 0 { None } else { Some(m) };
+                .max(a.disc_count.unwrap_or(0))
+                .max(row.disc_count.unwrap_or(0));
+            disc_count = if m == 0 { None } else { Some(m) };
         }
-        hash.disc = a.disc;
-        hash.discc = discc;
-        hash.year = Some(a.year);
+        row.disc = a.disc;
+        row.disc_count = disc_count;
+        row.year = Some(a.year);
         if !create {
-            hash.title = Some(title_s.clone());
+            row.title = Some(title_s.clone());
         }
-        if let Some(c) = &a.coverid {
-            hash.artwork = Some(c.clone());
+        if let Some(c) = &a.cover_id {
+            row.artwork = Some(c.clone());
         }
         if a.is_compilation.is_none() {
             // keep the evaluated flag; re-evaluated after the track is stored
-            hash.compilation = match (hash.id, existing_comp) {
+            row.compilation = match (row.id, existing_comp) {
                 (Some(_), Some(1)) => Some(1),
                 (Some(_), c) => c.or(Some(0)),
                 (None, _) => Some(0),
             };
-            if hash.compilation == Some(1) {
-                hash.contributor = Some(va);
+            if row.compilation == Some(1) {
+                row.artist_id = Some(va);
             }
         }
-        self.create_year(a.year)?;
 
-        let id = match hash.id {
+        let values = params![
+            row.title.clone().unwrap_or_default(),
+            row.title_sort,
+            row.title_search,
+            row.compilation,
+            row.year.unwrap_or(0),
+            row.artwork,
+            row.disc,
+            row.disc_count,
+            row.replay_gain,
+            row.replay_peak,
+            row.mbid,
+            row.artist_id,
+            row.release_type.clone().unwrap_or_else(|| "ALBUM".into()),
+        ];
+        let id = match row.id {
             Some(id) => {
                 self.conn.execute(
-                    "UPDATE albums SET title = ?, titlesort = ?, titlesearch = ?, compilation = ?, year = ?, artwork = ?, disc = ?, discc = ?,
-                       replay_gain = ?, replay_peak = ?, musicbrainz_id = ?, contributor = ?, release_type = ? WHERE id = ?",
-                    params![
-                        hash.title, hash.titlesort, hash.titlesearch, hash.compilation, hash.year, hash.artwork, hash.disc, hash.discc,
-                        hash.replay_gain, hash.replay_peak, hash.musicbrainz_id, hash.contributor, hash.release_type, id
-                    ],
+                    "UPDATE albums SET title = ?1, title_sort = ?2, title_search = ?3, compilation = ?4, year = ?5,
+                       artwork = ?6, disc = ?7, disc_count = ?8, replay_gain = ?9, replay_peak = ?10, mbid = ?11,
+                       artist_id = ?12, release_type = ?13 WHERE id = ?14",
+                    rusqlite::params_from_iter(
+                        values
+                            .iter()
+                            .copied()
+                            .chain(std::iter::once(&id as &dyn rusqlite::ToSql)),
+                    ),
                 )?;
                 id
             }
             None => {
                 self.conn.execute(
-                    "INSERT INTO albums (title, titlesort, titlesearch, compilation, year, artwork, disc, discc, replay_gain, replay_peak,
-                       musicbrainz_id, contributor, release_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    params![
-                        hash.title, hash.titlesort, hash.titlesearch, hash.compilation, hash.year, hash.artwork, hash.disc, hash.discc,
-                        hash.replay_gain, hash.replay_peak, hash.musicbrainz_id, hash.contributor, hash.release_type
-                    ],
+                    "INSERT INTO albums (title, title_sort, title_search, compilation, year, artwork, disc,
+                       disc_count, replay_gain, replay_peak, mbid, artist_id, release_type)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    values,
                 )?;
                 self.conn.last_insert_rowid()
             }
@@ -2246,17 +2275,11 @@ impl<'a> Scanner<'a> {
         Ok(id)
     }
 
-    fn create_year(&self, y: i64) -> rusqlite::Result<()> {
-        self.conn
-            .execute("INSERT OR IGNORE INTO years (id) VALUES (?)", [y])?;
-        Ok(())
-    }
-
     // -----------------------------------------------------------------------------------------
     // post processing
     // -----------------------------------------------------------------------------------------
 
-    /// Album artwork (embedded first, then disc/tracknum), customsearch, orphans, years.
+    /// Album artwork (embedded first, then disc/track number), search text, orphans.
     /// `all`: process every album (wipe/full rebuild) instead of only the touched ones.
     pub fn post_process(&mut self, all: bool, analyze: bool) -> anyhow::Result<()> {
         self.set_step("post_processing", 4);
@@ -2270,8 +2293,8 @@ impl<'a> Scanner<'a> {
         };
         {
             let mut st = self.conn.prepare_cached(
-                "SELECT coverid FROM tracks WHERE album = ? AND coverid IS NOT NULL AND audio = 1
-                 ORDER BY (CASE WHEN cover GLOB '[0-9]*' THEN 0 ELSE 1 END), disc, tracknum LIMIT 1",
+                "SELECT cover_id FROM tracks WHERE album_id = ? AND cover_id IS NOT NULL
+                 ORDER BY (CASE WHEN cover GLOB '[0-9]*' THEN 0 ELSE 1 END), disc, track_number LIMIT 1",
             )?;
             let mut up = self
                 .conn
@@ -2282,43 +2305,48 @@ impl<'a> Scanner<'a> {
             }
         }
         self.step_done(1, None);
-        // orphan cleanup
-        self.conn.execute_batch(
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album FROM tracks WHERE album IS NOT NULL);
-             DELETE FROM genres WHERE id NOT IN (SELECT DISTINCT genre FROM genre_track);
-             DELETE FROM years WHERE id NOT IN (SELECT DISTINCT year FROM tracks WHERE year IS NOT NULL);
-             DELETE FROM works WHERE id NOT IN (SELECT DISTINCT work FROM tracks WHERE work IS NOT NULL);",
-        )?;
+        // orphans
         let va = self.va_id()?;
+        self.conn.execute_batch(
+            "DELETE FROM albums WHERE NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id);
+             DELETE FROM genres WHERE NOT EXISTS (SELECT 1 FROM track_genres WHERE track_genres.genre_id = genres.id);
+             DELETE FROM works WHERE NOT EXISTS (SELECT 1 FROM tracks WHERE tracks.work_id = works.id);",
+        )?;
         self.conn.execute(
-            "DELETE FROM contributors WHERE id != ? AND id NOT IN (SELECT DISTINCT contributor FROM contributor_track)
-               AND id NOT IN (SELECT DISTINCT contributor FROM albums WHERE contributor IS NOT NULL)",
+            "DELETE FROM artists WHERE id != ?
+               AND NOT EXISTS (SELECT 1 FROM track_artists WHERE track_artists.artist_id = artists.id)
+               AND NOT EXISTS (SELECT 1 FROM albums WHERE albums.artist_id = artists.id)",
             [va],
         )?;
+        if let Some(id) = self.no_album_id {
+            if load_album(self.conn, id).is_none() {
+                self.no_album_id = None;
+            }
+        }
+        self.last_album = None;
         self.step_done(2, None);
-        // customsearch: words used by the multi-word search (title + album + contributors)
-        const ALBUM_CS: &str = "UPDATE albums SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT GROUP_CONCAT(c.namesearch, ' ')
-                FROM contributor_album ca JOIN contributors c ON c.id = ca.contributor WHERE ca.album = albums.id), '')";
-        const TRACK_CS: &str = "UPDATE tracks SET customsearch = COALESCE(titlesearch, '') || ' ' || COALESCE((SELECT titlesearch FROM albums WHERE albums.id = tracks.album), '')
-                || ' ' || COALESCE((SELECT GROUP_CONCAT(c.namesearch, ' ') FROM contributor_track ct JOIN contributors c ON c.id = ct.contributor
-                WHERE ct.track = tracks.id), '') WHERE audio = 1";
+        // search text: the words multi-word search looks in (title, album, artists)
+        const ALBUM_TEXT: &str = "UPDATE albums SET search_text = title_search || ' ' || COALESCE((SELECT GROUP_CONCAT(a.name_search, ' ')
+                FROM album_artists aa JOIN artists a ON a.id = aa.artist_id WHERE aa.album_id = albums.id), '')";
+        const TRACK_TEXT: &str = "UPDATE tracks SET search_text = title_search || ' ' || COALESCE((SELECT title_search FROM albums WHERE albums.id = tracks.album_id), '')
+                || ' ' || COALESCE((SELECT GROUP_CONCAT(a.name_search, ' ') FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+                WHERE ta.track_id = tracks.id), '')";
         if all {
-            self.conn.execute(ALBUM_CS, [])?;
-            self.conn.execute(TRACK_CS, [])?;
+            self.conn.execute(ALBUM_TEXT, [])?;
+            self.conn.execute(TRACK_TEXT, [])?;
         } else {
             let mut sa = self
                 .conn
-                .prepare_cached(&format!("{} WHERE id = ?", ALBUM_CS))?;
+                .prepare_cached(&format!("{} WHERE id = ?", ALBUM_TEXT))?;
             let mut stt = self
                 .conn
-                .prepare_cached(&format!("{} AND album = ?", TRACK_CS))?;
+                .prepare_cached(&format!("{} WHERE album_id = ?", TRACK_TEXT))?;
             for a in &albums {
                 sa.execute([a])?;
                 stt.execute([a])?;
             }
-            // tracks without album (should not happen for audio) / NULL customsearch leftovers
             self.conn
-                .execute(&format!("{} AND customsearch IS NULL", TRACK_CS), [])?;
+                .execute(&format!("{} WHERE search_text IS NULL", TRACK_TEXT), [])?;
         }
         self.touched_albums.clear();
         self.step_done(3, None);
@@ -2331,8 +2359,8 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    /// Remove local tracks that are no longer below a configured media dir (or the playlist dir).
-    /// LMS triggers a wipe when a media dir is removed; we clean up incrementally instead.
+    /// Remove local files that are no longer below a configured media dir (or the playlist
+    /// dir).  LMS wipes when a media dir is removed; we clean up incrementally instead.
     pub fn remove_outside_roots(
         &mut self,
         roots: &[PathBuf],
@@ -2346,9 +2374,9 @@ impl<'a> Scanner<'a> {
             prefixes.push(format!("{}/", file_url_from_path(p)));
         }
         let urls: Vec<String> = {
-            let mut st = self.conn.prepare(
-                "SELECT url FROM tracks WHERE url LIKE 'file:%' AND virtual IS NULL AND content_type NOT IN ('dir')",
-            )?;
+            let mut st = self
+                .conn
+                .prepare("SELECT url FROM files WHERE kind != 'dir'")?;
             let rows = st.query_map([], |r| r.get::<_, String>(0))?;
             rows.filter_map(|r| r.ok())
                 .filter(|u| {
@@ -2367,7 +2395,7 @@ impl<'a> Scanner<'a> {
             if self.aborted() {
                 break;
             }
-            // may already be gone (containers removed together with their cue sheet)
+            // may already be gone (split files removed together with their cue sheet)
             self.deleted(&u)?;
             self.summary.deleted += 1;
             self.changes += 1;
@@ -2384,25 +2412,26 @@ struct AlbumInput {
     title: Option<String>,
     albumsort: Option<String>,
     disc: Option<i64>,
-    discc: Option<i64>,
-    brainz_id: Option<String>,
+    disc_count: Option<i64>,
+    mbid: Option<String>,
     release_types: Vec<String>,
     rg_gain: Option<String>,
     rg_peak: Option<String>,
     is_compilation: Option<i64>,
-    contributor_id: Option<i64>,
+    artist_id: Option<i64>,
     has_album_artist: bool,
     basename: String,
-    tracknum: Option<i64>,
+    track_number: Option<i64>,
     year: i64,
-    coverid: Option<String>,
+    cover_id: Option<String>,
     update_from: Option<i64>,
 }
 
 fn album_artists_differ(c: &Connection, album: i64) -> rusqlite::Result<bool> {
     let mut st = c.prepare_cached(
-        "SELECT contributor, track FROM contributor_track WHERE track IN (SELECT id FROM tracks WHERE album = ?) AND role = 1
-         ORDER BY contributor, track",
+        "SELECT artist_id, track_id FROM track_artists
+         WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?) AND role = 1
+         ORDER BY artist_id, track_id",
     )?;
     let rows = st.query_map([album], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
     let mut map: HashMap<i64, String> = HashMap::new();
@@ -2493,7 +2522,8 @@ pub fn find_standalone_artwork(dir: &Path, cover_art: &str) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
-/// `variousArtistsObject`: lookup by namesearch, create if missing, rename if the string changed.
+/// `variousArtistsObject`: look up by search key, create if missing, rename if the string
+/// changed.
 pub fn various_artists_id(
     c: &Connection,
     cfg: &LibraryConfig,
@@ -2503,7 +2533,7 @@ pub fn various_artists_id(
     let search = rules.search_key(name);
     let row: Option<(i64, String)> = c
         .query_row(
-            "SELECT id, name FROM contributors WHERE namesearch = ? LIMIT 1",
+            "SELECT id, name FROM artists WHERE name_search = ? LIMIT 1",
             [&search],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
@@ -2512,7 +2542,7 @@ pub fn various_artists_id(
         Some((id, n)) => {
             if &n != name {
                 c.execute(
-                    "UPDATE contributors SET name = ?, namesort = ? WHERE id = ?",
+                    "UPDATE artists SET name = ?, name_sort = ? WHERE id = ?",
                     params![name, rules.sort_key(name), id],
                 )?;
             }
@@ -2520,7 +2550,7 @@ pub fn various_artists_id(
         }
         None => {
             c.execute(
-                "INSERT INTO contributors (name, namesort, namesearch) VALUES (?, ?, ?)",
+                "INSERT INTO artists (name, name_sort, name_search) VALUES (?, ?, ?)",
                 params![name, rules.sort_key(name), search],
             )?;
             Ok(c.last_insert_rowid())
