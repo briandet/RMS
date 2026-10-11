@@ -148,7 +148,14 @@ playlists can be played, added and saved as favorites.  RMS plays the audio itse
 96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
 it to the player as 16-bit 44.1 kHz FLAC (lossless, about half the size of PCM; PCM for
 players without FLAC), so any player works (including WiiM), seeking included.  Synced
-players share one decode.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
+players share one decode.
+
+Every player is also a **Spotify Connect** device of the signed-in account, named after the
+player: pick it in a Spotify app to play there.  Play, pause, seek and track changes in the
+app drive the player, and the player's volume follows the app's; stopping, pausing or
+playing something else on the player pauses the Connect device.  The devices are
+registered with the account rather than announced on the network, so they are visible only
+to the account RMS is signed in with.
 
 ### WiiM notes
 
@@ -164,8 +171,8 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 * One transcoder (ffmpeg) replaces Lyrion's `convert.conf` helper chain (flac, sox, lame,
   faad…); per-format enable/disable is not configurable yet.
 * Only a few plugins exist (Favorites, alarms, radio directory, Spotify).  Other
-  streaming services (Qobuz, TIDAL…) and the TuneIn directory are not ported; Spotify is
-  built in rather than through Spotty, and without Spotify Connect.
+  streaming services (Qobuz, TIDAL…) and the TuneIn directory are not ported; Spotify,
+  including Spotify Connect, is built in rather than through Spotty.
 * The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
   than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.
   Squeezebox 1 and SliMP3 (text displays) are not supported.
