@@ -2,7 +2,7 @@
 
 import {
   serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
-  getSpotify, spotifyLogin, spotifyLogout,
+  getSpotify, spotifyLogin, spotifyLogout, patchSpotify, forgetSpotifyLearned,
 } from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
@@ -189,6 +189,7 @@ export function render(node, { ctx }) {
     if (st.signed_in) {
       clearInterval(spotifyPoll);
       const normId = fieldId();
+      const learnId = fieldId();
       spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
@@ -199,6 +200,20 @@ export function render(node, { ctx }) {
           h('input', { id: normId, type: 'checkbox', checked: !!settings?.spotify_normalisation, disabled: !settings,
             onchange: (e) => saveServer({ spotify_normalisation: e.target.checked }) }),
           h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
+        h('div', { class: 'field check' },
+          h('input', { id: learnId, type: 'checkbox', checked: !!st.learn, onchange: async (e) => {
+            try { await patchSpotify({ learn: e.target.checked }); } catch (err) { toast(`Could not save: ${err.message}`, 'error'); }
+            renderSpotify();
+          } }),
+          h('label', { for: learnId }, 'Use what I play in mixes',
+            h('span', { class: 'muted small block' },
+              'Learns how each track you play to the end sounds (tempo, key, timbre — no audio is kept), so Create Mix and Don’t Stop The Music can pick Spotify tracks next to your own. ',
+              `${st.learned} track${st.learned === 1 ? '' : 's'} learned.`))),
+        st.learned ? h('div', { class: 'button-row' }, h('button', { class: 'btn btn-small', type: 'button', onclick: async () => {
+          if (!confirm('Forget every learned Spotify track?')) return;
+          try { await forgetSpotifyLearned(); toast('Forgotten'); } catch (err) { toast(`Could not forget: ${err.message}`, 'error'); }
+          renderSpotify();
+        } }, 'Forget learned tracks')) : null,
         h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
         spotifyClientIdField(settings),
         ...spotifySignIn('Sign in again (keeps playback working)', false),

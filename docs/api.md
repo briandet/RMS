@@ -50,6 +50,7 @@ own conventions:
 | `GET /api/v1/spotify` | [Spotify status](#spotify) |
 | `GET /api/v1/spotify/items?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/spotify/login`, `/logout` | [sign in and out](#spotify) |
+| `PATCH /api/v1/spotify`, `DELETE /api/v1/spotify/learned` | [learning for mixes](#spotify) |
 | `GET`, `PATCH /api/v1/settings` | [server settings](#server-settings) |
 | `POST /api/v1/library/scan` | [scan the library](#server-settings) |
 
@@ -302,7 +303,10 @@ Both are menus of [BrowseItem](#browseitem)s, the same the player menus show.
 ### Spotify
 
 `GET /api/v1/spotify` is 404 when this server has no Spotify support, otherwise
-`{"signed_in": true, "user": "…", "product": "premium", "error": "…"}`.
+`{"signed_in": true, "user": "…", "product": "premium", "error": "…", "learn": true,
+"learned": 120}`.  `learn`: what Spotify tracks sound like is learned as they play, for
+mixes; `learned`: how many are.  `PATCH /api/v1/spotify` with `{"learn": false}` turns it
+off; `DELETE /api/v1/spotify/learned` forgets them.
 
 Signing in: `POST /api/v1/spotify/login` with `{}` returns `{"url": …}`, the Spotify page to
 open.  Spotify then sends the browser to `http://127.0.0.1:5588/login?code=…`.  On the

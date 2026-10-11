@@ -84,6 +84,7 @@ struct PipeSink {
     player: Weak<crate::player::Player>,
     /// The stream being written: its generation, when it started, frames written to it.
     stream: Option<(u64, Instant, u64)>,
+    learner: super::learn::Learner,
 }
 
 impl PipeSink {
@@ -100,11 +101,17 @@ impl PipeSink {
 }
 
 impl Sink for PipeSink {
+    fn stop(&mut self) -> SinkResult<()> {
+        self.learner.stopped();
+        Ok(())
+    }
+
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
         let AudioPacket::Samples(samples) = packet else {
             return Ok(());
         };
         let mut samples = converter.f64_to_s16(&samples);
+        self.learner.samples(&samples);
         let frames = (samples.len() / super::stream::CHANNELS as usize) as u64;
         let deadline = std::time::Instant::now() + WAIT_FOR_STREAM;
         // the player's position while we wait for it, and since when it has not moved
@@ -385,13 +392,17 @@ async fn add_device(
     let pipe = Arc::new(Pipe::default());
     let sink_pipe = pipe.clone();
     let sink_player = Arc::downgrade(p);
+    let learn_events = super::learn::EventSlot::default();
+    let learner = super::learn::Learner::new(Arc::downgrade(server), learn_events.clone());
     let player = Player::new(config, session.clone(), Box::new(NoOpVolume), move || {
         Box::new(PipeSink {
             pipe: sink_pipe,
             player: sink_player,
             stream: None,
+            learner,
         })
     });
+    *learn_events.lock() = Some(player.get_player_event_channel());
     let initial = ((p.volume().clamp(0, 100) as u32 * 65535) / 100) as u16;
     let mixer = Arc::new(PlayerMixer {
         server: Arc::downgrade(server),
@@ -621,6 +632,7 @@ mod tests {
             pipe: pipe.clone(),
             player: Weak::new(),
             stream: None,
+            learner: crate::plugins::spotify::learn::Learner::new(Weak::new(), Default::default()),
         };
         let mut conv = Converter::new(None);
         let t = Instant::now();
@@ -655,6 +667,7 @@ mod tests {
             pipe: pipe.clone(),
             player: Weak::new(),
             stream: None,
+            learner: crate::plugins::spotify::learn::Learner::new(Weak::new(), Default::default()),
         };
         let t = Instant::now();
         sink.write(second(), &mut Converter::new(None)).unwrap();

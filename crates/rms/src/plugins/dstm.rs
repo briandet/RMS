@@ -110,6 +110,7 @@ async fn mix(server: &Arc<Server>, token: &str, snap: &Snapshot) -> Option<Addit
     let lib = server.library.clone();
     let token = token.to_string();
     let ids = snap.track_ids.clone();
+    let remote = crate::plugins::spotify::learn::in_mixes(server);
     let favorite = server
         .favorites
         .flat_audio()
@@ -126,7 +127,7 @@ async fn mix(server: &Arc<Server>, token: &str, snap: &Snapshot) -> Option<Addit
         let tracks = match token.as_str() {
             SIMILAR => {
                 let seeds: Vec<i64> = ids.iter().rev().take(SEEDS).copied().collect();
-                lib.similar_tracks(&seeds, NEW_TRACKS, &exclude)
+                lib.similar_tracks_with(&seeds, NEW_TRACKS, &exclude, remote)
             }
             SONG_MIX => lib.random_tracks(NEW_TRACKS, &[], None, &exclude),
             SONG_MIX_GENRES => lib.random_tracks(NEW_TRACKS, &genres(), None, &exclude),
@@ -180,13 +181,32 @@ async fn dont_stop_the_music(server: Arc<Server>, master: Arc<Player>, active: A
         let mut track_ids = Vec::new();
         let mut urls = HashSet::new();
         let mut last = None;
+        let mut streamed = Vec::new();
         for (_, e) in c.playlist.iter() {
             urls.insert(e.url.clone());
             if let Some(id) = e.track_id {
                 track_ids.push(id);
+            } else if is_spotify_track(&e.url) {
+                // learned Spotify tracks seed a mix too (their ids are filled in below)
+                track_ids.push(0);
+                streamed.push(e.url.clone());
             }
             last = Some(e.clone());
         }
+        let known: HashMap<String, i64> = server
+            .library
+            .remote_ids_for_urls(&streamed)
+            .into_iter()
+            .collect();
+        let mut streamed = streamed.iter();
+        for id in track_ids.iter_mut().filter(|id| **id == 0) {
+            *id = streamed
+                .next()
+                .and_then(|u| known.get(u))
+                .copied()
+                .unwrap_or(0);
+        }
+        track_ids.retain(|id| *id != 0);
         // don't continue when the playlist ends with a radio station or the like
         let playing_stream = c
             .playing_song()
@@ -253,9 +273,20 @@ async fn dont_stop_the_music(server: Arc<Server>, master: Arc<Player>, active: A
     }
     match add {
         Addition::Tracks(t) => {
-            let ids: Vec<String> = t.iter().map(|id| id.to_string()).collect();
-            let what = format!("track.id={}", ids.join(","));
-            exec(&server, &master, &["playlist", "addtracks", &what]).await;
+            // library tracks by id; learned streamed tracks (negative ids) by URL, in order
+            for run in t.chunk_by(|a, b| (*a < 0) == (*b < 0)) {
+                if run[0] < 0 {
+                    for id in run {
+                        if let Some(r) = server.library.remote_track(*id) {
+                            exec(&server, &master, &["playlist", "add", &r.url]).await;
+                        }
+                    }
+                } else {
+                    let ids: Vec<String> = run.iter().map(|id| id.to_string()).collect();
+                    let what = format!("track.id={}", ids.join(","));
+                    exec(&server, &master, &["playlist", "addtracks", &what]).await;
+                }
+            }
         }
         Addition::Url(u) => {
             exec(&server, &master, &["playlist", "add", &u]).await;
@@ -432,6 +463,7 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
 /// Create Mix: songs similar to `seed` (a track's mix starts with the track itself).
 pub async fn mix_tracks(server: &Arc<Server>, seed: Seed) -> Vec<i64> {
     let lib = server.library.clone();
+    let remote = crate::plugins::spotify::learn::in_mixes(server);
     tokio::task::spawn_blocking(move || {
         let mut seeds = lib.seed_tracks(seed);
         if seeds.is_empty() {
@@ -448,7 +480,7 @@ pub async fn mix_tracks(server: &Arc<Server>, seed: Seed) -> Vec<i64> {
             mix.push(t);
         }
         let none = HashSet::new();
-        mix.extend(lib.similar_tracks(&seeds, MIX_SIZE - mix.len(), &none));
+        mix.extend(lib.similar_tracks_with(&seeds, MIX_SIZE - mix.len(), &none, remote));
         mix
     })
     .await

@@ -22,7 +22,7 @@ use commands::CommandError;
 use library::{AlbumParams, FolderParams, LibraryError, ListParams};
 use model::{
     ApiError, Command, NewFavorite, PlayerSettingsPatch, ScanRequest, ServerSettingsPatch,
-    SpotifyLogin,
+    SpotifyLogin, SpotifyPatch,
 };
 use serde::{Deserialize, Serialize};
 use services::MenuParams;
@@ -61,7 +61,11 @@ pub fn router() -> Router<Arc<Server>> {
             "/api/v1/favorites/{id}",
             axum::routing::delete(delete_favorite),
         )
-        .route("/api/v1/spotify", get(get_spotify))
+        .route("/api/v1/spotify", get(get_spotify).patch(patch_spotify))
+        .route(
+            "/api/v1/spotify/learned",
+            axum::routing::delete(delete_spotify_learned),
+        )
         .route("/api/v1/spotify/items", get(get_spotify_items))
         .route("/api/v1/spotify/login", post(post_spotify_login))
         .route("/api/v1/spotify/logout", post(post_spotify_logout))
@@ -296,6 +300,17 @@ async fn get_spotify(State(s): State<Arc<Server>>) -> Response {
         return no_spotify();
     }
     reply(services::spotify_status(&s).await)
+}
+
+async fn patch_spotify(State(s): State<Arc<Server>>, Json(b): Json<SpotifyPatch>) -> Response {
+    if !services::spotify_available() {
+        return no_spotify();
+    }
+    reply(services::spotify_patch(&s, b).await)
+}
+
+async fn delete_spotify_learned(State(s): State<Arc<Server>>) -> Response {
+    done(services::spotify_forget(&s).await)
 }
 
 async fn get_spotify_items(

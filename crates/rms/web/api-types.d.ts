@@ -218,7 +218,15 @@ product?: string,
 /**
  * Why browsing or playback doesn't work right now.
  */
-error?: string, };
+error?: string, 
+/**
+ * Learn what tracks played from Spotify sound like, for mixes.
+ */
+learn: boolean, 
+/**
+ * Tracks learned so far.
+ */
+learned: number, };
 
 export type SpotifyLogin = { code?: string, };
 
@@ -231,6 +239,8 @@ url?: string,
  * Signed in as.
  */
 user?: string, };
+
+export type SpotifyPatch = { learn?: boolean, };
 
 export type ServerSettings = { library_name: string, media_dirs: Array<string>, 
 /**

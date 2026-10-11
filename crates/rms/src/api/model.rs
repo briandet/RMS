@@ -484,6 +484,18 @@ pub struct SpotifyStatus {
     /// Why browsing or playback doesn't work right now.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Learn what tracks played from Spotify sound like, for mixes.
+    pub learn: bool,
+    /// Tracks learned so far.
+    pub learned: u64,
+}
+
+/// `PATCH /api/v1/spotify` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default, TS)]
+#[ts(optional_fields)]
+pub struct SpotifyPatch {
+    #[serde(default)]
+    pub learn: Option<bool>,
 }
 
 /// `POST /api/v1/spotify/login` body.  Without `code`, starts a sign-in; with it (the

@@ -763,12 +763,58 @@ pub async fn entries_for(server: &Arc<Server>, item: &Item) -> Vec<Entry> {
         },
         Item::Url(u) => return url_entries(server, u).await,
         Item::Favorite(id) => return crate::plugins::favorites::entries(server, id).await,
+        Item::Tracks(ids) if ids.iter().any(|id| rms_library::remote::is_remote(*id)) => {
+            return mixed_entries(server, ids).await
+        }
         Item::Tracks(ids) => TrackFilter {
             track_ids: ids.clone(),
             ..Default::default()
         },
     };
     library_entries(server, f).await
+}
+
+/// Library tracks and learned streamed tracks (negative ids, `rms_library::remote`), in
+/// order.  A streamed track's title and artwork come from what was learned, so showing it
+/// needs no lookup.
+async fn mixed_entries(server: &Arc<Server>, ids: &[i64]) -> Vec<Entry> {
+    use rms_library::remote::is_remote;
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < ids.len() {
+        let run = ids[i..]
+            .iter()
+            .take_while(|id| is_remote(**id) == is_remote(ids[i]))
+            .count();
+        let part = &ids[i..i + run];
+        if is_remote(ids[i]) {
+            for id in part {
+                let Some(t) = server.library.remote_track(*id) else {
+                    continue;
+                };
+                if let Some(sp) = crate::plugins::spotify::get() {
+                    sp.meta.entry(t.url.clone()).or_insert_with(|| {
+                        crate::plugins::spotify::TrackMeta {
+                            title: t.title.clone(),
+                            artist: t.artists.join(", "),
+                            album: t.album.clone().unwrap_or_default(),
+                            secs: t.duration.unwrap_or(0.0),
+                            image: t.cover.clone(),
+                        }
+                    });
+                }
+                out.push(Entry::new(t.url));
+            }
+        } else {
+            let f = rms_library::TrackFilter {
+                track_ids: part.to_vec(),
+                ..Default::default()
+            };
+            out.extend(library_entries(server, f).await);
+        }
+        i += run;
+    }
+    out
 }
 
 /// Something to queue.

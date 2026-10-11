@@ -136,6 +136,10 @@ export const getSpotifyItems = (id, p) => api(withQuery('spotify/items', { ...p,
 /** Without `code`: the sign-in page to open (`{url}`); with it: finish (`{user}`). @returns {Promise<SpotifyLoginResult>} */
 export const spotifyLogin = (code) => api('spotify/login', { method: 'POST', body: code ? { code } : {}, timeout: 60000 });
 export const spotifyLogout = () => api('spotify/logout', { method: 'POST', body: {} });
+/** @param {import('./api-types').SpotifyPatch} patch @returns {Promise<SpotifyStatus>} */
+export const patchSpotify = (patch) => api('spotify', { method: 'PATCH', body: patch });
+/** Forget the learned Spotify tracks. */
+export const forgetSpotifyLearned = () => api('spotify/learned', { method: 'DELETE' });
 
 /** @returns {Promise<ServerSettings>} */
 export const getSettings = () => api('settings');

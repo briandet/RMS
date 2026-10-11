@@ -21,12 +21,18 @@ are `STRICT`, and foreign keys are enforced.
 | `playlists`, `playlist_items` | Saved playlists (`saved`, in the playlist folder), other playlist files (`file`) and cue sheets (`cue`), each with its entries' URLs in order. |
 | `track_stats` | Listening history: play count, last played, rating, date added. |
 | `track_analysis` | Sonic analysis (bliss features) and loudness per audio content. |
+| `track_rhythm` | Tempo, beat grid, downbeat, key (with its Camelot code) and an energy curve per bar, per audio content (`rhythm.rs`), for transitions. |
+| `track_chromaprint` | A Chromaprint audio fingerprint of the first two minutes, per audio content (`print.rs`): the same recording in the library and in a stream. |
+| `remote_tracks` | Tracks of streaming services that played to their end (Spotify): metadata only, with their ISRC and, when the library has the same recording, `local_match`. Their analyses are in the tables above under `<source>:<id>`. |
 | `meta` | Key/value settings of the library (`last_scan`). |
 | `tracks_fts`, `albums_fts`, `artists_fts` | Full-text (FTS5) indexes over the search keys (`search_text`, `name_search`), kept in step by triggers. |
 
 Ids are only stable within one library: a wipe-and-rescan assigns new ones. Players and
 controllers keep URLs, and RMS resolves a saved queue entry by URL when its stored track id
 no longer matches.
+
+A track's `isrc` comes from its `ISRC` (`TSRC` in ID3) tag; files scanned before version 3 of
+the schema get it when they are next rescanned.
 
 ## Search
 
@@ -40,8 +46,9 @@ inside words, still scans the columns.
 
 ## What survives what
 
-`track_stats` and `track_analysis` are user data. A wipe and rescan keep them, and so does a
-file that changes, moves or is renamed:
+`track_stats`, the analyses (`track_analysis`, `track_rhythm`, `track_chromaprint`) and
+`remote_tracks` are user data. A wipe and rescan keep them, and so does a file that changes,
+moves or is renamed:
 
 * **Listening history** is found by URL first. When a file is new at its URL, the scanner
   then looks for history that has lost its track, first by MusicBrainz recording id and then

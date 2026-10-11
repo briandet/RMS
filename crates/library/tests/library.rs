@@ -1463,3 +1463,268 @@ fn the_backup_includes_writes_still_in_the_wal() {
     assert_eq!(n, 9);
     assert!(!dir.path().join("library.sqlite.lms-backup-wal").exists());
 }
+
+/// Features for `track_analysis`: all `v`, but `first` in the first slot.
+fn features(first: f32, v: f32) -> Vec<u8> {
+    let dim = rms_library::sonic::Index::empty().dim();
+    let mut f = vec![v; dim];
+    f[0] = first;
+    f.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+#[test]
+fn learned_streamed_tracks_join_mixes_unless_the_library_has_them() {
+    use rms_library::remote::{is_remote, RemoteTrack};
+    use std::collections::HashSet;
+    need_ffmpeg!();
+    let f = common::build();
+    // a file with an ISRC tag (Vorbis comment)
+    common::make_audio(
+        &f.media.join("Artist C/Single/01 - Tagged.flac"),
+        2.0,
+        &[
+            ("title", "Tagged"),
+            ("artist", "Artist C"),
+            ("ISRC", "gb-aye-06-01498"),
+        ],
+        None,
+    );
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let id = |title: &str| all.iter().find(|t| t.title == title).unwrap().id;
+    let one = id("Song One");
+    let c = raw_db(&f);
+    let isrc: Option<String> = c
+        .query_row("SELECT isrc FROM tracks WHERE title = 'Tagged'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(isrc.as_deref(), Some("GBAYE0601498"));
+
+    // three streamed tracks: one by Song One's artist, one sounding just like Song One, and
+    // one the library has (by ISRC)
+    let remote = |id: &str, title: &str, artist: &str, isrc: Option<&str>| RemoteTrack {
+        source: "spotify".into(),
+        source_id: id.into(),
+        url: format!("spotify://track:{id}"),
+        title: title.into(),
+        artists: vec![artist.into()],
+        album: Some("Elsewhere".into()),
+        year: Some(2001),
+        duration: Some(200.0),
+        isrc: isrc.map(str::to_string),
+        cover: None,
+    };
+    let by_artist = remote("a1", "Another Song", "Artist A", None);
+    let sounds_alike = remote("s1", "Lookalike", "Someone Else", None);
+    let owned = remote(
+        "o1",
+        "Tagged (Remastered)",
+        "Artist C",
+        Some("GBAYE0601498"),
+    );
+    let mut ids = Vec::new();
+    for (t, feat) in [
+        (&by_artist, features(5.0, 0.0)),
+        (&sounds_alike, features(0.9, 0.9)),
+        (&owned, features(0.5, 0.5)),
+    ] {
+        let row = f.lib.store_remote(&c, t).unwrap();
+        ids.push(rms_library::remote::remote_id(row));
+        c.execute(
+            "INSERT INTO track_analysis (fingerprint, version, features, analyzed_at) VALUES (?, ?, ?, 1)",
+            rusqlite::params![t.fingerprint(), rms_library::sonic::version(), feat],
+        )
+        .unwrap();
+    }
+    // Song One sounds like `sounds_alike` (and `owned`)
+    c.execute(
+        "INSERT INTO track_analysis (fingerprint, version, features, analyzed_at)
+         SELECT fingerprint, ?, ?, 1 FROM tracks WHERE title = 'Song One'",
+        rusqlite::params![rms_library::sonic::version(), features(0.5, 0.5)],
+    )
+    .unwrap();
+    let (by_artist_id, alike_id, owned_id) = (ids[0], ids[1], ids[2]);
+    assert!(ids.iter().all(|i| is_remote(*i)));
+    assert_eq!(f.lib.sound_index().len(), 4);
+    assert_eq!(f.lib.remote_totals("spotify").analyzed, 3);
+    assert_eq!(
+        f.lib.remote_with_local_copy(&ids),
+        [owned_id].into_iter().collect::<HashSet<_>>()
+    );
+
+    let none = HashSet::new();
+    let mut seen = HashSet::new();
+    for _ in 0..10 {
+        let mix = f.lib.similar_tracks_with(&[one], 8, &none, true);
+        assert!(
+            !mix.contains(&owned_id),
+            "the library's copy plays instead: {mix:?}"
+        );
+        seen.extend(mix);
+    }
+    assert!(seen.contains(&alike_id), "{seen:?}");
+    assert!(seen.contains(&by_artist_id), "{seen:?}");
+    // without remote tracks, none
+    for _ in 0..5 {
+        assert!(!f
+            .lib
+            .similar_tracks(&[one], 8, &none)
+            .iter()
+            .any(|i| is_remote(*i)));
+    }
+    // a streamed track seeds a mix too
+    assert!(!f
+        .lib
+        .similar_tracks_with(&[alike_id], 5, &none, true)
+        .is_empty());
+
+    // what plays them, and what they are
+    let urls = vec![
+        sounds_alike.url.clone(),
+        "spotify://track:unknown".to_string(),
+    ];
+    assert_eq!(
+        f.lib.remote_ids_for_urls(&urls),
+        vec![(sounds_alike.url.clone(), alike_id)]
+    );
+    assert_eq!(f.lib.remote_track(alike_id).unwrap(), sounds_alike);
+
+    // forgetting them
+    assert_eq!(f.lib.forget_remote("spotify").unwrap(), 3);
+    assert_eq!(f.lib.remote_totals("spotify").tracks, 0);
+    assert_eq!(f.lib.sound_index().len(), 1);
+}
+
+#[test]
+fn a_streamed_track_is_learned_from_its_samples() {
+    use rms_library::remote::RemoteTrack;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("library.db");
+    let lib = Library::open(&db, &dir.path().join("cache")).unwrap();
+    // 40 s of a drum-like pulse over a chord, as a stream's decoded audio
+    let sr = rms_library::sonic::SAMPLE_RATE as usize;
+    let samples: Vec<f32> = (0..40 * sr)
+        .map(|i| {
+            let t = i as f32 / sr as f32;
+            let beat = (t * 2.0).fract();
+            let kick = (-beat * 30.0).exp() * (2.0 * std::f32::consts::PI * 60.0 * t).sin();
+            let chord: f32 = [261.63f32, 329.63, 392.0]
+                .iter()
+                .map(|f| (2.0 * std::f32::consts::PI * f * t).sin())
+                .sum();
+            0.5 * kick + 0.1 * chord
+        })
+        .collect();
+    let t = RemoteTrack {
+        source: "spotify".into(),
+        source_id: "x1".into(),
+        url: "spotify://track:x1".into(),
+        title: "Pulse".into(),
+        artists: vec!["Synth".into()],
+        duration: Some(40.0),
+        ..Default::default()
+    };
+    assert!(!lib.remote_analyzed("spotify", "x1"));
+    lib.learn_remote(&t, &samples).unwrap();
+    assert!(lib.remote_analyzed("spotify", "x1"));
+    assert_eq!(lib.remote_totals("spotify").analyzed, 1);
+    let c = rusqlite::Connection::open(&db).unwrap();
+    let (bpm, camelot): (Option<f64>, Option<String>) = c
+        .query_row(
+            "SELECT bpm, camelot FROM track_rhythm WHERE fingerprint = 'spotify:x1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert!(bpm.is_some_and(|b| (b - 120.0).abs() < 1.0), "{bpm:?}");
+    assert_eq!(camelot.as_deref(), Some("8B"), "C major");
+    // too short to learn
+    assert!(lib.learn_remote(&t, &samples[..10 * sr]).is_err());
+}
+
+#[test]
+fn a_streamed_track_is_recognised_as_a_library_file_by_its_sound() {
+    use rms_library::remote::RemoteTrack;
+    need_ffmpeg!();
+    let f = common::build();
+    let file = f.media.join("Artist D/Live/01 - Untagged.flac");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let signal = "aevalsrc='0.3*sin(2*PI*(220+55*floor(mod(t*2,7)))*t)+0.2*sin(2*PI*330*t)*exp(-6*mod(t,0.5))+0.03*(random(0)-0.5)':s=44100:d=45";
+    let ok = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            signal,
+        ])
+        .args([
+            "-metadata",
+            "title=Untagged",
+            "-metadata",
+            "artist=Artist D",
+        ])
+        .arg(&file)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    f.lib.scan(ScanMode::Full).unwrap();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    f.lib.analyze_pending(1, Some("ffmpeg"), &stop);
+    let c = raw_db(&f);
+    let printed: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM track_chromaprint WHERE print IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(printed >= 1);
+    let rhythms: i64 = c
+        .query_row("SELECT COUNT(*) FROM track_rhythm", [], |r| r.get(0))
+        .unwrap();
+    assert!(rhythms >= 1, "the background pass analyses rhythm too");
+
+    // the same audio as a stream (decoded as the Spotify capture hands it over), under other
+    // tags and without an ISRC
+    let pcm = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-i"])
+        .arg(&file)
+        .args(["-ac", "1", "-ar", "22050", "-f", "f32le", "-"])
+        .output()
+        .unwrap()
+        .stdout;
+    let samples: Vec<f32> = pcm
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    let streamed = |id: &str| RemoteTrack {
+        source: "spotify".into(),
+        source_id: id.into(),
+        url: format!("spotify://track:{id}"),
+        title: "Something Else Entirely".into(),
+        artists: vec!["Nobody".into()],
+        duration: Some(45.0),
+        ..Default::default()
+    };
+    f.lib.learn_remote(&streamed("same"), &samples).unwrap();
+    // and different audio of the same length
+    let other: Vec<f32> = samples.iter().rev().copied().collect();
+    f.lib.learn_remote(&streamed("other"), &other).unwrap();
+    let ids: Vec<i64> = f
+        .lib
+        .remote_ids_for_urls(&[
+            "spotify://track:same".into(),
+            "spotify://track:other".into(),
+        ])
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect();
+    let owned = f.lib.remote_with_local_copy(&ids);
+    assert!(owned.contains(&ids[0]), "{owned:?}");
+    assert!(!owned.contains(&ids[1]), "{owned:?}");
+}

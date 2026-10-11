@@ -51,6 +51,7 @@ fn declarations() -> String {
         SpotifyStatus,
         SpotifyLogin,
         SpotifyLoginResult,
+        SpotifyPatch,
         ServerSettings,
         ServerSettingsPatch,
         ScanMode,
