@@ -1,0 +1,2781 @@
+{
+  "ping: ping.view?u=x&p=y&v=1.16.1&c=test": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "license: getLicense": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "license": {
+      "valid": true,
+      "email": "",
+      "licenseExpires": "2099-12-31T00:00:00Z"
+    }
+  },
+  "extensions: getOpenSubsonicExtensions": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "openSubsonicExtensions": [
+      {
+        "name": "formPost",
+        "versions": [
+          1
+        ]
+      },
+      {
+        "name": "songLyrics",
+        "versions": [
+          1
+        ]
+      },
+      {
+        "name": "transcodeOffset",
+        "versions": [
+          1
+        ]
+      }
+    ]
+  },
+  "folders: getMusicFolders": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "musicFolders": {
+      "musicFolder": [
+        {
+          "id": 1,
+          "name": "Music"
+        }
+      ]
+    }
+  },
+  "indexes: getIndexes": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "indexes": {
+      "lastModified": "<volatile>",
+      "ignoredArticles": "The El La Los Las Le Les",
+      "index": [
+        {
+          "name": "A",
+          "artist": [
+            {
+              "id": "fo-7",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "name": "B",
+          "artist": [
+            {
+              "id": "fo-8",
+              "name": "Beta Singer"
+            }
+          ]
+        },
+        {
+          "name": "V",
+          "artist": [
+            {
+              "id": "fo-9",
+              "name": "Various"
+            }
+          ]
+        }
+      ],
+      "child": []
+    }
+  },
+  "artist folder: getMusicDirectory?id=fo-7": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "directory": {
+      "id": "fo-7",
+      "name": "Alpha Band",
+      "child": [
+        {
+          "id": "fo-10",
+          "parent": "fo-7",
+          "isDir": true,
+          "title": "First Light"
+        }
+      ]
+    }
+  },
+  "album folder: getMusicDirectory?id=fo-10": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "directory": {
+      "id": "fo-10",
+      "name": "First Light",
+      "child": [
+        {
+          "id": "tr-1",
+          "parent": "fo-10",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "fo-10",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "album as directory: getMusicDirectory?id=al-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "directory": {
+      "id": "al-1",
+      "name": "First Light",
+      "child": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ],
+      "parent": "ar-2",
+      "starred": "<volatile>"
+    }
+  },
+  "artists: getArtists": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "artists": {
+      "ignoredArticles": "The El La Los Las Le Les",
+      "index": [
+        {
+          "name": "A",
+          "artist": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band",
+              "albumCount": 1
+            }
+          ]
+        },
+        {
+          "name": "B",
+          "artist": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer",
+              "albumCount": 1
+            }
+          ]
+        },
+        {
+          "name": "V",
+          "artist": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists",
+              "albumCount": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "artist: getArtist?id=ar-2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "artist": {
+      "id": "ar-2",
+      "name": "Alpha Band",
+      "albumCount": 1,
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ]
+    }
+  },
+  "album: getAlbum?id=al-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "album": {
+      "id": "al-1",
+      "name": "First Light",
+      "artist": "Alpha Band",
+      "artistId": "ar-2",
+      "songCount": 2,
+      "duration": 4,
+      "playCount": 0,
+      "created": "<volatile>",
+      "year": 1999,
+      "genre": "Rock",
+      "starred": "<volatile>",
+      "isCompilation": false,
+      "genres": [
+        {
+          "name": "Rock"
+        }
+      ],
+      "artists": [
+        {
+          "id": "ar-2",
+          "name": "Alpha Band"
+        }
+      ],
+      "displayArtist": "Alpha Band",
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "compilation: getAlbum?id=al-3": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "album": {
+      "id": "al-3",
+      "name": "Mixed Bag",
+      "artist": "Various Artists",
+      "artistId": "ar-1",
+      "songCount": 2,
+      "duration": 4,
+      "playCount": 0,
+      "created": "<volatile>",
+      "genre": "Pop",
+      "isCompilation": true,
+      "genres": [
+        {
+          "name": "Pop"
+        }
+      ],
+      "artists": [
+        {
+          "id": "ar-1",
+          "name": "Various Artists"
+        }
+      ],
+      "displayArtist": "Various Artists",
+      "song": [
+        {
+          "id": "tr-4",
+          "parent": "al-3",
+          "isDir": false,
+          "title": "One",
+          "album": "Mixed Bag",
+          "artist": "Delta",
+          "track": 1,
+          "genre": "Pop",
+          "size": 33118,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Various/Mixed Bag/01 One.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-3",
+          "artistId": "ar-5",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Delta",
+          "displayAlbumArtist": "Various Artists",
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-5",
+              "name": "Delta"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ]
+        },
+        {
+          "id": "tr-5",
+          "parent": "al-3",
+          "isDir": false,
+          "title": "Two",
+          "album": "Mixed Bag",
+          "artist": "Epsilon",
+          "track": 2,
+          "genre": "Pop",
+          "size": 33120,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Various/Mixed Bag/02 Two.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-3",
+          "artistId": "ar-6",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Epsilon",
+          "displayAlbumArtist": "Various Artists",
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-6",
+              "name": "Epsilon"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "song: getSong?id=tr-3": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "song": {
+      "id": "tr-3",
+      "parent": "al-2",
+      "isDir": false,
+      "title": "Breeze",
+      "album": "Second Wind",
+      "artist": "Beta Singer",
+      "track": 1,
+      "year": 2005,
+      "genre": "Jazz",
+      "size": 33170,
+      "contentType": "audio/mpeg",
+      "suffix": "mp3",
+      "duration": 2,
+      "bitRate": 129,
+      "path": "Beta Singer/Second Wind/01 Breeze.mp3",
+      "isVideo": false,
+      "playCount": 0,
+      "created": "<volatile>",
+      "albumId": "al-2",
+      "artistId": "ar-3",
+      "type": "music",
+      "mediaType": "song",
+      "samplingRate": 44100,
+      "channelCount": 1,
+      "displayArtist": "Beta Singer",
+      "displayAlbumArtist": "Beta Singer",
+      "displayComposer": "Gamma Writer",
+      "genres": [
+        {
+          "name": "Jazz"
+        }
+      ],
+      "artists": [
+        {
+          "id": "ar-3",
+          "name": "Beta Singer"
+        }
+      ],
+      "albumArtists": [
+        {
+          "id": "ar-3",
+          "name": "Beta Singer"
+        }
+      ]
+    }
+  },
+  "unknown song: getSong?id=tr-999": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 70,
+      "message": "Song not found"
+    }
+  },
+  "missing id: getSong": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 10,
+      "message": "Required parameter is missing: id"
+    }
+  },
+  "genres: getGenres": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "genres": {
+      "genre": [
+        {
+          "value": "Jazz",
+          "songCount": 1,
+          "albumCount": 1
+        },
+        {
+          "value": "Pop",
+          "songCount": 2,
+          "albumCount": 1
+        },
+        {
+          "value": "Rock",
+          "songCount": 2,
+          "albumCount": 1
+        }
+      ]
+    }
+  },
+  "by name: getAlbumList2?type=alphabeticalByName": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        },
+        {
+          "id": "al-3",
+          "name": "Mixed Bag",
+          "artist": "Various Artists",
+          "artistId": "ar-1",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "genre": "Pop",
+          "isCompilation": true,
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ],
+          "displayArtist": "Various Artists"
+        },
+        {
+          "id": "al-2",
+          "name": "Second Wind",
+          "artist": "Beta Singer",
+          "artistId": "ar-3",
+          "songCount": 1,
+          "duration": 2,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 2005,
+          "genre": "Jazz",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "displayArtist": "Beta Singer"
+        }
+      ]
+    }
+  },
+  "by artist: getAlbumList?type=alphabeticalByArtist": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList": {
+      "album": [
+        {
+          "id": "al-1",
+          "parent": "ar-2",
+          "isDir": true,
+          "title": "First Light",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "year": 1999,
+          "genre": "Rock",
+          "playCount": 0,
+          "songCount": 2,
+          "duration": 4,
+          "created": "<volatile>",
+          "starred": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "mediaType": "album"
+        },
+        {
+          "id": "al-2",
+          "parent": "ar-3",
+          "isDir": true,
+          "title": "Second Wind",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "year": 2005,
+          "genre": "Jazz",
+          "playCount": 0,
+          "songCount": 1,
+          "duration": 2,
+          "created": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "mediaType": "album"
+        },
+        {
+          "id": "al-3",
+          "parent": "ar-1",
+          "isDir": true,
+          "title": "Mixed Bag",
+          "album": "Mixed Bag",
+          "artist": "Various Artists",
+          "genre": "Pop",
+          "playCount": 0,
+          "songCount": 2,
+          "duration": 4,
+          "created": "<volatile>",
+          "albumId": "al-3",
+          "artistId": "ar-1",
+          "mediaType": "album"
+        }
+      ]
+    }
+  },
+  "newest: getAlbumList2?type=newest&size=2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        },
+        {
+          "id": "al-3",
+          "name": "Mixed Bag",
+          "artist": "Various Artists",
+          "artistId": "ar-1",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "genre": "Pop",
+          "isCompilation": true,
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ],
+          "displayArtist": "Various Artists"
+        }
+      ]
+    }
+  },
+  "by year: getAlbumList2?type=byYear&fromYear=2010&toYear=1990": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-2",
+          "name": "Second Wind",
+          "artist": "Beta Singer",
+          "artistId": "ar-3",
+          "songCount": 1,
+          "duration": 2,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 2005,
+          "genre": "Jazz",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "displayArtist": "Beta Singer"
+        },
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ]
+    }
+  },
+  "by genre: getAlbumList2?type=byGenre&genre=jazz": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-2",
+          "name": "Second Wind",
+          "artist": "Beta Singer",
+          "artistId": "ar-3",
+          "songCount": 1,
+          "duration": 2,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 2005,
+          "genre": "Jazz",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "displayArtist": "Beta Singer"
+        }
+      ]
+    }
+  },
+  "random: getRandomSongs?size=3": 3,
+  "songs by genre: getSongsByGenre?genre=Pop": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "songsByGenre": {
+      "song": [
+        {
+          "id": "tr-4",
+          "parent": "al-3",
+          "isDir": false,
+          "title": "One",
+          "album": "Mixed Bag",
+          "artist": "Delta",
+          "track": 1,
+          "genre": "Pop",
+          "size": 33118,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Various/Mixed Bag/01 One.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-3",
+          "artistId": "ar-5",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Delta",
+          "displayAlbumArtist": "Various Artists",
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-5",
+              "name": "Delta"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ]
+        },
+        {
+          "id": "tr-5",
+          "parent": "al-3",
+          "isDir": false,
+          "title": "Two",
+          "album": "Mixed Bag",
+          "artist": "Epsilon",
+          "track": 2,
+          "genre": "Pop",
+          "size": 33120,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Various/Mixed Bag/02 Two.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-3",
+          "artistId": "ar-6",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Epsilon",
+          "displayAlbumArtist": "Various Artists",
+          "genres": [
+            {
+              "name": "Pop"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-6",
+              "name": "Epsilon"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-1",
+              "name": "Various Artists"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "search3: search3?query=light": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "searchResult3": {
+      "artist": [],
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "search3 words: search3?query=beta%20wind": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "searchResult3": {
+      "artist": [],
+      "album": [
+        {
+          "id": "al-2",
+          "name": "Second Wind",
+          "artist": "Beta Singer",
+          "artistId": "ar-3",
+          "songCount": 1,
+          "duration": 2,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 2005,
+          "genre": "Jazz",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "displayArtist": "Beta Singer"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-3",
+          "parent": "al-2",
+          "isDir": false,
+          "title": "Breeze",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "track": 1,
+          "year": 2005,
+          "genre": "Jazz",
+          "size": 33170,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Beta Singer/Second Wind/01 Breeze.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Beta Singer",
+          "displayAlbumArtist": "Beta Singer",
+          "displayComposer": "Gamma Writer",
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "search3 everything: search3?query=%22%22&artistCount=1&albumCount=1&songCount=2&songOffset=1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "searchResult3": {
+      "artist": [
+        {
+          "id": "ar-2",
+          "name": "Alpha Band",
+          "albumCount": 1
+        }
+      ],
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "search2: search2?query=alpha": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "searchResult2": {
+      "artist": [
+        {
+          "id": "ar-2",
+          "name": "Alpha Band"
+        }
+      ],
+      "album": [
+        {
+          "id": "al-1",
+          "parent": "ar-2",
+          "isDir": true,
+          "title": "First Light",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "year": 1999,
+          "genre": "Rock",
+          "playCount": 0,
+          "songCount": 2,
+          "duration": 4,
+          "created": "<volatile>",
+          "starred": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "mediaType": "album"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "star: star?id=tr-1&albumId=al-2&artistId=ar-3": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "starred: getStarred2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "starred2": {
+      "artist": [
+        {
+          "id": "ar-3",
+          "name": "Beta Singer",
+          "albumCount": 1,
+          "starred": "<volatile>"
+        }
+      ],
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        },
+        {
+          "id": "al-2",
+          "name": "Second Wind",
+          "artist": "Beta Singer",
+          "artistId": "ar-3",
+          "songCount": 1,
+          "duration": 2,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 2005,
+          "genre": "Jazz",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "displayArtist": "Beta Singer"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "starred": "<volatile>",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "starred (folders): getStarred": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "starred": {
+      "artist": [
+        {
+          "id": "ar-3",
+          "name": "Beta Singer",
+          "starred": "<volatile>"
+        }
+      ],
+      "album": [
+        {
+          "id": "al-1",
+          "parent": "ar-2",
+          "isDir": true,
+          "title": "First Light",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "year": 1999,
+          "genre": "Rock",
+          "playCount": 0,
+          "songCount": 2,
+          "duration": 4,
+          "created": "<volatile>",
+          "starred": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "mediaType": "album"
+        },
+        {
+          "id": "al-2",
+          "parent": "ar-3",
+          "isDir": true,
+          "title": "Second Wind",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "year": 2005,
+          "genre": "Jazz",
+          "playCount": 0,
+          "songCount": 1,
+          "duration": 2,
+          "created": "<volatile>",
+          "starred": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "mediaType": "album"
+        }
+      ],
+      "song": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "starred": "<volatile>",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "starred album: getAlbum?id=al-2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "album": {
+      "id": "al-2",
+      "name": "Second Wind",
+      "artist": "Beta Singer",
+      "artistId": "ar-3",
+      "songCount": 1,
+      "duration": 2,
+      "playCount": 0,
+      "created": "<volatile>",
+      "year": 2005,
+      "genre": "Jazz",
+      "starred": "<volatile>",
+      "isCompilation": false,
+      "genres": [
+        {
+          "name": "Jazz"
+        }
+      ],
+      "artists": [
+        {
+          "id": "ar-3",
+          "name": "Beta Singer"
+        }
+      ],
+      "displayArtist": "Beta Singer",
+      "song": [
+        {
+          "id": "tr-3",
+          "parent": "al-2",
+          "isDir": false,
+          "title": "Breeze",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "track": 1,
+          "year": 2005,
+          "genre": "Jazz",
+          "size": 33170,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Beta Singer/Second Wind/01 Breeze.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Beta Singer",
+          "displayAlbumArtist": "Beta Singer",
+          "displayComposer": "Gamma Writer",
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "favorites after starring": {
+    "title": "Favorites",
+    "count": 5,
+    "loop_loop": [
+      {
+        "id": "0",
+        "name": "Stations",
+        "type": "link",
+        "isaudio": 0,
+        "hasitems": 1
+      },
+      {
+        "id": "1",
+        "name": "First Light",
+        "type": "audio",
+        "url": "db:album.title=First%20Light",
+        "isaudio": 1,
+        "hasitems": 0
+      },
+      {
+        "id": "2",
+        "name": "Morning",
+        "type": "audio",
+        "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+        "isaudio": 1,
+        "hasitems": 0
+      },
+      {
+        "id": "3",
+        "name": "Second Wind",
+        "type": "audio",
+        "url": "db:album.title=Second%20Wind&contributor.name=Beta%20Singer",
+        "isaudio": 1,
+        "hasitems": 0
+      },
+      {
+        "id": "4",
+        "name": "Beta Singer",
+        "type": "audio",
+        "url": "db:contributor.name=Beta%20Singer",
+        "isaudio": 1,
+        "hasitems": 0
+      }
+    ]
+  },
+  "unstar: unstar?id=tr-1&albumId=al-2&artistId=ar-3": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "starred after unstar: getStarred2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "starred2": {
+      "artist": [],
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 0,
+          "created": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ],
+      "song": []
+    }
+  },
+  "rate: setRating?id=tr-1&rating=4": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "scrobble: scrobble?id=tr-1&submission=true": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "now playing notice: scrobble?id=tr-2&submission=false": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "rated and played: getSong?id=tr-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "song": {
+      "id": "tr-1",
+      "parent": "al-1",
+      "isDir": false,
+      "title": "Morning",
+      "album": "First Light",
+      "artist": "Alpha Band",
+      "track": 1,
+      "year": 1999,
+      "genre": "Rock",
+      "size": 31828,
+      "contentType": "audio/x-flac",
+      "suffix": "flac",
+      "duration": 2,
+      "bitRate": 93,
+      "path": "Alpha Band/First Light/01 Morning.flac",
+      "isVideo": false,
+      "playCount": 1,
+      "played": "<volatile>",
+      "created": "<volatile>",
+      "albumId": "al-1",
+      "artistId": "ar-2",
+      "type": "music",
+      "mediaType": "song",
+      "userRating": 4,
+      "samplingRate": 44100,
+      "bitDepth": 16,
+      "channelCount": 1,
+      "displayArtist": "Alpha Band",
+      "displayAlbumArtist": "Alpha Band",
+      "genres": [
+        {
+          "name": "Rock"
+        }
+      ],
+      "artists": [
+        {
+          "id": "ar-2",
+          "name": "Alpha Band"
+        }
+      ],
+      "albumArtists": [
+        {
+          "id": "ar-2",
+          "name": "Alpha Band"
+        }
+      ]
+    }
+  },
+  "frequent: getAlbumList2?type=frequent": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 1,
+          "created": "<volatile>",
+          "played": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ]
+    }
+  },
+  "highest: getAlbumList2?type=highest": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "albumList2": {
+      "album": [
+        {
+          "id": "al-1",
+          "name": "First Light",
+          "artist": "Alpha Band",
+          "artistId": "ar-2",
+          "songCount": 2,
+          "duration": 4,
+          "playCount": 1,
+          "created": "<volatile>",
+          "played": "<volatile>",
+          "year": 1999,
+          "genre": "Rock",
+          "starred": "<volatile>",
+          "isCompilation": false,
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "displayArtist": "Alpha Band"
+        }
+      ]
+    }
+  },
+  "create playlist: createPlaylist?name=Road&songId=tr-1&songId=tr-3": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "playlist": {
+      "id": "pl-1",
+      "name": "Road",
+      "owner": "rms",
+      "public": false,
+      "songCount": 2,
+      "duration": 4,
+      "created": "<volatile>",
+      "changed": "<volatile>",
+      "entry": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 1,
+          "played": "<volatile>",
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "userRating": 4,
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-3",
+          "parent": "al-2",
+          "isDir": false,
+          "title": "Breeze",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "track": 1,
+          "year": 2005,
+          "genre": "Jazz",
+          "size": 33170,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Beta Singer/Second Wind/01 Breeze.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Beta Singer",
+          "displayAlbumArtist": "Beta Singer",
+          "displayComposer": "Gamma Writer",
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "playlists: getPlaylists": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "playlists": {
+      "playlist": [
+        {
+          "id": "pl-1",
+          "name": "Road",
+          "owner": "rms",
+          "public": false,
+          "songCount": 2,
+          "duration": 4,
+          "created": "<volatile>",
+          "changed": "<volatile>"
+        }
+      ]
+    }
+  },
+  "update playlist: updatePlaylist?playlistId=pl-1&name=Long%20Road&songIdToAdd=tr-2&songIndexToRemove=0": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "playlist: getPlaylist?id=pl-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "playlist": {
+      "id": "pl-1",
+      "name": "Long Road",
+      "owner": "rms",
+      "public": false,
+      "songCount": 2,
+      "duration": 4,
+      "created": "<volatile>",
+      "changed": "<volatile>",
+      "entry": [
+        {
+          "id": "tr-3",
+          "parent": "al-2",
+          "isDir": false,
+          "title": "Breeze",
+          "album": "Second Wind",
+          "artist": "Beta Singer",
+          "track": 1,
+          "year": 2005,
+          "genre": "Jazz",
+          "size": 33170,
+          "contentType": "audio/mpeg",
+          "suffix": "mp3",
+          "duration": 2,
+          "bitRate": 129,
+          "path": "Beta Singer/Second Wind/01 Breeze.mp3",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-2",
+          "artistId": "ar-3",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "channelCount": 1,
+          "displayArtist": "Beta Singer",
+          "displayAlbumArtist": "Beta Singer",
+          "displayComposer": "Gamma Writer",
+          "genres": [
+            {
+              "name": "Jazz"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-3",
+              "name": "Beta Singer"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "delete playlist: deletePlaylist?id=pl-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "playlists after delete: getPlaylists": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "playlists": {
+      "playlist": []
+    }
+  },
+  "user: getUser?username=x": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "user": {
+      "username": "rms",
+      "scrobblingEnabled": true,
+      "adminRole": true,
+      "settingsRole": true,
+      "downloadRole": true,
+      "uploadRole": false,
+      "playlistRole": true,
+      "coverArtRole": true,
+      "commentRole": false,
+      "podcastRole": false,
+      "streamRole": true,
+      "jukeboxRole": true,
+      "shareRole": false,
+      "videoConversionRole": false,
+      "folder": [
+        1
+      ]
+    }
+  },
+  "scan status: getScanStatus": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "scanStatus": {
+      "scanning": false,
+      "count": 5
+    }
+  },
+  "lyrics: getLyricsBySongId?id=tr-1": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "lyricsList": {
+      "structuredLyrics": []
+    }
+  },
+  "similar: getSimilarSongs2?id=tr-1": 4,
+  "radio: getInternetRadioStations": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "internetRadioStations": {
+      "internetRadioStation": [
+        {
+          "id": "rd-0",
+          "name": "Example FM",
+          "streamUrl": "http://radio.example.com/live.mp3"
+        }
+      ]
+    }
+  },
+  "unsupported: getVideoInfo?id=1": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 0,
+      "message": "getVideoInfo is not supported by this server"
+    }
+  },
+  "jukebox set: jukeboxControl?action=set&id=tr-1&id=tr-2": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "jukeboxStatus": {
+      "currentIndex": 0,
+      "playing": false,
+      "gain": 0.5,
+      "position": 0
+    }
+  },
+  "jukebox gain: jukeboxControl?action=setGain&gain=0.25": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "jukeboxStatus": {
+      "currentIndex": 0,
+      "playing": false,
+      "gain": 0.25,
+      "position": 0
+    }
+  },
+  "jukebox get: jukeboxControl?action=get": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "jukeboxPlaylist": {
+      "currentIndex": 0,
+      "playing": false,
+      "gain": 0.25,
+      "position": 0,
+      "entry": [
+        {
+          "id": "tr-1",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Morning",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 1,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 31828,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 93,
+          "path": "Alpha Band/First Light/01 Morning.flac",
+          "isVideo": false,
+          "playCount": 1,
+          "played": "<volatile>",
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "userRating": 4,
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        },
+        {
+          "id": "tr-2",
+          "parent": "al-1",
+          "isDir": false,
+          "title": "Noon",
+          "album": "First Light",
+          "artist": "Alpha Band",
+          "track": 2,
+          "year": 1999,
+          "genre": "Rock",
+          "size": 32625,
+          "contentType": "audio/x-flac",
+          "suffix": "flac",
+          "duration": 2,
+          "bitRate": 97,
+          "path": "Alpha Band/First Light/02 Noon.flac",
+          "isVideo": false,
+          "playCount": 0,
+          "created": "<volatile>",
+          "albumId": "al-1",
+          "artistId": "ar-2",
+          "type": "music",
+          "mediaType": "song",
+          "samplingRate": 44100,
+          "bitDepth": 16,
+          "channelCount": 1,
+          "displayArtist": "Alpha Band",
+          "displayAlbumArtist": "Alpha Band",
+          "genres": [
+            {
+              "name": "Rock"
+            }
+          ],
+          "artists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ],
+          "albumArtists": [
+            {
+              "id": "ar-2",
+              "name": "Alpha Band"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "xml: getAlbum": [
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+    "<subsonic-response status=\"ok\" version=\"1.16.1\" type=\"rms\" serverVersion=\"<volatile>\" openSubsonic=\"true\" xmlns=\"http://subsonic.org/restapi\"><album id=\"al-1\" name=\"First Light\" artist=\"Alpha Band\" artistId=\"ar-2\" songCount=\"2\" duration=\"4\" playCount=\"1\" created=\"<volatile>\" played=\"<volatile>\" year=\"1999\" genre=\"Rock\" starred=\"<volatile>\" isCompilation=\"false\" displayArtist=\"Alpha Band\"><genres name=\"Rock\"/><artists id=\"ar-2\" name=\"Alpha Band\"/><song id=\"tr-1\" parent=\"al-1\" isDir=\"false\" title=\"Morning\" album=\"First Light\" artist=\"Alpha Band\" track=\"1\" year=\"1999\" genre=\"Rock\" size=\"31828\" contentType=\"audio/x-flac\" suffix=\"flac\" duration=\"2\" bitRate=\"93\" path=\"Alpha Band/First Light/01 Morning.flac\" isVideo=\"false\" playCount=\"1\" played=\"<volatile>\" created=\"<volatile>\" albumId=\"al-1\" artistId=\"ar-2\" type=\"music\" mediaType=\"song\" userRating=\"4\" samplingRate=\"44100\" bitDepth=\"16\" channelCount=\"1\" displayArtist=\"Alpha Band\" displayAlbumArtist=\"Alpha Band\"><genres name=\"Rock\"/><artists id=\"ar-2\" name=\"Alpha Band\"/><albumArtists id=\"ar-2\" name=\"Alpha Band\"/></song><song id=\"tr-2\" parent=\"al-1\" isDir=\"false\" title=\"Noon\" album=\"First Light\" artist=\"Alpha Band\" track=\"2\" year=\"1999\" genre=\"Rock\" size=\"32625\" contentType=\"audio/x-flac\" suffix=\"flac\" duration=\"2\" bitRate=\"97\" path=\"Alpha Band/First Light/02 Noon.flac\" isVideo=\"false\" playCount=\"0\" created=\"<volatile>\" albumId=\"al-1\" artistId=\"ar-2\" type=\"music\" mediaType=\"song\" samplingRate=\"44100\" bitDepth=\"16\" channelCount=\"1\" displayArtist=\"Alpha Band\" displayAlbumArtist=\"Alpha Band\"><genres name=\"Rock\"/><artists id=\"ar-2\" name=\"Alpha Band\"/><albumArtists id=\"ar-2\" name=\"Alpha Band\"/></song></album></subsonic-response>"
+  ],
+  "no cover art: getCoverArt?id=al-1&size=64": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 70,
+      "message": "Cover art not found"
+    }
+  },
+  "auth none: ": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 10,
+      "message": "Required parameter is missing: u"
+    }
+  },
+  "auth wrong password: u=me&p=nope": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 40,
+      "message": "Wrong username or password"
+    }
+  },
+  "auth wrong user: u=you&p=secret": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 40,
+      "message": "Wrong username or password"
+    }
+  },
+  "auth password: u=me&p=secret": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "auth hex password: u=me&p=enc:736563726574": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "auth token: u=me&t=be0984b60b4f7d28cc18f403952815b9&s=c0ffee": {
+    "status": "ok",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true
+  },
+  "auth wrong token: u=me&t=0123456789abcdef0123456789abcdef&s=c0ffee": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 40,
+      "message": "Wrong username or password"
+    }
+  },
+  "auth api key: apiKey=abc": {
+    "status": "failed",
+    "version": "<volatile>",
+    "type": "rms",
+    "serverVersion": "<volatile>",
+    "openSubsonic": true,
+    "error": {
+      "code": 42,
+      "message": "API keys are not supported; use a user name and password"
+    }
+  }
+}

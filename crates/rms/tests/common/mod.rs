@@ -309,3 +309,21 @@ pub fn http_json(port: u16, method: &str, path: &str, body: Option<&str>) -> (u1
     (status, body)
 }
 
+/// A GET returning (status, header block, body bytes).
+pub fn http_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(s, "GET {} HTTP/1.0\r\n\r\n", path).unwrap();
+    let mut resp = Vec::new();
+    s.read_to_end(&mut resp).unwrap();
+    let split = resp
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("end of headers");
+    let head = String::from_utf8_lossy(&resp[..split]).to_string();
+    let status = head
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (status, head, resp[split + 4..].to_vec())
+}

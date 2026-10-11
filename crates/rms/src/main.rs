@@ -13,6 +13,7 @@ mod prefs;
 mod server;
 mod stream;
 mod strings;
+mod subsonic;
 mod ui;
 mod util;
 mod web;

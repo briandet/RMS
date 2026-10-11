@@ -214,7 +214,7 @@ pub async fn html_image(Path(name): Path<String>) -> Response {
 }
 
 /// `/music/<trackid>/download` with byte-range support.
-async fn download(server: &Arc<Server>, id: &str, headers: &HeaderMap) -> Response {
+pub(crate) async fn download(server: &Arc<Server>, id: &str, headers: &HeaderMap) -> Response {
     let Ok(track_id) = id.parse::<i64>() else {
         return StatusCode::NOT_FOUND.into_response();
     };

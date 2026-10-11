@@ -12,6 +12,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
 | New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, library, favorites, settings ([docs/api.md](docs/api.md)) |
+| **Subsonic apps** (DSub, Symfonium, Ultrasonic, play:Sub, Amperfy, Feishin, …) | Subsonic / OpenSubsonic API (`/rest/*`) | ✔ browsing, streaming to the app, playlists, stars, jukebox ([docs/subsonic.md](docs/subsonic.md)) |
 
 ## Quick start
 
@@ -108,6 +109,10 @@ The script builds a release binary (the web UI is built in), installs it as
   Server-Sent Events stream that pushes each change as it happens (no polling).  The web UI
   runs on it alone; TypeScript declarations of its types are generated from the server's
   (`crates/rms/web/api-types.d.ts`).
+* **Subsonic API** (`/rest/*`, [docs/subsonic.md](docs/subsonic.md)): Subsonic 1.16.1 with
+  the OpenSubsonic additions, for the apps that browse a library and stream it to the
+  phone or computer they run on, transcoding with ffmpeg when asked; stars are RMS
+  favorites, and the jukebox is a Squeezebox.
 * **Library** (crate `rms-library`): SQLite database in RMS's own schema
   ([docs/library-schema.md](docs/library-schema.md)), scanner using
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
@@ -252,6 +257,7 @@ crates/slimproto   wire protocol codec + discovery packets
 crates/library     SQLite schema, scanner, artwork, library queries
 crates/rms         the server: players, controller, streaming, control API, web UI
 crates/rms/src/api the native API (/api/v1) and its event stream
+crates/rms/src/subsonic  the Subsonic API (/rest)
 crates/rms/web     the web UI (plain HTML/JS/CSS, embedded into the binary)
 ```
 

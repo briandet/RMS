@@ -18,6 +18,7 @@ macro_rules! re {
 }
 
 pub mod artwork;
+pub mod catalog;
 pub mod config;
 pub mod cue;
 pub mod db;

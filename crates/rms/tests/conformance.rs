@@ -314,6 +314,12 @@ fn post(http: u16, body: Value) -> Value {
 /// Keys whose values change from run to run.
 const VOLATILE: &[&str] = &[
     "version",
+    "serverVersion",
+    "created",
+    "changed",
+    "played",
+    "starred",
+    "lastModified",
     "uuid",
     "ip",
     "player_ip",
@@ -331,7 +337,7 @@ const VOLATILE: &[&str] = &[
 ];
 
 /// Keys holding cover ids (derived from file times).
-const COVER_KEYS: &[&str] = &["coverid", "artwork_track_id", "icon-id"];
+const COVER_KEYS: &[&str] = &["coverid", "artwork_track_id", "icon-id", "coverArt"];
 
 struct Golden {
     /// what to replace in strings: (from, placeholder)
@@ -1109,6 +1115,219 @@ fn native_api() {
     get!("no spotify", "/api/v1/spotify");
 
     g.check("native_api", &Value::Object(out));
+}
+
+/// A Subsonic app: browsing, search, stars, ratings, plays, playlists, the jukebox, then
+/// streaming and signing in.
+#[test]
+fn subsonic() {
+    need_ffmpeg!();
+    let f = fixture();
+    let g = Golden::new(&f);
+    let http = f.server.http;
+    let playlist_dir = tempfile::tempdir().unwrap();
+    rpc(
+        &f.server,
+        "",
+        json!(["pref", "playlistdir", playlist_dir.path().to_str().unwrap()]),
+    );
+    let out = std::cell::RefCell::new(Map::new());
+    let call = |name: &str, query: &str| -> Value {
+        let path = format!(
+            "/rest/{query}{}f=json",
+            if query.contains('?') { "&" } else { "?" }
+        );
+        let (code, text) = http_json(http, "GET", &path, None);
+        assert_eq!(code, 200, "{path}: {text}");
+        let v: Value = serde_json::from_str(&text).unwrap_or_else(|_| panic!("{path}: {text}"));
+        let v = v["subsonic-response"].clone();
+        out.borrow_mut()
+            .insert(format!("{name}: {query}"), v.clone());
+        v
+    };
+
+    call("ping", "ping.view?u=x&p=y&v=1.16.1&c=test");
+    call("license", "getLicense");
+    call("extensions", "getOpenSubsonicExtensions");
+    call("folders", "getMusicFolders");
+    let idx = call("indexes", "getIndexes");
+    let dir = idx["indexes"]["index"][0]["artist"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let d = call("artist folder", &format!("getMusicDirectory?id={dir}"));
+    let sub = d["directory"]["child"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call("album folder", &format!("getMusicDirectory?id={sub}"));
+    call("album as directory", "getMusicDirectory?id=al-1");
+    call("artists", "getArtists");
+    call("artist", "getArtist?id=ar-2");
+    call("album", "getAlbum?id=al-1");
+    call("compilation", "getAlbum?id=al-3");
+    call("song", "getSong?id=tr-3");
+    call("unknown song", "getSong?id=tr-999");
+    call("missing id", "getSong");
+    call("genres", "getGenres");
+    call("by name", "getAlbumList2?type=alphabeticalByName");
+    call("by artist", "getAlbumList?type=alphabeticalByArtist");
+    call("newest", "getAlbumList2?type=newest&size=2");
+    call(
+        "by year",
+        "getAlbumList2?type=byYear&fromYear=2010&toYear=1990",
+    );
+    call("by genre", "getAlbumList2?type=byGenre&genre=jazz");
+    let random = call("random", "getRandomSongs?size=3");
+    out.borrow_mut().insert(
+        "random: getRandomSongs?size=3".into(),
+        json!(random["randomSongs"]["song"].as_array().map(|a| a.len())),
+    );
+    call("songs by genre", "getSongsByGenre?genre=Pop");
+    call("search3", "search3?query=light");
+    call("search3 words", "search3?query=beta%20wind");
+    call(
+        "search3 everything",
+        "search3?query=%22%22&artistCount=1&albumCount=1&songCount=2&songOffset=1",
+    );
+    call("search2", "search2?query=alpha");
+
+    // stars are favorites
+    call("star", "star?id=tr-1&albumId=al-2&artistId=ar-3");
+    call("starred", "getStarred2");
+    call("starred (folders)", "getStarred");
+    call("starred album", "getAlbum?id=al-2");
+    out.borrow_mut().insert(
+        "favorites after starring".into(),
+        rpc(
+            &f.server,
+            "",
+            json!(["favorites", "items", 0, 20, "want_url:1"]),
+        ),
+    );
+    call("unstar", "unstar?id=tr-1&albumId=al-2&artistId=ar-3");
+    call("starred after unstar", "getStarred2");
+    call("rate", "setRating?id=tr-1&rating=4");
+    call("scrobble", "scrobble?id=tr-1&submission=true");
+    call("now playing notice", "scrobble?id=tr-2&submission=false");
+    call("rated and played", "getSong?id=tr-1");
+    call("frequent", "getAlbumList2?type=frequent");
+    call("highest", "getAlbumList2?type=highest");
+
+    // playlists
+    call(
+        "create playlist",
+        "createPlaylist?name=Road&songId=tr-1&songId=tr-3",
+    );
+    let lists = call("playlists", "getPlaylists");
+    let pl = lists["playlists"]["playlist"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    call(
+        "update playlist",
+        &format!(
+            "updatePlaylist?playlistId={pl}&name=Long%20Road&songIdToAdd=tr-2&songIndexToRemove=0"
+        ),
+    );
+    call("playlist", &format!("getPlaylist?id={pl}"));
+    call("delete playlist", &format!("deletePlaylist?id={pl}"));
+    call("playlists after delete", "getPlaylists");
+
+    call("user", "getUser?username=x");
+    call("scan status", "getScanStatus");
+    call("lyrics", "getLyricsBySongId?id=tr-1");
+    // without sonic analysis the mix is random: record how many
+    let similar = call("similar", "getSimilarSongs2?id=tr-1");
+    out.borrow_mut().insert(
+        "similar: getSimilarSongs2?id=tr-1".into(),
+        json!(similar["similarSongs2"]["song"].as_array().map(|a| a.len())),
+    );
+    call("radio", "getInternetRadioStations");
+    call("unsupported", "getVideoInfo?id=1");
+
+    // the jukebox is the first player (Kitchen)
+    call("jukebox set", "jukeboxControl?action=set&id=tr-1&id=tr-2");
+    call("jukebox gain", "jukeboxControl?action=setGain&gain=0.25");
+    call("jukebox get", "jukeboxControl?action=get");
+
+    // XML, the default format
+    let (code, xml) = http_json(http, "GET", "/rest/getAlbum.view?id=al-1&u=x&p=y", None);
+    assert_eq!(code, 200);
+    let volatile =
+        regex::Regex::new(r#"(created|played|changed|starred|serverVersion)="[^"]*""#).unwrap();
+    let xml = volatile.replace_all(&xml, r#"$1="<volatile>""#);
+    out.borrow_mut().insert(
+        "xml: getAlbum".into(),
+        json!(xml.lines().collect::<Vec<_>>()),
+    );
+
+    // media
+    let flac = std::fs::metadata(
+        f.music
+            .path()
+            .join("Alpha Band/First Light/01 Morning.flac"),
+    )
+    .unwrap()
+    .len();
+    let (code, head, body) = http_bytes(http, "/rest/stream?id=tr-1");
+    assert_eq!(code, 200, "{head}");
+    assert_eq!(body.len() as u64, flac, "a stream as it is is the file");
+    assert!(
+        head.contains("audio/flac") || head.contains("audio/x-flac"),
+        "{head}"
+    );
+    let (code, head, body) = http_bytes(http, "/rest/stream?id=tr-1&maxBitRate=64");
+    assert_eq!(code, 200, "{head}");
+    assert!(head.contains("audio/mpeg"), "{head}");
+    assert!(
+        body.len() > 1000 && (body.starts_with(b"ID3") || body[0] == 0xff),
+        "MP3: {} bytes",
+        body.len()
+    );
+    let (code, head, body) = http_bytes(http, "/rest/stream?id=tr-3&format=opus");
+    assert_eq!(code, 200, "{head}");
+    assert!(
+        head.contains("audio/ogg") && body.starts_with(b"OggS"),
+        "{head}"
+    );
+    let (code, head, _) = http_bytes(http, "/rest/download?id=tr-3");
+    assert_eq!(code, 200);
+    assert!(head.contains("attachment"), "{head}");
+    call("no cover art", "getCoverArt?id=al-1&size=64");
+
+    // signing in, once the server has a password
+    for (k, v) in [
+        ("username", "me"),
+        ("password", "secret"),
+        ("authorize", "1"),
+    ] {
+        rpc(&f.server, "", json!(["pref", k, v]));
+    }
+    let auth = |name: &str, query: &str| {
+        let (_, text) = http_json(http, "GET", &format!("/rest/ping?f=json&{query}"), None);
+        let v: Value = serde_json::from_str(&text).unwrap();
+        out.borrow_mut().insert(
+            format!("auth {name}: {query}"),
+            v["subsonic-response"].clone(),
+        );
+    };
+    auth("none", "");
+    auth("wrong password", "u=me&p=nope");
+    auth("wrong user", "u=you&p=secret");
+    auth("password", "u=me&p=secret");
+    auth("hex password", "u=me&p=enc:736563726574");
+    let token = format!("{:x}", md5::compute("secretc0ffee"));
+    auth("token", &format!("u=me&t={token}&s=c0ffee"));
+    auth(
+        "wrong token",
+        "u=me&t=0123456789abcdef0123456789abcdef&s=c0ffee",
+    );
+    auth("api key", "apiKey=abc");
+    let (code, _) = http_json(http, "GET", "/api/v1/server", None);
+    assert_eq!(code, 401, "the rest of the server still wants HTTP Basic");
+
+    g.check("subsonic", &Value::Object(out.into_inner()));
 }
 
 /// A 320×32 one-bit Squeezebox display (columns of 4 bytes, top bit first) as text.
