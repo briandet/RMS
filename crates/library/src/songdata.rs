@@ -12,6 +12,18 @@ use crate::config::{role_to_type, type_to_role, LibraryConfig, CONTRIBUTOR_ROLES
 use crate::track::Track;
 use crate::Row;
 
+/// Contributors of one track by role: role → (ids, names).
+type RoleContributors = IndexMap<i64, (Vec<i64>, Vec<String>)>;
+/// `albums` columns the object path needs: disc count, artwork, compilation, release type,
+/// replay gain.
+type AlbumRow = (
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<f64>,
+);
+
 pub fn get_text(r: &rusqlite::Row, idx: usize) -> rusqlite::Result<Option<String>> {
     Ok(match r.get::<_, SqlValue>(idx)? {
         SqlValue::Null => None,
@@ -515,7 +527,7 @@ pub fn tag_data(
         let mut st = c.prepare(&sql)?;
         let mut q = st.query([])?;
         // track → role → (ids, names)
-        let mut values: HashMap<i64, IndexMap<i64, (Vec<i64>, Vec<String>)>> = HashMap::new();
+        let mut values: HashMap<i64, RoleContributors> = HashMap::new();
         while let Some(r) = q.next()? {
             let cid: i64 = r.get(0)?;
             let name = get_text(r, 1)?.unwrap_or_default();
@@ -928,7 +940,7 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
     let opt_i = |v: Option<i64>| v.map(|x| json!(x)).unwrap_or(Value::Null);
     let opt_s = |v: &Option<String>| v.as_ref().map(|x| json!(x)).unwrap_or(Value::Null);
     let opt_f = |v: Option<f64>| v.map(num_json).unwrap_or(Value::Null);
-    let album_row: Option<(Option<i64>, Option<String>, Option<i64>, Option<String>, Option<f64>)> = t.album_id.and_then(|a| {
+    let album_row: Option<AlbumRow> = t.album_id.and_then(|a| {
         c.query_row("SELECT disc_count, artwork, compilation, release_type, replay_gain FROM albums WHERE id = ?", [a], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
@@ -1125,7 +1137,7 @@ pub fn proxied_image(u: &str) -> String {
         .iter()
         .find(|e| lower.contains(*e))
         .map(|e| if *e == ".jpeg" { ".jpg" } else { e })
-        .unwrap_or(&".png");
+        .unwrap_or(".png");
     format!(
         "/imageproxy/{}/image{}",
         crate::text::uri_escape_utf8(u),

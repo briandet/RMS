@@ -118,10 +118,7 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
         }
         buf.extend_from_slice(&chunk[..n]);
         // a line ends at any run of CR, LF or NUL
-        loop {
-            let Some(pos) = buf.iter().position(|&b| b == b'\r' || b == b'\n' || b == 0) else {
-                break;
-            };
+        while let Some(pos) = buf.iter().position(|&b| b == b'\r' || b == b'\n' || b == 0) {
             let mut end = pos;
             while end < buf.len() && matches!(buf[end], b'\r' | b'\n' | 0) {
                 end += 1;

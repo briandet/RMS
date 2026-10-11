@@ -28,7 +28,6 @@ pub enum NeedsClient {
 
 #[derive(Clone)]
 pub struct Entry {
-    pub verbs: Vec<String>,
     /// Positional parameter names (`_index`, …) and `?` placeholders, in order.
     pub params: Vec<String>,
     pub needs_client: NeedsClient,
@@ -72,7 +71,6 @@ impl DispatchTable {
         }
         let variant = if terms.last() == Some(&"?") { 1 } else { 0 };
         let entry = Entry {
-            verbs: verbs.clone(),
             params,
             needs_client: match needs_client {
                 0 => NeedsClient::No,
@@ -182,22 +180,6 @@ impl DispatchTable {
             },
         };
         req
-    }
-
-    /// How many leading tokens of `words` are command verbs (for notification filtering).
-    pub fn verb_count(&self, words: &[String]) -> usize {
-        let mut node = &self.root;
-        let mut n = 0;
-        for w in words {
-            match node.children.get(w) {
-                Some(c) => {
-                    node = c;
-                    n += 1;
-                }
-                None => break,
-            }
-        }
-        n
     }
 
     /// `can <terms> ?`: true when the terms resolve to something other than "unknown".
@@ -352,7 +334,6 @@ mod tests {
         assert_eq!(r.param("_p0"), Some("foo"));
         let r = t.parse(Some(mac), None, true, &toks("playlist newsong x"));
         assert_eq!(r.status, Status::NotDispatchable);
-        assert_eq!(t.verb_count(&toks("playlist newsong Title 3")), 2);
-        assert!(t.can(&toks("version")) == false); // only query variant registered
+        assert!(!t.can(&toks("version"))); // only query variant registered
     }
 }

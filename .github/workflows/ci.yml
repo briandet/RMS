@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      # A fixed toolchain: clippy runs with -D warnings, so a new Rust release with new
+      # lints should arrive as a deliberate bump here, not as a red build.
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: rustfmt, clippy
 
@@ -32,9 +34,8 @@ jobs:
       - name: Formatting
         run: cargo fmt --all --check
 
-      # Fails on clippy errors; existing warnings are reported but allowed for now.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Tests
         run: cargo test --workspace --locked

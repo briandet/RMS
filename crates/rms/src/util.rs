@@ -59,20 +59,6 @@ pub fn path_from_file_url(url: &str) -> Option<PathBuf> {
     Some(PathBuf::from(decoded))
 }
 
-/// Split a cue-fragment URL `file:///x.flac#12.5-80.25` into (base url, start, end).
-pub fn split_url_fragment(url: &str) -> (&str, Option<f64>, Option<f64>) {
-    if let Some((base, frag)) = url.rsplit_once('#') {
-        if let Some((s, e)) = frag.split_once('-') {
-            let start = s.parse::<f64>().ok();
-            let end = e.parse::<f64>().ok();
-            if start.is_some() || end.is_some() {
-                return (base, start, end);
-            }
-        }
-    }
-    (url, None, None)
-}
-
 pub fn is_remote_url(url: &str) -> bool {
     !url.starts_with("file://") && url.contains("://")
 }
@@ -114,22 +100,18 @@ pub fn cli_escape(s: &str) -> String {
     utf8_percent_encode(s, SET).to_string()
 }
 
-/// Format seconds as `m:ss` or `h:mm:ss`.
-pub fn format_duration(secs: f64) -> String {
-    let s = secs.max(0.0).round() as u64;
-    let (h, m, s) = (s / 3600, (s % 3600) / 60, s % 60);
-    if h > 0 {
-        format!("{}:{:02}:{:02}", h, m, s)
-    } else {
-        format!("{}:{:02}", m, s)
-    }
-}
-
 /// Lower-cased file extension without the dot.
 pub fn extension(path: &Path) -> String {
     path.extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default()
+}
+
+/// Best guess of this host's LAN IP address (for `serverstatus ip`).
+pub fn server_ip() -> String {
+    local_ip_address::local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string())
 }
 
 #[cfg(test)]
@@ -145,14 +127,6 @@ mod tests {
             "file:///music/Artist%20Name/Album%20%231/01%20-%20Song%3F.flac"
         );
         assert_eq!(path_from_file_url(&u).unwrap(), p);
-        assert_eq!(
-            split_url_fragment("file:///a.flac#10.5-20"),
-            ("file:///a.flac", Some(10.5), Some(20.0))
-        );
-        assert_eq!(
-            split_url_fragment("file:///a#1.flac"),
-            ("file:///a#1.flac", None, None)
-        );
         assert!(is_remote_url("http://x/y.mp3"));
         assert!(!is_remote_url("file:///x.mp3"));
     }
@@ -161,14 +135,5 @@ mod tests {
     fn cli_escaping() {
         assert_eq!(cli_escape("Hello World/a:b"), "Hello%20World%2Fa%3Ab");
         assert_eq!(cli_unescape("Hello%20World"), "Hello World");
-        assert_eq!(format_duration(3725.0), "1:02:05");
-        assert_eq!(format_duration(65.0), "1:05");
     }
-}
-
-/// Best guess of this host's LAN IP address (for `serverstatus ip`).
-pub fn server_ip() -> String {
-    local_ip_address::local_ip()
-        .map(|ip| ip.to_string())
-        .unwrap_or_else(|_| "127.0.0.1".to_string())
 }

@@ -144,7 +144,7 @@ fn cue_time(v: &str) -> Option<f64> {
     let mut it = v.trim().split(':');
     let m: f64 = it.next()?.trim().parse().ok()?;
     let s: f64 = it.next()?.trim().parse().ok()?;
-    let f: f64 = it.next()?.trim().split_whitespace().next()?.parse().ok()?;
+    let f: f64 = it.next()?.split_whitespace().next()?.parse().ok()?;
     Some(m * 60.0 + s + f / 75.0)
 }
 

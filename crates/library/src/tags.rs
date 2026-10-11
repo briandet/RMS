@@ -306,12 +306,10 @@ fn id3_attrs(
                 push(&mut raw, "USLT", u.content.clone());
             }
             Frame::Picture(p) => pics.push(&p.picture),
-            Frame::UniqueFileIdentifier(u) => {
-                if u.owner.contains("musicbrainz") {
-                    let s = String::from_utf8_lossy(&u.identifier).to_string();
-                    if s.len() == 36 {
-                        push(&mut raw, "MUSICBRAINZ_ID", s);
-                    }
+            Frame::UniqueFileIdentifier(u) if u.owner.contains("musicbrainz") => {
+                let s = String::from_utf8_lossy(&u.identifier).to_string();
+                if s.len() == 36 {
+                    push(&mut raw, "MUSICBRAINZ_ID", s);
                 }
             }
             _ => {}

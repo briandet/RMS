@@ -209,10 +209,6 @@ impl Capabilities {
     pub fn is_wiim(&self) -> bool {
         self.model_name.to_ascii_lowercase().contains("wiim")
     }
-
-    pub fn supports_format(&self, fmt: &str) -> bool {
-        self.formats.iter().any(|f| f == fmt)
-    }
 }
 
 /// Mutable per-player state.
@@ -240,7 +236,6 @@ pub struct PlayerState {
     pub temp_volume: Option<i32>,
     /// Absolute server time at which the player should go to sleep (0 = none).
     pub sleep_time: f64,
-    pub sleep_at_end_of_song: bool,
 
     // Slimproto status tracking
     pub last_stat: Option<Stat>,
@@ -261,7 +256,6 @@ pub struct PlayerState {
 
     /// Name query (`setd 0`) outstanding.
     pub name_query_pending: bool,
-    pub needs_upgrade: bool,
     pub is_upgrading: bool,
 
     /// Remote stream start time (for elapsed estimation on live streams).
@@ -338,7 +332,6 @@ impl Player {
             balance: prefs.get_i64("balance") as i32,
             temp_volume: None,
             sleep_time: 0.0,
-            sleep_at_end_of_song: false,
             last_stat: None,
             last_stat_at: 0.0,
             last_heard: now,
@@ -355,7 +348,6 @@ impl Player {
             signal_strength: 0,
             sequence_number: 0,
             name_query_pending: false,
-            needs_upgrade: false,
             is_upgrading: false,
             remote_stream_start: None,
             show_briefly: None,
@@ -400,18 +392,6 @@ impl Player {
 
     pub fn power(&self) -> bool {
         self.state.lock().power
-    }
-
-    pub fn model(&self) -> String {
-        self.state.lock().caps.model.clone()
-    }
-
-    pub fn ip(&self) -> String {
-        self.state
-            .lock()
-            .addr
-            .map(|a| a.to_string())
-            .unwrap_or_default()
     }
 
     pub fn set_frame_sender(&self, tx: Option<mpsc::UnboundedSender<ServerFrame>>) {
@@ -773,9 +753,5 @@ impl PlayerState {
 
     pub fn jiffies_to_timestamp(&self, jiffies: u32) -> Option<f64> {
         self.jiffies_epoch.map(|e| e + jiffies as f64 / 1000.0)
-    }
-
-    pub fn is_synced_capable(&self) -> bool {
-        true
     }
 }

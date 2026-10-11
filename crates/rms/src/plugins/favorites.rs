@@ -20,12 +20,6 @@ pub struct Fav {
     pub children: Vec<Fav>,
 }
 
-impl Fav {
-    pub fn is_folder(&self) -> bool {
-        self.url.is_none()
-    }
-}
-
 pub struct Favorites {
     path: PathBuf,
     root: RwLock<Vec<Fav>>,

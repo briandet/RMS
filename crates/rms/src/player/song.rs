@@ -155,8 +155,4 @@ impl Song {
     pub fn url(&self) -> &str {
         &self.track.url
     }
-
-    pub fn is_finished(&self) -> bool {
-        matches!(self.status, SongStatus::Finished | SongStatus::Failed)
-    }
 }

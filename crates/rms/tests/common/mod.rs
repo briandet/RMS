@@ -31,6 +31,7 @@ pub struct Server {
 impl Drop for Server {
     fn drop(&mut self) {
         let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
@@ -89,6 +90,7 @@ fn try_start_server(music: &Path) -> Option<Server> {
         std::thread::sleep(Duration::from_millis(100));
     }
     let _ = child.kill();
+    let _ = child.wait();
     None
 }
 

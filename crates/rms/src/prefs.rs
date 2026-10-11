@@ -307,12 +307,6 @@ impl PrefStore {
         self.save();
     }
 
-    pub fn all(&self) -> PrefMap {
-        let mut m = self.defaults.clone();
-        m.extend(self.values.read().clone());
-        m
-    }
-
     pub fn save(&self) {
         let values = self.values.read().clone();
         if let Some(parent) = self.path.parent() {
@@ -363,10 +357,6 @@ impl Prefs {
         }
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
     /// Per-player prefs, created on first use.
     pub fn player(&self, id: &str) -> Arc<PrefStore> {
         if let Some(p) = self.players.read().get(id) {
@@ -384,6 +374,7 @@ impl Prefs {
         store
     }
 
+    #[cfg(test)]
     /// Ids of players that have a prefs file on disk (used to list "known" players).
     pub fn known_players(&self) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();

@@ -6,7 +6,9 @@ use slimproto::MacAddress;
 
 pub type Results = Map<String, Value>;
 
-/// Request status codes, numerically identical to the reference server.
+/// Request status codes, numerically identical to the reference server.  `New` and
+/// `Processing` complete the reference set; requests here go straight to the others.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
     New = 0,
@@ -52,8 +54,6 @@ pub struct Request {
     pub source: Source,
     /// Index into the dispatch table, when matched.
     pub(crate) entry: Option<usize>,
-    /// Language override (`Accept-Language`), upper-case code like `EN`.
-    pub language: Option<String>,
 }
 
 impl Request {
@@ -68,12 +68,7 @@ impl Request {
             is_query: false,
             source: Source::Internal,
             entry: None,
-            language: None,
         }
-    }
-
-    pub fn is_done(&self) -> bool {
-        self.status == Status::Done
     }
 
     pub fn set_done(&mut self) {
@@ -95,13 +90,6 @@ impl Request {
     /// `"playlist,index"`, used for notification filtering.
     pub fn request_str(&self) -> String {
         self.terms.join(",")
-    }
-
-    pub fn is_command(&self, words: &[&[&str]]) -> bool {
-        words
-            .iter()
-            .enumerate()
-            .all(|(i, alts)| alts.contains(&self.term(i)))
     }
 
     // ---- params -----------------------------------------------------------------
@@ -166,6 +154,7 @@ impl Request {
         self.results = m;
     }
 
+    #[cfg(test)]
     pub fn result(&self, key: &str) -> Option<&Value> {
         self.results.get(key)
     }
@@ -267,11 +256,6 @@ pub fn normalize(from: Option<i64>, quantity: Option<i64>, count: usize) -> (boo
     let start = from.max(0);
     let end = (start + quantity - 1).min(count - 1);
     (true, start as usize, end as usize)
-}
-
-/// Positional `<start>` / `<itemsPerResponse>` params as LMS treats them (`-` = current).
-pub fn paging(req: &Request) -> (Option<i64>, Option<i64>) {
-    (req.param_i64("_index"), req.param_i64("_quantity"))
 }
 
 #[cfg(test)]

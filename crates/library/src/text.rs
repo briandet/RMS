@@ -235,8 +235,8 @@ pub fn transliterate_latin1(s: &str) -> String {
     if s.is_ascii() {
         return s.to_string();
     }
-    let out = deunicode::deunicode_with_tofu(s, "?");
-    out
+
+    deunicode::deunicode_with_tofu(s, "?")
 }
 
 /// `matchCase`: upper case and fold Latin-1 diacritics, Æ→AE, µ→MU.
