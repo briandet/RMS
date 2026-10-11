@@ -10,6 +10,7 @@
 //! * Playback ([`stream`]): a librespot player per stream decodes the track to 16-bit PCM,
 //!   which goes to the player like any other stream (`spotify://track:<id>` URLs).
 
+pub mod connect;
 pub mod menu;
 pub mod session_api;
 pub mod stream;
@@ -675,6 +676,10 @@ impl Spotify {
     pub async fn expand(&self, url: &str) -> Result<Vec<String>, String> {
         if let Some((_, id)) = parse_url(url).filter(|(k, _)| k == "track") {
             return Ok(vec![url_for("track", &id)]);
+        }
+        // a player's Connect stream plays as it is
+        if parse_url(url).is_some_and(|(k, _)| k == "connect") {
+            return Ok(vec![url.to_string()]);
         }
         Ok(self
             .tracks(url)

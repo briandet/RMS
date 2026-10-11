@@ -246,7 +246,8 @@ pub fn open_song(
             direct_url: None,
             // typical FLAC compression of music
             stream_bitrate: Some(if flac { pcm_rate / 10 * 6 } else { pcm_rate }),
-            can_seek: true,
+            // a Connect stream is positioned from the Spotify app
+            can_seek: !track.url.starts_with("spotify://connect:"),
         });
     }
     if track.remote {

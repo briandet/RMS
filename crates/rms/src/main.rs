@@ -40,6 +40,9 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let server = server::Server::new(config.clone())?;
+    if !config.scan_only {
+        crate::plugins::spotify::connect::start(&server);
+    }
     let dirs = server.prefs.server.get_string_list("mediadirs");
     if dirs.is_empty() {
         info!("no music folder configured; set one with --music <dir> or in the web UI settings");
