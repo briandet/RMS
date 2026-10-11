@@ -31,6 +31,7 @@ own conventions:
 | `POST /api/v1/players/{id}/command` | run a [command](#commands) |
 | `GET`, `PATCH /api/v1/players/{id}/settings` | [player settings](#player-settings) |
 | `GET /api/v1/events` | [event stream](#events) |
+| `GET /api/v1/browser-player` | WebSocket: [this browser as a player](#browser-player) |
 | `GET /api/v1/artists?q=` | page of [Artist](#artist) |
 | `GET /api/v1/artists/{id}` | [Artist](#artist) |
 | `GET /api/v1/albums?sort=&artist=&genre=&year=&q=` | page of [Album](#album) |
@@ -356,6 +357,21 @@ events.
 changes them and returns all of them.  Nothing is changed when one of them is invalid.
 
 The player's name is changed with the `rename` command.
+
+## Browser player
+
+`GET /api/v1/browser-player?id=<browser id>&name=<player name>&formats=flc,mp3,ogg,ops,aac`
+opens a WebSocket that makes the browser a player for as long as it is open (the web UI's
+*Play in this browser*).  `id` is the browser's own id, so it is the same player every time;
+`formats` are what its `<audio>` element plays, best first.
+
+The server sends `{"type": "welcome", "player": "<player id>"}`, then `ToRenderer` messages
+(`api-types.d.ts`): `load` a URL (relative to the server root) and play it, or with
+`autostart: false` wait for `resume`; `preload` the next track, to start when the current
+one ends; `pause`, `resume`, `stop`; `volume` (0–100, `muted`).  The browser reports
+`FromRenderer` messages: `ready`, `started` (a loaded or preloaded track began), `progress`
+(`elapsed` and `duration` seconds, about once a second), `paused`, `resumed`, `ended` (with
+nothing preloaded), `error`.
 
 ## LMS interfaces
 

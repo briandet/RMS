@@ -286,3 +286,7 @@ export type DisplaySettings = {
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
 export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, };
+
+export type ToRenderer = { "type": "load", url: string, format: string, autostart: boolean, } | { "type": "preload", url: string, format: string, } | { "type": "pause" } | { "type": "resume" } | { "type": "stop" } | { "type": "volume", volume: number, muted: boolean, };
+
+export type FromRenderer = { "type": "ready" } | { "type": "started" } | { "type": "progress", elapsed: number, duration?: number, } | { "type": "paused" } | { "type": "resumed" } | { "type": "ended" } | { "type": "error", message: string, };

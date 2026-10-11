@@ -7,6 +7,7 @@ import {
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
 import { connectHelp } from './common.js';
+import { browserPlayer, setBrowserPlayer, playableFormats } from '../browser-player.js';
 
 export const cacheable = false;
 
@@ -25,6 +26,7 @@ export function render(node, { ctx }) {
   const playerSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-player' });
   const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
+  const browserSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-browser' });
   const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
@@ -32,7 +34,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -407,7 +409,43 @@ export function render(node, { ctx }) {
       h('p', { class: 'muted small' }, 'Keyboard: Space = play/pause, / = search.'));
   }
 
+  // ---------------------------------------------------------------- this browser
+  function renderBrowser() {
+    const head = h('h2', { id: 'set-browser' }, 'This browser');
+    const formats = playableFormats();
+    if (!formats.length || typeof WebSocket === 'undefined') {
+      browserSection.replaceChildren(head, h('p', { class: 'muted' }, 'This browser can’t play the server’s audio formats.'));
+      return;
+    }
+    const checkId = fieldId();
+    const nameId = fieldId();
+    const nameInput = h('input', { id: nameId, type: 'text', value: browserPlayer.name(), maxlength: 64 });
+    const state = browserPlayer.enabled()
+      ? (browserPlayer.connected() ? 'Playing here as a player of the server.' : 'Connecting…')
+      : 'Off.';
+    browserSection.replaceChildren(head,
+      h('p', { class: 'muted small' }, 'Play music on this computer or phone: it becomes a player like the others, with the queue, sync and every remote control. Keep this page open while it plays.'),
+      h('div', { class: 'field check' },
+        h('input', { id: checkId, type: 'checkbox', checked: browserPlayer.enabled(), onchange: (e) => {
+          setBrowserPlayer(e.target.checked, nameInput.value || undefined);
+          toast(e.target.checked ? 'This browser is now a player' : 'This browser no longer plays');
+          renderBrowser();
+        } }),
+        h('label', { for: checkId }, 'Play in this browser', h('span', { class: 'muted small block' }, state))),
+      h('form', { class: 'field inline', onsubmit: (e) => {
+        e.preventDefault();
+        const v = nameInput.value.trim();
+        if (!v) return;
+        setBrowserPlayer(browserPlayer.enabled(), v);
+        toast(`This browser plays as “${v}”`);
+      } },
+      h('label', { for: nameId }, 'Name as a player'),
+      h('div', { class: 'inline-row' }, nameInput, h('button', { class: 'btn', type: 'submit' }, 'Save'))),
+      h('p', { class: 'muted small' }, `Formats: ${formats.join(', ')}.`));
+  }
+
   // ---------------------------------------------------------------- wire up
+  renderBrowser();
   renderPlayer();
   renderSync(true);
   renderLibrary();
@@ -418,6 +456,7 @@ export function render(node, { ctx }) {
     on('players', () => { renderSync(); if (currentPlayer()?.name !== renderedName) renderPlayer(); }),
     on('status', () => renderSync()),
     on('server', renderScan),
+    on('browser-player', renderBrowser),
   );
 
   return () => { alive = false; clearInterval(spotifyPoll); offs.forEach((f) => f()); };

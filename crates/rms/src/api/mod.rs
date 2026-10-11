@@ -40,6 +40,10 @@ pub fn router() -> Router<Arc<Server>> {
             get(get_player_settings).patch(patch_player_settings),
         )
         .route("/api/v1/events", get(events::handle))
+        .route(
+            "/api/v1/browser-player",
+            get(crate::bridge::browser::handle),
+        )
         .route("/api/v1/artists", get(get_artists))
         .route("/api/v1/artists/{id}", get(get_artist))
         .route("/api/v1/albums", get(get_albums))

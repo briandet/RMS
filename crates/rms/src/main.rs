@@ -2,6 +2,7 @@
 //! Media Server / SqueezeCenter) protocols for Squeezebox-compatible players.
 
 mod api;
+mod bridge;
 mod config;
 mod control;
 mod discovery;

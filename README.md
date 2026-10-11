@@ -10,7 +10,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, on-screen menus with the IR remote |
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
-| Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
+| Browser | built-in web UI at `http://<server>:9000/`, installable as an app | ✔ new responsive UI; the browser can be a player too (*Play in this browser*) |
 | New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, library, favorites, settings ([docs/api.md](docs/api.md)) |
 | **Subsonic apps** (DSub, Symfonium, Ultrasonic, play:Sub, Amperfy, Feishin, …) | Subsonic / OpenSubsonic API (`/rest/*`) | ✔ browsing, streaming to the app, playlists, stars, jukebox ([docs/subsonic.md](docs/subsonic.md)) |
 
@@ -122,6 +122,11 @@ The script builds a release binary (the web UI is built in), installs it as
   an earlier release is converted on first start: it is backed up to
   `library.sqlite.lms-backup` first, history and analysis are kept, and the library is
   rescanned (going back: [docs/library-schema.md](docs/library-schema.md#converting-a-database-from-earlier-releases)).
+* **Bridged players** (`crates/rms/src/bridge`): devices that aren't Squeezeboxes join as
+  players through an in-process slimproto client per device, so the queue, sync groups,
+  alarms and every remote control work on them.  The first is the web browser: *Play in
+  this browser* (Settings) plays through an `<audio>` element, gaplessly where the browser
+  allows, with lock-screen and media-key controls (Media Session).
 * **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
   copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
   folders that changed are scanned.  It uses the operating system's file notifications

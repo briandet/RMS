@@ -8,6 +8,7 @@ import * as Queue from './views/queue.js';
 import * as Library from './views/library.js';
 import * as Search from './views/search.js';
 import * as Settings from './views/settings.js';
+import { initBrowserPlayer } from './browser-player.js';
 
 const mobile = matchMedia('(max-width: 899px)');
 
@@ -86,6 +87,7 @@ function applyPlayer(p) {
   const i = store.players.findIndex((x) => x.id === p.id);
   if (i >= 0) store.players[i] = p; else store.players.push(p);
   store.receivedAt.set(p.id, performance.now());
+  emit('player-state', p);
   if (summary(store.players) !== before) { emit('players', store.players); ensurePlayer(); }
   if (p.id === store.playerId) {
     emit('status', p);
@@ -418,10 +420,29 @@ function boot() {
     if (!store.players.length) renderPlayerSelect();
   });
 
+  // this browser as a player: select it when it was just turned on
+  on('browser-player', (b) => {
+    if (b.playerId && b.selectWhenConnected) {
+      b.selectWhenConnected = false;
+      const pick = () => {
+        if (!store.players.some((p) => p.id === b.playerId)) return false;
+        selectPlayer(b.playerId, true);
+        return true;
+      };
+      if (!pick()) { const off = on('players', () => { if (pick()) off(); }); }
+    }
+  });
+  initBrowserPlayer();
+
   route();
   startEvents();
 }
 let wasScanning = false;
+
+// installable as an app, and opens without the network (sw.js)
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((e) => console.warn('service worker:', e));
+}
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();

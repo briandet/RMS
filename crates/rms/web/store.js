@@ -8,6 +8,8 @@
 //   'queue'    queue contents changed         (store.queue)
 //   'server'   server info changed            (store.server)
 //   'online'   connectivity changed           (store.online)
+//   'player-state'    any player's state arrived  (the player)
+//   'browser-player'  this browser as a player connected or went away (browser-player.js)
 
 export const store = {
   players: [],

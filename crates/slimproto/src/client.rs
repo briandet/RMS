@@ -1,7 +1,7 @@
 //! Messages sent from the player to the server.
 
 use crate::{Error, MacAddress, Result};
-use bytes::{Buf, Bytes};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// Device-id → model string table (`@deviceids` in the reference server).  Index is the
 /// device id byte from HELO.
@@ -97,6 +97,27 @@ impl Helo {
             })
             .map(str::to_owned)
             .collect()
+    }
+
+    /// The payload as a player sends it (what [`Helo::parse`] reads).
+    pub fn encode(&self, out: &mut BytesMut) {
+        out.put_u8(self.device_id);
+        out.put_u8(self.revision);
+        out.put_slice(&self.mac.0);
+        out.put_slice(&self.uuid.unwrap_or([0; 16]));
+        let mut wlan = self.wlan_channel_list & 0x3fff;
+        if self.bitmapped {
+            wlan |= 0x8000;
+        }
+        if self.reconnect {
+            wlan |= 0x4000;
+        }
+        out.put_u16(wlan);
+        out.put_u64(self.bytes_received.unwrap_or(0));
+        out.put_slice(&self.language.unwrap_or(*b"EN"));
+        if let Some(c) = &self.capabilities {
+            out.put_slice(c.as_bytes());
+        }
     }
 
     pub fn parse(mut p: &[u8]) -> Result<Helo> {
@@ -284,6 +305,26 @@ pub struct Stat {
 impl Stat {
     pub fn event(&self) -> StatEvent {
         StatEvent::from_code(self.event_code)
+    }
+
+    /// The payload as current firmware sends it (53 bytes, with the error code).
+    pub fn encode(&self, out: &mut BytesMut) {
+        out.put_slice(&self.event_code);
+        out.put_u8(self.num_crlf);
+        out.put_u8(self.mas_initialized);
+        out.put_u8(self.mas_mode);
+        out.put_u32(self.buffer_size);
+        out.put_u32(self.fullness);
+        out.put_u64(self.bytes_received);
+        out.put_u16(self.signal_strength);
+        out.put_u32(self.jiffies);
+        out.put_u32(self.output_buffer_size);
+        out.put_u32(self.output_buffer_fullness);
+        out.put_u32(self.elapsed_seconds);
+        out.put_u16(self.voltage);
+        out.put_u32(self.elapsed_milliseconds);
+        out.put_u32(self.server_timestamp);
+        out.put_u16(self.error_code);
     }
 
     pub fn parse(mut p: &[u8]) -> Result<Stat> {
@@ -548,6 +589,40 @@ impl ClientMessage {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn helo_and_stat_round_trip() {
+        let helo = Helo {
+            device_id: 12,
+            revision: 2,
+            mac: MacAddress([0, 4, 0x20, 1, 2, 3]),
+            uuid: Some([7; 16]),
+            wlan_channel_list: 0x7ff,
+            bitmapped: false,
+            reconnect: true,
+            bytes_received: Some(1234),
+            language: Some(*b"EN"),
+            capabilities: Some("Model=squeezelite,MaxSampleRate=48000,mp3,flc".into()),
+        };
+        let mut b = BytesMut::new();
+        helo.encode(&mut b);
+        assert_eq!(Helo::parse(&b).unwrap(), helo);
+        let stat = Stat {
+            event_code: *b"STMt",
+            buffer_size: 1 << 20,
+            fullness: 1 << 19,
+            bytes_received: 99,
+            jiffies: 123456,
+            elapsed_seconds: 61,
+            elapsed_milliseconds: 61_500,
+            server_timestamp: 77,
+            ..Default::default()
+        };
+        let mut b = BytesMut::new();
+        stat.encode(&mut b);
+        assert_eq!(b.len(), 53);
+        assert_eq!(Stat::parse(&b).unwrap(), stat);
+    }
     use super::*;
 
     fn squeezelite_helo() -> Vec<u8> {
