@@ -241,6 +241,17 @@ CREATE INDEX IF NOT EXISTS trackPlayCountIndex ON tracks_persistent (playCount);
 CREATE INDEX IF NOT EXISTS trackLastPlayedIndex ON tracks_persistent (lastPlayed);
 CREATE INDEX IF NOT EXISTS persistentUrlmd5Index ON tracks_persistent (urlmd5);
 
+-- RMS: bliss sonic analysis, kept across wipes like tracks_persistent. `features` is NULL
+-- when the file could not be analysed; either way it is redone when the file changes.
+CREATE TABLE IF NOT EXISTS track_analysis (
+  urlmd5 char(32) PRIMARY KEY,
+  version int(10),
+  timestamp int(10),
+  filesize int(10),
+  features blob,
+  analyzed int(10)
+);
+
 CREATE TABLE IF NOT EXISTS scanned_files (
   url text NOT NULL COLLATE NOCASE,
   timestamp int(10),

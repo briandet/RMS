@@ -140,7 +140,7 @@ per player under Settings in the web UI, Squeezer, the Touch/Radio or the player
 menus:
 
 * **Similar Songs**: songs like the last ones in the queue, picked from your library by
-  shared genres and artists, era, and play history (artists you played around the same
+  how they sound (see below), shared genres and artists, era, and play history (artists you played around the same
   time, play counts and ratings; songs played in the last day are avoided), at most one per
   album and two per artist in each batch.
 * Lyrion's Random Mix choices: **Song Mix** (optionally limited to the queue's genres),
@@ -152,7 +152,15 @@ It does nothing after a radio station, and keeps the queue under `maxPlaylistLen
 dropping songs from its start.  **Create Mix** plays about 20 similar songs for a track
 (starting with it), album, artist, genre or year: the *Mix* button in the web UI, or
 *Create Mix* in the track / album / artist / genre / year menus on Squeezer and the players.
-The mixes use tags and play history only, no audio analysis (yet).
+
+**Sonic analysis** (`sonicAnalysis`, on by default): after each scan, RMS analyses your local
+tracks in the background with [bliss](https://lelele.io/bliss.html) — tempo, timbre,
+loudness and harmony as a small feature vector per song — on half the CPU cores.  Most
+formats are decoded in-process; ffmpeg handles the rest (Opus, WMA, APE, …) and cue-sheet
+tracks.  Once a seed song is analysed, the mixes add songs from anywhere in the library that
+sound like it, and how close they sound counts for more than tags do.  Expect a second or two of
+CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
+and are redone when a file changes.  Lyrion needed the long-gone MusicIP server for this.
 
 
 ### Spotify

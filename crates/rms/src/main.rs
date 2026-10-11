@@ -67,6 +67,10 @@ async fn main() -> anyhow::Result<()> {
         info!("library is empty, starting initial scan");
         control::commands::start_scan(&server, rms_library::ScanMode::Full);
     }
+    // tracks left unanalysed last time (a scan starts the analysis when it finishes)
+    if !server.scanning.load(std::sync::atomic::Ordering::SeqCst) {
+        crate::plugins::sonic::spawn_analysis(&server);
+    }
 
     spawn("slimproto", player::connection::listen(server.clone()));
     if !config.no_discovery {

@@ -27,6 +27,7 @@ pub mod portraits;
 pub mod queries;
 pub mod scanner;
 pub mod songdata;
+pub mod sonic;
 pub mod tags;
 pub mod text;
 pub mod track;

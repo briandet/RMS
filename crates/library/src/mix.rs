@@ -6,7 +6,9 @@
 //! * Similar songs: candidates that share genres or artists with the seed tracks, scored
 //!   from their tags (genres, artists, year) and play history (artists played around the same
 //!   time as the seeds, play count, rating, recently played), then picked with a little
-//!   randomness and at most one track per album and two per artist.
+//!   randomness and at most one track per album and two per artist.  Once the library has
+//!   been through sonic analysis ([`crate::sonic`]), songs that sound like the seeds join the
+//!   candidates and how close they sound counts most in the score.
 
 use crate::config::{ROLE_ALBUMARTIST, ROLE_ARTIST, ROLE_TRACKARTIST};
 use crate::Library;
@@ -21,6 +23,8 @@ const PLAYABLE: &str =
 
 /// Largest number of candidates scored for a similar-songs mix.
 const POOL: usize = 3000;
+/// Candidates added for sounding like the seeds.
+const SOUND_POOL: usize = 300;
 
 /// What a mix starts from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +204,12 @@ impl Library {
             );
             pool.extend(query_ids(&c, &sql, &artists));
         }
+        // songs that sound like the seeds, whatever their tags
+        let sound = crate::sonic::Index::load(&c).closeness(seeds);
+        if let Some(sound) = &sound {
+            pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
+        }
+        profile.sound = sound.map(|s| s.rank);
         if pool.len() < 4 * n {
             let sql = format!("SELECT id FROM tracks WHERE {PLAYABLE} ORDER BY RANDOM() LIMIT ?");
             pool.extend(query_ids(&c, &sql, &[(4 * n) as i64]));
@@ -329,6 +339,9 @@ pub struct Profile {
     pub related: HashMap<i64, f64>,
     /// median year of the seeds
     pub year: Option<f64>,
+    /// analysed track → how close it sounds to the seeds, 1 (nearest) to 0 (farthest);
+    /// `None` when no seed has been analysed
+    pub sound: Option<HashMap<i64, f64>>,
 }
 
 impl Profile {
@@ -372,6 +385,12 @@ impl Profile {
             .filter_map(|a| self.related.get(a).copied())
             .fold(0.0, f64::max);
         s += 1.5 * same.min(1.0) + 2.0 * related;
+        // sound: only the closest few percent of the library count much; tracks not analysed
+        // yet get a middling score so they are neither favoured nor left out
+        if let Some(sound) = &self.sound {
+            let r = sound.get(&c.id).copied().unwrap_or(0.85);
+            s += 4.0 * r.powi(8);
+        }
         // era
         if let (Some(y), Some(cy)) = (self.year, c.year) {
             s += 1.5 * (-(y - cy as f64).abs() / 8.0).exp();
@@ -478,6 +497,22 @@ mod tests {
         let mut recent = same_genre_era.clone();
         recent.last_played = Some(now - 600);
         assert!(p.score(&recent, now) < p.score(&same_genre_era, now));
+    }
+
+    #[test]
+    fn sounding_alike_beats_sharing_a_genre() {
+        let seeds = [track(1, 10, 100, &[7], 1990)];
+        let mut p = Profile::from_seeds(&seeds);
+        let now = 2_000_000_000;
+        let same_genre = track(2, 11, 101, &[7], 1990);
+        let sounds_alike = track(3, 12, 102, &[8], 1990);
+        let not_analysed = track(4, 13, 103, &[8], 1990);
+        p.sound = Some(HashMap::from([(1, 1.0), (3, 0.99), (2, 0.2)]));
+        assert!(p.score(&sounds_alike, now) > p.score(&same_genre, now));
+        // a track not analysed yet is not ranked below the ones that sound unlike the seeds
+        let sounds_unlike = track(5, 14, 104, &[8], 1990);
+        p.sound.as_mut().unwrap().insert(5, 0.1);
+        assert!(p.score(&not_analysed, now) > p.score(&sounds_unlike, now));
     }
 
     #[test]
