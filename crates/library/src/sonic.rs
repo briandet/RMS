@@ -24,6 +24,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use tracing::{debug, info};
 
 /// Features version stored with each analysis; others are ignored and redone.
@@ -113,7 +114,8 @@ impl Library {
                         if let Err(e) = &loudness {
                             debug!("loudness of {}: {}", job.url, e);
                         }
-                        let blob = features.ok().map(|f| to_blob(&f));
+                        let features = features.ok();
+                        let blob = features.as_ref().map(|f| to_blob(f));
                         let loudness = loudness.ok();
                         let ok = blob.is_some() || loudness.is_some();
                         let _ = c.execute(
@@ -129,6 +131,9 @@ impl Library {
                                 crate::scanner::now()
                             ],
                         );
+                        if let Some(f) = features {
+                            self.add_to_sound_index(&c, &job.fingerprint, f);
+                        }
                         if ok {
                             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                             if n.is_multiple_of(250) {
@@ -148,6 +153,52 @@ impl Library {
         );
         self.apply_loudness();
         n
+    }
+
+    /// The index of what every analysed track sounds like.  Loaded once and then kept up to
+    /// date: analysis adds to it, a scan has it reloaded.
+    pub fn sound_index(&self) -> Arc<Index> {
+        if let Some(ix) = self.inner.sound.read().as_ref() {
+            return ix.clone();
+        }
+        let mut slot = self.inner.sound.write();
+        if let Some(ix) = slot.as_ref() {
+            return ix.clone();
+        }
+        let Ok(c) = self.conn() else {
+            // not kept: try again next time
+            return Arc::new(Index::empty());
+        };
+        let started = std::time::Instant::now();
+        let ix = Arc::new(Index::load(&c));
+        debug!(
+            "sound index: {} tracks loaded in {:.0} ms",
+            ix.len(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        *slot = Some(ix.clone());
+        ix
+    }
+
+    /// Newly analysed audio: add its tracks to the index if it is loaded.
+    fn add_to_sound_index(&self, c: &Connection, fingerprint: &str, features: Vec<f32>) {
+        if self.inner.sound.read().is_none() {
+            return;
+        }
+        let ids: Vec<i64> = c
+            .prepare_cached("SELECT id FROM tracks WHERE fingerprint = ?")
+            .and_then(|mut st| {
+                st.query_map([fingerprint], |r| r.get(0))?
+                    .collect::<Result<_, _>>()
+            })
+            .unwrap_or_default();
+        let mut slot = self.inner.sound.write();
+        if let Some(ix) = slot.as_mut() {
+            let ix = Arc::make_mut(ix);
+            for id in ids {
+                ix.add(id, &features);
+            }
+        }
     }
 
     /// Analysis progress over the library.
@@ -305,6 +356,7 @@ fn from_blob(b: &[u8]) -> Vec<f32> {
 }
 
 /// Every analysed playable track's features, for nearest-neighbour search.
+#[derive(Clone)]
 pub struct Index {
     ids: Vec<i64>,
     /// track id → row
@@ -346,8 +398,38 @@ impl Index {
         }
     }
 
+    pub fn empty() -> Index {
+        Index {
+            ids: Vec::new(),
+            pos: HashMap::new(),
+            features: Vec::new(),
+            weights: FeaturesVersion::LATEST.feature_weights().diag().to_vec(),
+        }
+    }
+
+    /// Add a track, or replace its features.
+    pub fn add(&mut self, id: i64, features: &[f32]) {
+        let d = self.weights.len();
+        if features.len() != d {
+            return;
+        }
+        match self.pos.get(&id) {
+            Some(&i) => self.features[i * d..(i + 1) * d].copy_from_slice(features),
+            None => {
+                self.pos.insert(id, self.ids.len());
+                self.ids.push(id);
+                self.features.extend_from_slice(features);
+            }
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.ids.len()
+    }
+
+    /// Number of features per track.
+    pub fn dim(&self) -> usize {
+        self.weights.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -395,16 +477,33 @@ impl Index {
                 .map(|i| seed_rows[(i as f64 * step) as usize])
                 .collect();
         }
-        let mut by_distance: Vec<(f32, i64)> = (0..self.ids.len())
-            .map(|i| {
-                let d = seed_rows
-                    .iter()
-                    .map(|s| self.distance2(self.row(*s), self.row(i)))
-                    .fold(f32::INFINITY, f32::min);
-                (d, self.ids[i])
-            })
-            .collect();
-        by_distance.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // distance to the nearest seed, for every track, on all cores
+        let seeds: Vec<&[f32]> = seed_rows.iter().map(|s| self.row(*s)).collect();
+        let n = self.ids.len();
+        let threads = std::thread::available_parallelism()
+            .map(|t| t.get())
+            .unwrap_or(1)
+            .clamp(1, 8)
+            .min(n.div_ceil(4096).max(1));
+        let chunk = n.div_ceil(threads);
+        let mut by_distance: Vec<(f32, i64)> = vec![(0.0, 0); n];
+        std::thread::scope(|s| {
+            for (k, out) in by_distance.chunks_mut(chunk.max(1)).enumerate() {
+                let seeds = &seeds;
+                s.spawn(move || {
+                    for (j, slot) in out.iter_mut().enumerate() {
+                        let i = k * chunk + j;
+                        let row = self.row(i);
+                        let d = seeds
+                            .iter()
+                            .map(|seed| self.distance2(seed, row))
+                            .fold(f32::INFINITY, f32::min);
+                        *slot = (d, self.ids[i]);
+                    }
+                });
+            }
+        });
+        by_distance.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let n = by_distance.len().max(2) as f64;
         let rank = by_distance
             .iter()
@@ -458,6 +557,36 @@ mod tests {
         assert_eq!(c.rank[&5], 0.0);
         assert!(c.rank[&2] > c.rank[&5]);
         assert!(ix.closeness(&[99]).is_none());
+    }
+
+    #[test]
+    fn tracks_are_added_and_replaced() {
+        let mut ix = index(&[(1, 0.0), (2, 1.0)]);
+        let dim = ix.weights.len();
+        ix.add(3, &vec![0.01; dim]);
+        assert_eq!(ix.len(), 3);
+        assert!(ix.near_duplicate(1, 3));
+        // new features for track 3: no longer close to 1
+        ix.add(3, &vec![1.0; dim]);
+        assert_eq!(ix.len(), 3);
+        assert!(!ix.near_duplicate(1, 3));
+        assert!(ix.near_duplicate(2, 3));
+        // wrong size: ignored
+        ix.add(4, &[0.0]);
+        assert_eq!(ix.len(), 3);
+    }
+
+    #[test]
+    fn ranking_uses_every_track_on_any_number_of_threads() {
+        // more tracks than one thread's share, to exercise the split
+        let rows: Vec<(i64, f32)> = (0..10_000).map(|i| (i, i as f32 / 10_000.0)).collect();
+        let ix = index(&rows);
+        let c = ix.closeness(&[0]).unwrap();
+        assert_eq!(c.nearest.len(), 10_000);
+        assert_eq!(&c.nearest[..3], &[0, 1, 2]);
+        assert_eq!(*c.nearest.last().unwrap(), 9_999);
+        assert_eq!(c.rank[&0], 1.0);
+        assert_eq!(c.rank[&9_999], 0.0);
     }
 
     #[test]

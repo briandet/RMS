@@ -209,6 +209,9 @@ pub(crate) struct Inner {
     pub abort: AtomicBool,
     pub scanning: AtomicBool,
     pub progress: Arc<Mutex<ScanProgress>>,
+    /// What every analysed track sounds like, kept between mixes (`None` until first used,
+    /// and again after a scan changed the tracks).
+    pub sound: RwLock<Option<Arc<sonic::Index>>>,
 }
 
 #[derive(Clone)]
@@ -230,6 +233,7 @@ impl Library {
                 abort: AtomicBool::new(false),
                 scanning: AtomicBool::new(false),
                 progress: Arc::new(Mutex::new(ScanProgress::default())),
+                sound: RwLock::new(None),
             }),
         };
         {
@@ -284,6 +288,8 @@ impl Library {
             };
         }
         let res = self.scan_inner(&mode);
+        // track ids may have changed: the next mix reloads the sound index
+        *self.inner.sound.write() = None;
         let elapsed = started.elapsed().as_secs_f64();
         self.inner.scanning.store(false, Ordering::SeqCst);
         let aborted = self.inner.abort.load(Ordering::SeqCst);

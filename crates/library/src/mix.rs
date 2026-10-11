@@ -203,7 +203,7 @@ impl Library {
             pool.extend(query_ids(&c, &sql, &artists));
         }
         // songs that sound like the seeds, whatever their tags
-        let index = crate::sonic::Index::load(&c);
+        let index = self.sound_index();
         let sound = index.closeness(seeds);
         if let Some(sound) = &sound {
             pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
