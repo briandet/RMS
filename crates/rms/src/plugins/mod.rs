@@ -1,4 +1,4 @@
-//! Built-in plugins: Favorites, Alarm clock, Internet radio, online artist pictures,
+//! Built-in plugins: Favorites, Alarm clock, Internet radio (with Radio Browser), online artist pictures,
 //! Spotify, Don't Stop The Music, sonic analysis.
 
 pub mod alarm;
@@ -6,6 +6,7 @@ pub mod artist_images;
 pub mod dstm;
 pub mod favorites;
 pub mod musicbrainz;
+pub mod radiobrowser;
 pub mod sonic;
 pub mod spotify;
 
@@ -15,4 +16,5 @@ pub fn register(t: &mut DispatchTable) {
     favorites::register(t);
     dstm::register(t);
     spotify::menu::register(t);
+    radiobrowser::register(t);
 }

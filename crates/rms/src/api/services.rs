@@ -1,5 +1,5 @@
-//! Favorites and Spotify: their menus as `BrowseItem` lists, and the Spotify sign-in.  They
-//! run the LMS commands Jive clients use, so all clients see the same menus.
+//! Favorites, Spotify and internet radio: their menus as `BrowseItem` lists, and the Spotify
+//! sign-in.  They run the LMS commands Jive clients use, so all clients see the same menus.
 
 use super::commands::{exec_for, CommandError};
 use super::library::{LIMIT, MAX_LIMIT};
@@ -63,6 +63,70 @@ pub async fn menu(
         offset,
         items,
     })
+}
+
+/// Split a radio `BrowseItem` id (`radiobrowser.1.0`) into a radio provider's tag and the
+/// item id within its menu.  Only the radio providers' commands can be reached this way.
+pub fn radio_id(id: &str) -> Result<(&str, &str), CommandError> {
+    let (tag, rest) = id.split_once('.').unwrap_or((id, ""));
+    if !crate::control::jive::radio::providers()
+        .iter()
+        .any(|p| p.tag == tag)
+    {
+        return Err(CommandError::Invalid(format!("unknown radio item {id}")));
+    }
+    Ok((tag, rest))
+}
+
+/// `/radio`: the radio providers (`radios`), then each one's menu (`<tag> items`), with the
+/// provider's tag leading the item ids.
+pub async fn radio(server: &Arc<Server>, p: MenuParams) -> Result<Page<BrowseItem>, CommandError> {
+    let Some(id) = p.id.clone().filter(|s| !s.is_empty()) else {
+        let r = run(server, vec!["radios".into(), "0".into(), "100".into()]).await?;
+        let items: Vec<BrowseItem> = r
+            .get("radioss_loop")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|row| {
+                        Some(BrowseItem {
+                            id: string(row.get("cmd"))?,
+                            name: string(row.get("name")).unwrap_or_default(),
+                            kind: BrowseItemType::Folder,
+                            playable: false,
+                            url: None,
+                            artwork: None,
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let total = items.len();
+        let items = items
+            .into_iter()
+            .skip(p.offset)
+            .take(p.limit.unwrap_or(LIMIT).min(MAX_LIMIT))
+            .collect();
+        return Ok(Page {
+            total,
+            offset: p.offset,
+            items,
+        });
+    };
+    let (tag, rest) = radio_id(&id)?;
+    let mut page = menu(
+        server,
+        tag,
+        MenuParams {
+            id: Some(rest.to_string()),
+            ..p
+        },
+    )
+    .await?;
+    for it in &mut page.items {
+        it.id = format!("{tag}.{}", it.id);
+    }
+    Ok(page)
 }
 
 fn browse_item(row: &Map<String, Value>) -> Option<BrowseItem> {

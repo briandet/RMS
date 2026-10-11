@@ -6,7 +6,10 @@
 //! [`super::xmlbrowser`]:
 //!
 //! * `radiofavorites` — the user's favorites that are internet streams;
-//! * `radiodirectory` — a built-in directory of well-known public streams ([`DIRECTORY`]).
+//! * `radiodirectory` — a built-in directory of well-known public streams ([`DIRECTORY`]);
+//! * `radiobrowser` — the Radio Browser community directory, searchable and browsable by
+//!   country, genre and language ([`crate::plugins::radiobrowser`], which answers its own
+//!   commands).
 //!
 //! More providers can be added to [`providers`]; more stations to [`DIRECTORY`].
 
@@ -66,8 +69,8 @@ pub struct Provider {
     pub name: &'static str,
     pub weight: i64,
     pub icon: &'static str,
-    /// Builds the provider's feed.
-    pub feed: fn(&Server) -> Feed,
+    /// Builds the provider's feed; `None` for one that registers its own commands.
+    pub feed: Option<fn(&Server) -> Feed>,
     /// Whether the provider is shown (`condition`).
     pub condition: fn(&Server) -> bool,
 }
@@ -80,7 +83,7 @@ pub fn providers() -> Vec<Provider> {
             name: "Favorite Stations",
             weight: 10,
             icon: "html/images/favorites.png",
-            feed: favorites_feed,
+            feed: Some(favorites_feed),
             condition: |s| !radio_favorites(s).is_empty(),
         },
         Provider {
@@ -88,7 +91,15 @@ pub fn providers() -> Vec<Provider> {
             name: "Popular Stations",
             weight: 20,
             icon: "html/images/radio.png",
-            feed: directory_feed,
+            feed: Some(directory_feed),
+            condition: |_| true,
+        },
+        Provider {
+            tag: crate::plugins::radiobrowser::TAG,
+            name: crate::plugins::radiobrowser::NAME,
+            weight: 30,
+            icon: "html/images/radio.png",
+            feed: None,
             condition: |_| true,
         },
     ]
@@ -124,7 +135,7 @@ pub fn register(t: &mut DispatchTable) {
         true,
         Handler::Sync(apps_query),
     );
-    for p in providers() {
+    for p in providers().into_iter().filter(|p| p.feed.is_some()) {
         t.add(
             &[p.tag, "items", "_index", "_quantity"],
             0,
@@ -283,13 +294,17 @@ pub fn apps_query(_server: &Arc<Server>, r: &mut Request) {
 async fn provider_query(server: Arc<Server>, mut r: Request) -> Request {
     super::fix_index_quantity(&mut r);
     let tag = r.term(0).to_string();
-    let Some(provider) = providers().into_iter().find(|p| p.tag == tag) else {
+    let Some(feed) = providers()
+        .into_iter()
+        .find(|p| p.tag == tag)
+        .and_then(|p| p.feed)
+    else {
         r.bad_dispatch();
         return r;
     };
     let mut ctx = Ctx::from_request(&server, &r, &tag);
     let play = xmlbrowser::prepare_play(&mut ctx, &mut r);
-    let feed = (provider.feed)(&server);
+    let feed = feed(&server);
     let path = split_item_id(ctx.item_id.as_deref().unwrap_or(""));
     ctx.crumbs = path.clone();
     let level = descend(feed, &path, play.is_none()).unwrap_or(Level::List(Feed::default()));

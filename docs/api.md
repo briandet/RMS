@@ -47,6 +47,7 @@ own conventions:
 | `GET /api/v1/favorites?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/favorites` | add a favorite: `{"url": …, "title": …}` |
 | `DELETE /api/v1/favorites/{id}` | remove a favorite or a folder of them |
+| `GET /api/v1/radio?id=` | page of [BrowseItem](#browseitem): [internet radio](#internet-radio) |
 | `GET /api/v1/spotify` | [Spotify status](#spotify) |
 | `GET /api/v1/spotify/items?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/spotify/login`, `/logout` | [sign in and out](#spotify) |
@@ -220,6 +221,7 @@ An `Item` is one of:
 {"type": "folder", "id": 50001}
 {"type": "url", "url": "http://radio.example.com/stream"}
 {"type": "favorite", "id": "0.1"}
+{"type": "radio", "id": "radiobrowser.1.0"}
 {"type": "spotify", "id": "1.0.3"}
 ```
 
@@ -283,9 +285,9 @@ title, album or artist, and returns up to `limit` (default 20) of each kind:
 {"artists": Page, "albums": Page, "tracks": Page, "genres": Page}
 ```
 
-## Favorites and Spotify
+## Favorites, internet radio and Spotify
 
-Both are menus of [BrowseItem](#browseitem)s, the same the player menus show.
+All are menus of [BrowseItem](#browseitem)s, the same the player menus show.
 
 ### BrowseItem
 
@@ -298,7 +300,17 @@ Both are menus of [BrowseItem](#browseitem)s, the same the player menus show.
   `search`: a search box; fetch `?id=<id>_<url-encoded words>` for the results.  `text`:
   information only.
 * `playable` items are queued with the `enqueue` command as `{"type": "favorite", "id": …}`
-  or `{"type": "spotify", "id": …}` (a Spotify playlist or album as a whole).
+  or `{"type": "spotify", "id": …}` (a Spotify playlist or album as a whole), or a radio
+  station as `{"type": "radio", "id": …}`.
+
+### Internet radio
+
+`GET /api/v1/radio` lists the radio providers as folders: `radiofavorites` (your favorites
+that are streams, when there are any), `radiodirectory` (a few well-known stations) and
+`radiobrowser` ([Radio Browser](https://www.radio-browser.info), the community directory of
+tens of thousands of stations: search, popular, top voted, by country, genre and language).
+`?id=<provider>` and the ids under it browse each one; a search is
+`?id=radiobrowser.0_<url-encoded words>`.
 
 ### Spotify
 

@@ -112,7 +112,7 @@ format?: string, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
-export type Item = { "type": "track", id: number, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, };
+export type Item = { "type": "track", id: number, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "radio", id: string, };
 
 export type EnqueueMode = "play" | "add" | "next";
 

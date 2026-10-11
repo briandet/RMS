@@ -135,6 +135,20 @@ const spotifyItem = (id) => {
   return (spotifyMenu(parent) || []).find((x) => x.id === id);
 };
 
+// Internet radio: the providers, each a small menu; ids lead with the provider's tag.
+const radioStations = (prefix, names) => names.map((name, i) => ({ id: `${prefix}.${i}`, name, type: 'audio', playable: true, url: `http://radio.example/${encodeURIComponent(name)}` }));
+function radioMenu(id) {
+  if (!id) return [{ id: 'radiodirectory', name: 'Popular Stations', type: 'folder', playable: false }, { id: 'radiobrowser', name: 'Radio Browser', type: 'folder', playable: false }];
+  if (id === 'radiodirectory') return [{ id: 'radiodirectory.0', name: 'SomaFM', type: 'folder', playable: false }];
+  if (id === 'radiodirectory.0') return radioStations(id, ['Groove Salad', 'Drone Zone', 'Secret Agent']);
+  if (id === 'radiobrowser') return [{ id: 'radiobrowser.0', name: 'Search', type: 'search', playable: false }, { id: 'radiobrowser.1', name: 'Popular', type: 'folder', playable: false }];
+  if (id === 'radiobrowser.1') return radioStations(id, ['France Info', 'BBC World Service', 'KEXP 90.3 FM']);
+  const m = /^radiobrowser\.0_(.*)$/.exec(id);
+  if (m) return radioStations(id, [`${decodeURIComponent(m[1])} FM`, `Radio ${decodeURIComponent(m[1])}`]);
+  return null;
+}
+const radioItem = (id) => (radioMenu(id.slice(0, id.lastIndexOf('.'))) || []).find((x) => x.id === id);
+
 // ------------------------------------------------------------------ server state
 const settings = {
   library_name: 'Mock Library', media_dirs: ['/srv/music', '/mnt/nas/flac'], watch_folders: true, upnp_players: false, chromecast_players: false, airplay_players: false, art_folder: '', online_artist_images: false,
@@ -284,6 +298,11 @@ function itemTracks(it) {
       if (!f) throw notFound('Spotify item');
       const list = f.type === 'folder' ? spotifyMenu(f.id) : [f];
       return list.map((x) => ({ ...radioTrack(x.url, x.name), duration: 200 }));
+    }
+    case 'radio': {
+      const f = radioItem(it.id);
+      if (!f) throw notFound('radio item');
+      return (f.type === 'folder' ? radioMenu(f.id) : [f]).map((x) => radioTrack(x.url, x.name));
     }
     default: throw bad(`unknown item type ${it?.type}`);
   }
@@ -572,6 +591,14 @@ function route(method, parts, q, body) {
           if (i >= 0) { f.items.splice(i, 1); return {}; }
         }
         throw notFound('favorite');
+      }
+      break;
+    }
+    case 'radio': {
+      if (!id && GET) {
+        const list = radioMenu(q.get('id') || '');
+        if (!list) throw notFound('radio item');
+        return page(list, q);
       }
       break;
     }
