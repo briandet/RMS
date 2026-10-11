@@ -62,6 +62,15 @@ pub struct Config {
     )]
     pub listenbrainz_url: String,
 
+    /// ListenBrainz API, for scrobbling and what it recommends.
+    #[arg(
+        long,
+        env = "RMS_LISTENBRAINZ_API_URL",
+        default_value = "https://api.listenbrainz.org",
+        hide = true
+    )]
+    pub listenbrainz_api_url: String,
+
     /// AcoustID web service, for recognising recordings by their sound.
     #[arg(
         long,

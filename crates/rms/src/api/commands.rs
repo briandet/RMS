@@ -93,6 +93,10 @@ pub async fn run(
                     let (tag, rest) = super::services::radio_id(&id)?;
                     return service_item(server, p, tag, rest, mode).await;
                 }
+                // recordings, from the library or else Spotify
+                Item::ListenBrainz { id } => crate::plugins::listenbrainz::entries(server, &id)
+                    .await
+                    .map_err(CommandError::Failed)?,
                 other => core::entries_for(server, &core_item(other)).await,
             };
             PlayerCommand::Enqueue { entries, how }
@@ -154,7 +158,9 @@ fn core_item(item: Item) -> core::Item {
         Item::Folder { id } => core::Item::Folder(id),
         Item::Url { url } => core::Item::Url(url),
         Item::Favorite { id } => core::Item::Favorite(id),
-        Item::Spotify { id } | Item::Radio { id } => core::Item::Url(id),
+        Item::Spotify { id } | Item::Radio { id } | Item::ListenBrainz { id } => {
+            core::Item::Url(id)
+        }
     }
 }
 

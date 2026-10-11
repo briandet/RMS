@@ -260,6 +260,20 @@ when signed in.  Played to the end, a Spotify track is learned like any other; s
 The seeds need MusicBrainz ids (identification above, or tags).  ListenBrainz's public
 similarity data needs no account; answers are cached for a month.
 
+**ListenBrainz accounts** (Settings → ListenBrainz, with the user token from
+[your ListenBrainz settings](https://listenbrainz.org/settings/)):
+
+* **Scrobbling**: what plays is sent as you listen — *now playing* when a song starts, a
+  listen once it has played for half its length or 4 minutes — with the MusicBrainz ids and
+  ISRC RMS knows, so ListenBrainz links it to the right recording.  Each player scrobbles to
+  the accounts you pick for it (several people, one each), or to the default ones; Subsonic
+  apps too.  Spotify plays only if you tick *Scrobble Spotify plays too* (ListenBrainz can
+  import them from Spotify itself).  Listens wait while ListenBrainz or the network is down.
+* **Recommendations**: Library → ListenBrainz has what ListenBrainz recommends for you and
+  the playlists it makes for you (Daily Jams, Weekly Jams, Weekly Exploration), playing from
+  your library or Spotify; with discovery on, recommendations also find their way into
+  mixes.
+
 **Spotify in mixes** (Settings → Spotify, *Use what I play in mixes*, on by default): when a
 Spotify track plays to its end, RMS analyses the samples it was streaming anyway (sound,
 rhythm and key, fingerprint) and keeps that with the track's metadata; no audio is kept, and

@@ -36,6 +36,7 @@ pub mod queries;
 pub mod remote;
 pub mod rhythm;
 pub mod scanner;
+pub mod scrobble;
 pub mod songdata;
 pub mod sonic;
 pub mod tags;

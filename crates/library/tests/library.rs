@@ -1090,6 +1090,7 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TABLE remote_tracks; DROP TABLE track_rhythm; DROP TABLE track_chromaprint;
              DROP TABLE track_musicbrainz;
              DROP TABLE discovered; DROP TABLE web_cache;
+             DROP TABLE scrobble_queue;
              ALTER TABLE track_stats DROP COLUMN skip_count;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
@@ -1789,4 +1790,36 @@ fn skipped_discoveries_are_rejected_and_their_artist_after_two() {
         )
         .unwrap();
     assert_eq!(skips, 1);
+}
+
+#[test]
+fn listens_carry_what_the_library_knows_and_wait_in_a_queue() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let t = all.iter().find(|t| t.title == "Song One").unwrap();
+    let info = f.lib.listen_info(&t.url).expect("a library track");
+    assert_eq!(info.title, "Song One");
+    assert_eq!(info.artist, "Artist A");
+    assert!(info.duration.is_some());
+    assert!(f.lib.listen_info("file:///nowhere.flac").is_none());
+
+    f.lib.queue_listen("listenbrainz:a", 100, "{}").unwrap();
+    f.lib.queue_listen("listenbrainz:a", 200, "{}").unwrap();
+    f.lib.queue_listen("listenbrainz:b", 300, "{}").unwrap();
+    let q = f.lib.queued_listens("listenbrainz:a", 10);
+    assert_eq!(
+        q.iter().map(|l| l.listened_at).collect::<Vec<_>>(),
+        [100, 200]
+    );
+    f.lib.listens_failed(&[q[0].id], "down");
+    assert_eq!(
+        f.lib.listens_pending("listenbrainz:a"),
+        (2, Some("down".into()))
+    );
+    f.lib.listens_done(&[q[0].id, q[1].id]);
+    assert_eq!(f.lib.listens_pending("listenbrainz:a"), (0, None));
+    f.lib.drop_listens("listenbrainz:b");
+    assert_eq!(f.lib.listens_pending("listenbrainz:b").0, 0);
 }

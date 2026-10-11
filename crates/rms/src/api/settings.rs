@@ -4,8 +4,8 @@
 
 use super::commands::{exec_for, CommandError};
 use super::model::{
-    Choice, ChoiceOption, DisplaySettings, PlayerSettings, PlayerSettingsPatch, Range, ScanMode,
-    ServerSettings, ServerSettingsPatch,
+    Choice, ChoiceOption, DisplaySettings, ListenBrainzAccount, PlayerSettings,
+    PlayerSettingsPatch, Range, ScanMode, ServerSettings, ServerSettingsPatch,
 };
 use crate::display::Kind;
 use crate::player::Player;
@@ -19,6 +19,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let bitrate = prefs.get_i64("spotifyBitrate");
     let mb = server.library.musicbrainz_totals();
     let d = server.library.discovery_totals();
+    let (pending, scrobble_error) = crate::plugins::scrobble::pending(server);
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
@@ -39,6 +40,16 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         discovered: d.proposed,
         discovered_played: d.played,
         discovered_rejected: d.rejected,
+        listenbrainz_accounts: crate::plugins::scrobble::accounts(server)
+            .into_iter()
+            .map(|a| ListenBrainzAccount {
+                user: a.user,
+                default: a.default,
+            })
+            .collect(),
+        scrobble_spotify: prefs.get_bool(crate::plugins::scrobble::SPOTIFY),
+        scrobble_pending: pending,
+        scrobble_error,
     }
 }
 
@@ -118,6 +129,9 @@ pub async fn update_server_settings(
     if let Some(v) = patch.musicbrainz {
         changes.push((crate::plugins::musicbrainz::PREF, flag(v)));
     }
+    if let Some(v) = patch.scrobble_spotify {
+        changes.push((crate::plugins::scrobble::SPOTIFY, flag(v)));
+    }
     if let Some(v) = patch.listenbrainz {
         changes.push((crate::plugins::listenbrainz::PREF, flag(v)));
     }
@@ -177,6 +191,10 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
         digital_volume_control: prefs.get_bool("digitalVolumeControl"),
         dont_stop_the_music: Some(choice(dstm, providers)),
         adventurous: crate::plugins::listenbrainz::adventurous(p),
+        scrobble_to: crate::plugins::scrobble::player_accounts(server, p)
+            .into_iter()
+            .map(|a| a.user)
+            .collect(),
         display: display_settings(p),
     }
 }
@@ -361,8 +379,24 @@ pub async fn update_player_settings(
             range(r, v, "auto_brightness_sensitivity")?,
         ));
     }
+    let scrobble_to = match patch.scrobble_to {
+        Some(to) => {
+            let known = crate::plugins::scrobble::accounts(server);
+            if let Some(u) = to.iter().find(|u| !known.iter().any(|a| &a.user == *u)) {
+                return Err(CommandError::Invalid(format!(
+                    "scrobble_to: no ListenBrainz account {u}"
+                )));
+            }
+            Some(to)
+        }
+        None => None,
+    };
     for (name, value) in changes {
         set_pref(server, Some(p), name, value).await?;
+    }
+    if let Some(to) = scrobble_to {
+        p.prefs
+            .set(crate::plugins::scrobble::SCROBBLE_TO, serde_json::json!(to));
     }
     Ok(player_settings(server, p))
 }

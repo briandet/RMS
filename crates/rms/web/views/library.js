@@ -13,10 +13,12 @@
 //   #/library/favorites/<id>?name=  favorites sub-folder
 //   #/library/radio/<id>?name=      radio provider / menu level (`radiobrowser.0_<term>` for a search)
 //   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
+//   #/library/listenbrainz/<id>?name=  recommendations / a playlist made for you
 
 import {
   getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
   getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
+  getListenBrainz,
 } from '../api.js';
 import { h, fmtDuration, plural, storage, toast } from '../util.js';
 import {
@@ -27,7 +29,7 @@ import {
 const TABS = [
   ['artists', 'Artists'], ['albums', 'Albums'], ['genres', 'Genres'], ['years', 'Years'],
   ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['radio', 'Radio'],
-  ['spotify', 'Spotify'],
+  ['spotify', 'Spotify'], ['listenbrainz', 'ListenBrainz'],
 ];
 const TAB_OF = { artist: 'artists', album: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 
@@ -35,7 +37,7 @@ const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
 
 // Remember breadcrumb trails for hierarchical browsing (folders, favorites).
-const trails = { folders: new Map(), favorites: new Map(), radio: new Map(), spotify: new Map() };
+const trails = { folders: new Map(), favorites: new Map(), radio: new Map(), spotify: new Map(), listenbrainz: new Map() };
 
 export function render(node, { parts, query, ctx, scrollRoot }) {
   const section = parts[1] || 'albums';
@@ -303,6 +305,18 @@ const ROUTES = {
         actions,
       });
     }, { empty: h('div', {}, h('p', {}, 'No favorites yet.'), h('p', { class: 'muted' }, 'Use the heart button on the Now Playing panel to save the current track or station.')) });
+  },
+
+  // ------------------------------------------------------------ ListenBrainz
+  listenbrainz(v, id) {
+    serviceMenu(v, id, {
+      tab: 'listenbrainz', title: 'ListenBrainz', key: 'listenbrainz_id', fetch: getListenBrainz,
+      leafIcon: 'note',
+      empty: id ? 'Nothing here.' : h('div', {},
+        h('p', {}, 'No ListenBrainz account.'),
+        h('p', { class: 'muted' }, 'Add one under ', h('a', { href: '#/settings' }, 'Settings → ListenBrainz'),
+          ' to see what ListenBrainz recommends for you and the playlists it makes for you. They play from your library, or from Spotify when signed in.')),
+    });
   },
 
   // ------------------------------------------------------------ radio

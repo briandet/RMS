@@ -112,7 +112,7 @@ format?: string, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
-export type Item = { "type": "track", id: number, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "radio", id: string, };
+export type Item = { "type": "track", id: number, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "listenbrainz", id: string, } | { "type": "radio", id: string, };
 
 export type EnqueueMode = "play" | "add" | "next";
 
@@ -294,9 +294,21 @@ listenbrainz: boolean,
 /**
  * Songs discovered so far, and of those played and rejected (skipped early).
  */
-discovered: number, discovered_played: number, discovered_rejected: number, };
+discovered: number, discovered_played: number, discovered_rejected: number, 
+/**
+ * ListenBrainz accounts, for scrobbling and recommendations.
+ */
+listenbrainz_accounts: Array<ListenBrainzAccount>, 
+/**
+ * Scrobble what plays from Spotify too.
+ */
+scrobble_spotify: boolean, 
+/**
+ * Listens waiting to be sent, and the last error sending them.
+ */
+scrobble_pending: number, scrobble_error: string | null, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, listenbrainz?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 
@@ -334,6 +346,10 @@ dont_stop_the_music?: Choice,
  */
 adventurous: number, 
 /**
+ * The ListenBrainz accounts (user names) it scrobbles to.
+ */
+scrobble_to: Array<string>, 
+/**
  * For players with a screen.
  */
 display?: DisplaySettings, };
@@ -344,7 +360,7 @@ export type DisplaySettings = {
  */
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
-export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, };
+export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, };
 
 export type ToRenderer = { "type": "load", url: string, format: string, 
 /**

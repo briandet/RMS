@@ -3,6 +3,7 @@
 import {
   serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
   getSpotify, spotifyLogin, spotifyLogout, patchSpotify, forgetSpotifyLearned,
+  addListenBrainzAccount, patchListenBrainzAccount, removeListenBrainzAccount,
 } from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
@@ -32,12 +33,13 @@ export function render(node, { ctx }) {
   const devicesSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-devices' });
   const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
+  const lbSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-listenbrainz' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
   const aboutSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-about' });
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, spotifySection, lbSection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -117,6 +119,7 @@ export function render(node, { ctx }) {
       selectField('Transition', TRANSITIONS, pref.transition_type, (v) => setPref({ transition_type: v })),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
       dstmField,
+      scrobbleField(pref, setPref),
       pref.adventurous !== undefined && selectField('Adventurous', ADVENTUROUS, pref.adventurous, (v) => setPref({ adventurous: v }),
         'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
       selectField('Replay gain', REPLAY_GAIN, pref.replay_gain_mode, (v) => setPref({ replay_gain_mode: v })),
@@ -306,6 +309,84 @@ export function render(node, { ctx }) {
       } },
       h('label', { for: selId }, 'Sync with another player'),
       h('div', { class: 'inline-row' }, sel, h('button', { class: 'btn', type: 'submit' }, icon('link'), 'Sync'))) : null].filter(Boolean));
+  }
+
+  // ---------------------------------------------------------------- ListenBrainz
+  // Which accounts a player scrobbles to (filled in once the server settings are loaded).
+  let lbAccounts = [];
+  function scrobbleField(pref, setPref) {
+    if (!lbAccounts.length || !Array.isArray(pref.scrobble_to)) return null;
+    const chosen = new Set(pref.scrobble_to);
+    return h('fieldset', { class: 'field' },
+      h('legend', {}, 'Scrobble to'),
+      ...lbAccounts.map((a) => {
+        const id = fieldId();
+        return h('div', { class: 'check' },
+          h('input', { id, type: 'checkbox', checked: chosen.has(a.user), onchange: (e) => {
+            if (e.target.checked) chosen.add(a.user); else chosen.delete(a.user);
+            setPref({ scrobble_to: [...chosen] });
+          } }),
+          h('label', { for: id }, `${a.user} (ListenBrainz)`));
+      }),
+      h('p', { class: 'muted small' }, 'What this player (and the players synced with it) plays is sent to these ListenBrainz accounts.'));
+  }
+
+  async function renderListenBrainz() {
+    const head = h('h2', { id: 'set-listenbrainz' }, 'ListenBrainz');
+    let settings;
+    try { settings = await getSettings(); } catch (e) {
+      if (alive) lbSection.replaceChildren(head, h('p', { class: 'muted', role: 'alert' }, `Could not load the settings: ${e.message}`));
+      return;
+    }
+    if (!alive) return;
+    const accounts = settings.listenbrainz_accounts || [];
+    const changed = accounts.length !== lbAccounts.length;
+    lbAccounts = accounts;
+    if (changed) renderPlayer();
+    const rows = accounts.map((a) => {
+      const id = fieldId();
+      return h('li', { class: 'inline-row' },
+        h('strong', {}, a.user),
+        h('span', { class: 'check' },
+          h('input', { id, type: 'checkbox', checked: a.default, onchange: async (e) => {
+            try { await patchListenBrainzAccount(a.user, { default: e.target.checked }); toast('Saved'); renderPlayer(); } catch (err) { toast(`Could not save: ${err.message}`, 'error'); }
+          } }),
+          h('label', { for: id }, 'Default')),
+        h('button', { class: 'btn btn-ghost', type: 'button', onclick: async () => {
+          if (!confirm(`Remove the ListenBrainz account ${a.user}? Listens not sent yet are dropped.`)) return;
+          try { await removeListenBrainzAccount(a.user); toast(`Removed ${a.user}`); renderListenBrainz(); } catch (err) { toast(`Could not remove: ${err.message}`, 'error'); }
+        } }, 'Remove'));
+    });
+    const tokenId = fieldId();
+    const token = h('input', { id: tokenId, type: 'password', placeholder: 'User token', autocomplete: 'off', spellcheck: 'false' });
+    const add = h('form', { class: 'field inline', onsubmit: async (e) => {
+      e.preventDefault();
+      if (!token.value.trim()) return;
+      try {
+        const a = await addListenBrainzAccount(token.value.trim());
+        toast(`Added ${a.user}`);
+        renderListenBrainz();
+      } catch (err) { toast(`Could not add the account: ${err.message}`, 'error'); }
+    } }, h('label', { for: tokenId }, accounts.length ? 'Add another account' : 'Add an account'),
+    h('p', { class: 'muted small' }, 'Paste the user token from ',
+      h('a', { href: 'https://listenbrainz.org/settings/', target: '_blank', rel: 'noopener' }, 'your ListenBrainz settings'), '.'),
+    h('div', { class: 'inline-row' }, token, h('button', { class: 'btn', type: 'submit' }, 'Add')));
+    const spId = fieldId();
+    const status = settings.scrobble_pending
+      ? h('p', { class: 'muted small', role: settings.scrobble_error ? 'alert' : null },
+        `${plural(settings.scrobble_pending, 'listen')} waiting to be sent${settings.scrobble_error ? ` (${settings.scrobble_error})` : ''}.`)
+      : null;
+    lbSection.replaceChildren(...[head,
+      h('p', { class: 'muted small' }, 'What plays here is sent to ListenBrainz as you listen (a song counts once it has played for half its length or 4 minutes). Its recommendations, and the playlists it makes for you, are under Library → ListenBrainz and, with “Discover music with ListenBrainz” on, find their way into mixes.'),
+      accounts.length ? h('ul', { class: 'plain-list', 'aria-label': 'ListenBrainz accounts' }, ...rows) : null,
+      accounts.length ? h('p', { class: 'muted small' }, 'Players scrobble to the default accounts unless they have their own choice (Player settings), and so do Subsonic apps.') : null,
+      add,
+      accounts.length ? h('div', { class: 'field check' },
+        h('input', { id: spId, type: 'checkbox', checked: !!settings.scrobble_spotify, onchange: (e) => saveServer({ scrobble_spotify: e.target.checked }) }),
+        h('label', { for: spId }, 'Scrobble Spotify plays too',
+          h('span', { class: 'muted small block' }, 'Leave off if ListenBrainz already imports your listens from Spotify (Connect services on listenbrainz.org), or they count twice. Spotify Connect plays are never scrobbled.'))) : null,
+      status,
+    ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- library
@@ -608,6 +689,7 @@ export function render(node, { ctx }) {
   renderSync(true);
   renderLibrary();
   renderSpotify();
+  renderListenBrainz();
   renderScan();
   renderSecure();
   offs.push(
