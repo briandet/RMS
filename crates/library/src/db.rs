@@ -337,6 +337,20 @@ CREATE TABLE remote_tracks (
 CREATE INDEX remote_tracks_isrc ON remote_tracks (isrc);
 CREATE INDEX remote_tracks_match ON remote_tracks (match_key);
 
+-- What MusicBrainz says about the audio with that fingerprint (local tracks' audio
+-- fingerprint, or `<source>:<id>` for streamed tracks), as crate::musicbrainz stores it: the
+-- recording, its ISRC and genres (names separated by U+001F), how it was found
+-- (`tag`, `isrc`, `acoustid`, `search`; `none`: not found).  It fills in what tags leave out.
+CREATE TABLE track_musicbrainz (
+  fingerprint  TEXT PRIMARY KEY,
+  mbid         TEXT,
+  isrc         TEXT,
+  artist_mbid  TEXT,
+  genres       TEXT,
+  how          TEXT NOT NULL,
+  looked_up_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
 -- Chromaprint audio fingerprint (crate::print) of the first two minutes of the audio with that
 -- fingerprint, to recognise the same recording in the library and a stream.
 CREATE TABLE track_chromaprint (

@@ -1088,6 +1088,7 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TRIGGER artists_fts_insert; DROP TRIGGER artists_fts_delete;
              DROP TRIGGER artists_fts_update;
              DROP TABLE remote_tracks; DROP TABLE track_rhythm; DROP TABLE track_chromaprint;
+             DROP TABLE track_musicbrainz;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
         )
@@ -1097,7 +1098,12 @@ fn the_search_index_is_built_for_an_older_database() {
     assert_eq!(titles_found(&lib, "mp3"), ["The Mp3 Song"]);
     // and version 3's tables
     let c = rusqlite::Connection::open(&db).unwrap();
-    for t in ["remote_tracks", "track_rhythm", "track_chromaprint"] {
+    for t in [
+        "remote_tracks",
+        "track_rhythm",
+        "track_chromaprint",
+        "track_musicbrainz",
+    ] {
         let n: i64 = c
             .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
             .unwrap();

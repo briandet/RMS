@@ -22,6 +22,7 @@ are `STRICT`, and foreign keys are enforced.
 | `track_stats` | Listening history: play count, last played, rating, date added. |
 | `track_analysis` | Sonic analysis (bliss features) and loudness per audio content. |
 | `track_rhythm` | Tempo, beat grid, downbeat, key (with its Camelot code) and an energy curve per bar, per audio content (`rhythm.rs`), for transitions. |
+| `track_musicbrainz` | What MusicBrainz says about the audio (`plugins::musicbrainz` looks it up, `musicbrainz.rs` keeps it): recording id, ISRC, genres, and how it was found. It fills in the `mbid`, `isrc` and genres that tags leave out; tags always win. |
 | `track_chromaprint` | A Chromaprint audio fingerprint of the first two minutes, per audio content (`print.rs`): the same recording in the library and in a stream. |
 | `remote_tracks` | Tracks of streaming services that played to their end (Spotify): metadata only, with their ISRC and, when the library has the same recording, `local_match`. Their analyses are in the tables above under `<source>:<id>`. |
 | `meta` | Key/value settings of the library (`last_scan`). |

@@ -241,6 +241,7 @@ impl Library {
         pool.retain(|id| !owned.contains(id));
 
         let candidates = load_candidates(&c, &pool);
+        let candidates = self.with_remote_genres(&c, candidates);
         let mut avoid: Vec<i64> = seeds.to_vec();
         avoid.extend(exclude.iter().filter(|id| !seed_set.contains(id)));
         let duplicate = |a: i64, b: i64| {
@@ -377,6 +378,32 @@ fn load_remote_candidates(c: &Connection, ids: &[i64]) -> Vec<Candidate> {
         });
     }
     out
+}
+
+impl Library {
+    /// Streamed tracks' genres as the library's genres of the same names (from MusicBrainz).
+    fn with_remote_genres(&self, c: &Connection, mut cands: Vec<Candidate>) -> Vec<Candidate> {
+        let cfg = self.config();
+        let rules = crate::text::TextRules::new(&cfg.ignored_articles, &cfg.split_list);
+        let Ok(mut fp) = c.prepare_cached("SELECT fingerprint FROM remote_tracks WHERE id = ?")
+        else {
+            return cands;
+        };
+        let Ok(mut genre) = c.prepare_cached("SELECT id FROM genres WHERE name_search = ?") else {
+            return cands;
+        };
+        for cand in cands.iter_mut().filter(|c| c.remote) {
+            let Ok(f) = fp.query_row([-cand.id], |r| r.get::<_, String>(0)) else {
+                continue;
+            };
+            cand.genres = self
+                .musicbrainz_genres(&f)
+                .iter()
+                .filter_map(|g| genre.query_row([rules.search_key(g)], |r| r.get(0)).ok())
+                .collect();
+        }
+        cands
+    }
 }
 
 /// Streamed tracks by the seeds' artists (local seeds' artists matched by name).

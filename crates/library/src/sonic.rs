@@ -89,8 +89,9 @@ impl Library {
             Ok(c) => pending(&c),
             Err(_) => return 0,
         };
-        // a scan resets the gains of the tracks it (re)stored from their tags
+        // a scan resets the gains (and genres, ids) of the tracks it (re)stored from their tags
         self.apply_loudness();
+        self.apply_musicbrainz();
         if jobs.is_empty() {
             return 0;
         }

@@ -237,6 +237,16 @@ grid, the bar's downbeat, major/minor key in Camelot notation, and an energy cur
 the groundwork for DJ-style transitions, and a **Chromaprint audio fingerprint**, so the same
 recording is recognised under other tags (or none).
 
+**MusicBrainz** (Settings → Library, *Identify recordings with MusicBrainz*, off by default):
+in the background, one request a second, RMS finds each recording on MusicBrainz — by the
+MusicBrainz id or ISRC in its tags, by its sound on AcoustID (with a free
+[AcoustID key](https://acoustid.org/new-application)), or by artist, title and length, taking
+the studio recording over live ones — and fills in what the tags leave out: genres for tracks
+without one (the recording's, or its artist's most voted), MusicBrainz ids and ISRCs.  Learned
+Spotify tracks get their genres the same way, so mixes weigh them like your files.  Your files
+are never written, and tags always win.  A large library takes some hours the first time;
+`--musicbrainz-url` points RMS at a local MusicBrainz mirror instead, without the rate limit.
+
 **Spotify in mixes** (Settings → Spotify, *Use what I play in mixes*, on by default): when a
 Spotify track plays to its end, RMS analyses the samples it was streaming anyway (sound,
 rhythm and key, fingerprint) and keeps that with the track's metadata; no audio is kept, and

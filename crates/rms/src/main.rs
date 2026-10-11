@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(web::cometd::run(server.clone()));
     tokio::spawn(plugins::alarm::run(server.clone()));
     tokio::spawn(plugins::dstm::run(server.clone()));
+    tokio::spawn(plugins::musicbrainz::run(server.clone()));
     tokio::spawn(display::run(server.clone()));
     tokio::spawn(control::jive::run(server.clone()));
     watch::start(&server);

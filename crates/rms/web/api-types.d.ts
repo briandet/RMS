@@ -270,9 +270,25 @@ spotify_client_id: string,
 /**
  * kbps: 96, 160 or 320.
  */
-spotify_bitrate: number, spotify_normalisation: boolean, };
+spotify_bitrate: number, spotify_normalisation: boolean, 
+/**
+ * Identify recordings with MusicBrainz (and AcoustID) to fill in what tags leave out.
+ */
+musicbrainz: boolean, 
+/**
+ * AcoustID application key, for recognising recordings by their sound; empty for none.
+ */
+acoustid_key: string, 
+/**
+ * Recordings identified on MusicBrainz so far.
+ */
+musicbrainz_identified: number, 
+/**
+ * Recordings waiting to be looked up.
+ */
+musicbrainz_pending: number, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

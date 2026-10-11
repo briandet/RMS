@@ -376,7 +376,33 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField);
+    // MusicBrainz identification, and AcoustID for recognising recordings by their sound
+    const mbId = fieldId();
+    const keyId = fieldId();
+    const mbOn = !!settings.musicbrainz;
+    const progress = mbOn
+      ? `${settings.musicbrainz_identified ?? 0} identified${settings.musicbrainz_pending ? `, ${settings.musicbrainz_pending} to look up` : ''}.`
+      : '';
+    const mbField = h('div', { class: 'field check' },
+      h('input', { id: mbId, type: 'checkbox', checked: mbOn, onchange: async (e) => {
+        await saveServer({ musicbrainz: e.target.checked },
+          e.target.checked ? 'Recordings will be identified on MusicBrainz in the background' : 'MusicBrainz lookups off');
+        renderLibrary();
+      } }),
+      h('label', { for: mbId }, 'Identify recordings with MusicBrainz',
+        h('span', { class: 'muted small block' },
+          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs. Your files are never changed and tags always win. One lookup a second, so a large library takes some hours the first time. ',
+          progress)));
+    const keyInput = h('input', { id: keyId, type: 'text', value: settings.acoustid_key ?? '', placeholder: 'AcoustID application key', spellcheck: 'false', autocomplete: 'off' });
+    const keyForm = h('form', { class: 'field inline', hidden: !mbOn, onsubmit: async (e) => {
+      e.preventDefault();
+      await saveServer({ acoustid_key: keyInput.value.trim() }, 'AcoustID key saved');
+    } }, h('label', { for: keyId }, 'AcoustID key (optional)'),
+    h('p', { class: 'muted small' }, 'Recognises recordings by their sound, for files with poor or no tags. Get a free key at ',
+      h('a', { href: 'https://acoustid.org/new-application', target: '_blank', rel: 'noopener' }, 'acoustid.org'), '.'),
+    h('div', { class: 'inline-row' }, keyInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm);
   }
 
   // ---------------------------------------------------------------- scan

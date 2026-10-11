@@ -135,6 +135,11 @@ pub(crate) fn find_local(
 /// silence or fade more or less.
 const LENGTH_SLACK: f64 = 4.0;
 
+/// The fingerprint compressed as Chromaprint does (for AcoustID, base64-encoded).
+pub fn compressed(f: &[u32]) -> Vec<u8> {
+    rusty_chromaprint::FingerprintCompressor::from(&config()).compress(f)
+}
+
 pub fn to_blob(f: &[u32]) -> Vec<u8> {
     f.iter().flat_map(|x| x.to_le_bytes()).collect()
 }

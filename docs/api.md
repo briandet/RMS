@@ -321,7 +321,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 ```json
 {"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true, "art_folder": "",
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
- "spotify_normalisation": false}
+ "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
+ "musicbrainz_identified": 0, "musicbrainz_pending": 0}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.

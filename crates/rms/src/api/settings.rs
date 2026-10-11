@@ -17,6 +17,7 @@ use std::sync::Arc;
 pub fn server_settings(server: &Server) -> ServerSettings {
     let prefs = &server.prefs.server;
     let bitrate = prefs.get_i64("spotifyBitrate");
+    let mb = server.library.musicbrainz_totals();
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
@@ -29,6 +30,10 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         spotify_client_id: prefs.get_str("spotifyClientId"),
         spotify_bitrate: if bitrate > 0 { bitrate } else { 320 },
         spotify_normalisation: prefs.get_bool("spotifyNormalisation"),
+        musicbrainz: prefs.get_bool(crate::plugins::musicbrainz::PREF),
+        acoustid_key: prefs.get_str(crate::plugins::musicbrainz::KEY_PREF),
+        musicbrainz_identified: mb.identified,
+        musicbrainz_pending: mb.pending,
     }
 }
 
@@ -104,6 +109,12 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.spotify_normalisation {
         changes.push(("spotifyNormalisation", flag(v)));
+    }
+    if let Some(v) = patch.musicbrainz {
+        changes.push((crate::plugins::musicbrainz::PREF, flag(v)));
+    }
+    if let Some(v) = patch.acoustid_key {
+        changes.push((crate::plugins::musicbrainz::KEY_PREF, v.trim().to_string()));
     }
     for (name, value) in changes {
         set_pref(server, None, name, value).await?;

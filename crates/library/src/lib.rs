@@ -27,6 +27,7 @@ pub mod cue;
 pub mod db;
 pub mod loudness;
 pub mod mix;
+pub mod musicbrainz;
 pub mod playlist_files;
 pub mod portraits;
 pub mod print;
