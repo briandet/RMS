@@ -10,7 +10,11 @@
 //! a track started (`STMs`), the position (`STMt`), ready for the next track (`STMd`, near
 //! the end so the next one can be preloaded), out of music (`STMu`).
 
+pub mod airplay;
 pub mod browser;
+pub mod chromecast;
+pub mod devices;
+pub mod upnp;
 
 use crate::server::Server;
 use bytes::{Buf, BytesMut};
@@ -34,8 +38,20 @@ pub struct Identity {
     /// Model id (`browser`, `upnp`, `chromecast`, `airplay`).
     pub model: String,
     pub model_name: String,
-    /// LMS format codes the renderer plays, best first (`flc`, `mp3`, `ogg`, `ops`, `aac`).
+    /// LMS format codes the renderer plays, best first (`flc`, `mp3`, `ogg`, `ops`, `aac`,
+    /// `pcm`: raw samples, described by [`Pcm`]).
     pub formats: Vec<String>,
+    /// The highest sample rate it plays; the server resamples above it.
+    pub max_sample_rate: u32,
+}
+
+/// What raw (`pcm`) samples are like.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+pub struct Pcm {
+    pub bits: u32,
+    pub rate: u32,
+    pub channels: u32,
+    pub little_endian: bool,
 }
 
 /// A stable, locally administered MAC address for a device id.
@@ -52,12 +68,19 @@ pub enum ToRenderer {
     Load {
         url: String,
         format: String,
+        /// For `pcm`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pcm: Option<Pcm>,
         autostart: bool,
     },
     /// The track after the current one: start it when the current one ends.
     Preload {
         url: String,
         format: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pcm: Option<Pcm>,
     },
     Pause,
     Resume,
@@ -127,9 +150,10 @@ pub async fn run(
     );
 
     let caps = format!(
-        "Model={},ModelName={},Firmware=rms-bridge,MaxSampleRate=192000,{}",
+        "Model={},ModelName={},Firmware=rms-bridge,MaxSampleRate={},{}",
         identity.model,
         identity.model_name,
+        identity.max_sample_rate,
         identity.formats.join(",")
     );
     let helo = Helo {
@@ -234,10 +258,11 @@ async fn on_frame(
                         return vec![*b"STMn"];
                     };
                     let format = format_code(h.format.byte());
+                    let pcm = (format == "pcm").then(|| pcm_of(&h));
                     // a start while a track plays is the next one (we asked with STMd)
                     if pb.playing && pb.asked_next {
                         pb.next = true;
-                        let _ = to.send(ToRenderer::Preload { url, format }).await;
+                        let _ = to.send(ToRenderer::Preload { url, format, pcm }).await;
                         return vec![*b"STMc"];
                     }
                     let autostart = matches!(h.autostart, b'1' | b'3');
@@ -250,6 +275,7 @@ async fn on_frame(
                         .send(ToRenderer::Load {
                             url,
                             format,
+                            pcm,
                             autostart,
                         })
                         .await;
@@ -350,6 +376,18 @@ fn request_path(req: &[u8]) -> Option<String> {
     let mut parts = line.split_whitespace();
     (parts.next()? == "GET").then_some(())?;
     Some(parts.next()?.to_string())
+}
+
+/// The sample format of a `pcm` stream as its `strm` header gives it (16-bit 44.1 kHz
+/// stereo little-endian where it says "unknown").
+fn pcm_of(h: &StrmHeader) -> Pcm {
+    use slimproto::server::{PcmSampleRate, PcmSampleSize};
+    Pcm {
+        bits: PcmSampleSize::bits(h.pcm_sample_size).unwrap_or(16),
+        rate: PcmSampleRate::hz(h.pcm_sample_rate).unwrap_or(44100),
+        channels: if h.pcm_channels == b'1' { 1 } else { 2 },
+        little_endian: h.pcm_endian != b'0',
+    }
 }
 
 /// `strm` format byte → LMS format code.

@@ -55,6 +55,7 @@ pub async fn handle(
         model: "browser".into(),
         model_name: "Web browser".into(),
         formats,
+        max_sample_rate: 192_000,
     };
     ws.on_upgrade(move |socket| relay(server, identity, socket))
 }

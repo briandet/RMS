@@ -325,7 +325,14 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
         Some((ns, n)) => (ns.to_string(), n.to_string()),
         None => ("server".to_string(), name.clone()),
     };
-    let value: Value = if pname == "mediadirs" || pname == "disabledformats" {
+    let lists = [
+        "mediadirs",
+        "disabledformats",
+        "upnpRenderers",
+        "chromecastHosts",
+        "airplayHosts",
+    ];
+    let value: Value = if lists.contains(&pname.as_str()) {
         // arrays: accept JSON or comma separated
         serde_json::from_str(&val).unwrap_or_else(|_| {
             json!(val
@@ -374,6 +381,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
                     | "groupdiscs"
             ) {
                 server.apply_library_config();
+            }
+            if pname.starts_with("bridge") {
+                crate::bridge::devices::reconfigure(server);
             }
             if matches!(pname.as_str(), "autorescan" | "mediadirs" | "playlistdir") {
                 crate::watch::start(server);

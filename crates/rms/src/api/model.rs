@@ -508,6 +508,12 @@ pub struct ServerSettings {
     pub media_dirs: Vec<String>,
     /// Scan what changes in the music folders as it changes.
     pub watch_folders: bool,
+    /// UPnP / DLNA renderers on the network play as players.
+    pub upnp_players: bool,
+    /// Chromecasts on the network play as players.
+    pub chromecast_players: bool,
+    /// AirPlay speakers on the network play as players.
+    pub airplay_players: bool,
     /// Folder with pictures named after artists; empty for none.
     pub art_folder: String,
     pub online_artist_images: bool,
@@ -526,6 +532,9 @@ pub struct ServerSettingsPatch {
     pub library_name: Option<String>,
     pub media_dirs: Option<Vec<String>>,
     pub watch_folders: Option<bool>,
+    pub upnp_players: Option<bool>,
+    pub chromecast_players: Option<bool>,
+    pub airplay_players: Option<bool>,
     pub art_folder: Option<String>,
     pub online_artist_images: Option<bool>,
     pub spotify_client_id: Option<String>,

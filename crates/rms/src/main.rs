@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(display::run(server.clone()));
     tokio::spawn(control::jive::run(server.clone()));
     watch::start(&server);
+    bridge::devices::start(&server);
 
     let shutdown = server.shutdown.clone();
     tokio::select! {

@@ -88,6 +88,17 @@ pub struct PcmSampleSize(pub u8);
 
 impl PcmSampleSize {
     pub const UNKNOWN: PcmSampleSize = PcmSampleSize(b'?');
+    /// Bits per sample of a `strm` sample-size byte (`?`: unknown).
+    pub fn bits(byte: u8) -> Option<u32> {
+        Some(match byte {
+            b'0' => 8,
+            b'1' => 16,
+            b'2' => 24,
+            b'3' => 32,
+            _ => return None,
+        })
+    }
+
     pub fn from_bits(bits: u32) -> PcmSampleSize {
         PcmSampleSize(match bits {
             8 => b'0',
@@ -105,6 +116,28 @@ pub struct PcmSampleRate(pub u8);
 
 impl PcmSampleRate {
     pub const UNKNOWN: PcmSampleRate = PcmSampleRate(b'?');
+    /// Hz of a `strm` sample-rate byte (`?`: unknown).
+    pub fn hz(byte: u8) -> Option<u32> {
+        Some(match byte {
+            b'0' => 11025,
+            b'1' => 22050,
+            b'2' => 32000,
+            b'3' => 44100,
+            b'4' => 48000,
+            b'5' => 8000,
+            b'6' => 12000,
+            b'7' => 16000,
+            b'8' => 24000,
+            b'9' => 96000,
+            b':' => 88200,
+            b';' => 176400,
+            b'<' => 192000,
+            b'=' => 352800,
+            b'>' => 384000,
+            _ => return None,
+        })
+    }
+
     pub fn from_hz(hz: u32) -> PcmSampleRate {
         PcmSampleRate(match hz {
             11025 => b'0',

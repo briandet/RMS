@@ -45,6 +45,13 @@ pub fn server_defaults() -> PrefMap {
         ("maxRedirects", json!(7)),
         ("maxPlaylistLength", json!(2500)),
         ("precacheArtwork", json!(1)),
+        // network devices as players (bridge::devices), and ones given by hand
+        ("bridgeUpnp", json!(0)),
+        ("bridgeChromecast", json!(0)),
+        ("bridgeAirplay", json!(0)),
+        ("upnpRenderers", json!([])),
+        ("chromecastHosts", json!([])),
+        ("airplayHosts", json!([])),
         // watch the music folders (Lyrion's default is off)
         ("autorescan", json!(1)),
         ("disableStatistics", json!(0)),

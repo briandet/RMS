@@ -2,7 +2,7 @@
 //! A test, so a stale file fails CI; `UPDATE_TYPES=1 cargo test -p rms typescript` rewrites it.
 
 use super::model::*;
-use crate::bridge::{FromRenderer, ToRenderer};
+use crate::bridge::{FromRenderer, Pcm, ToRenderer};
 use ts_rs::{Config, TS};
 
 fn declarations() -> String {
@@ -63,6 +63,7 @@ fn declarations() -> String {
         PlayerSettingsPatch,
         ToRenderer,
         FromRenderer,
+        Pcm,
     );
     out
 }

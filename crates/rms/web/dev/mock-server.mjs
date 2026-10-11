@@ -137,7 +137,7 @@ const spotifyItem = (id) => {
 
 // ------------------------------------------------------------------ server state
 const settings = {
-  library_name: 'Mock Library', media_dirs: ['/srv/music', '/mnt/nas/flac'], watch_folders: true, art_folder: '', online_artist_images: false,
+  library_name: 'Mock Library', media_dirs: ['/srv/music', '/mnt/nas/flac'], watch_folders: true, upnp_players: false, chromecast_players: false, airplay_players: false, art_folder: '', online_artist_images: false,
   spotify_client_id: '', spotify_bitrate: 320, spotify_normalisation: false,
 };
 const scan = { running: false, start: 0, total: tracks.length };

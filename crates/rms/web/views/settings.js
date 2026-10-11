@@ -27,6 +27,7 @@ export function render(node, { ctx }) {
   const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
   const browserSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-browser' });
+  const devicesSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-devices' });
   const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const scanSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-scan' });
@@ -34,7 +35,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, devicesSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -444,8 +445,35 @@ export function render(node, { ctx }) {
       h('p', { class: 'muted small' }, `Formats: ${formats.join(', ')}.`));
   }
 
+  // ---------------------------------------------------------------- other players
+  async function renderDevices() {
+    const head = h('h2', { id: 'set-devices' }, 'Other players');
+    let settings;
+    try { settings = await getSettings(); } catch (e) {
+      if (alive) devicesSection.replaceChildren(head, h('p', { class: 'muted', role: 'alert' }, `Could not load: ${e.message}`));
+      return;
+    }
+    if (!alive) return;
+    const kinds = [
+      ['upnp_players', 'UPnP / DLNA renderers', 'Network speakers, receivers and TVs that play from a media server.'],
+      ['chromecast_players', 'Chromecast', 'Chromecast and Google Cast speakers and TVs.'],
+      ['airplay_players', 'AirPlay', 'AirPlay speakers and receivers (AirPlay 1).'],
+    ];
+    devicesSection.replaceChildren(head,
+      h('p', { class: 'muted small' }, 'Devices on the network that aren’t Squeezeboxes can join as players: the queue, sync and every remote control work on them.'),
+      ...kinds.map(([key, label, help]) => {
+        const id = fieldId();
+        return h('div', { class: 'field check' },
+          h('input', { id, type: 'checkbox', checked: !!settings[key], onchange: async (e) => {
+            await saveServer({ [key]: e.target.checked }, e.target.checked ? `${label} devices will join as players` : `${label} devices no longer play`);
+          } }),
+          h('label', { for: id }, label, h('span', { class: 'muted small block' }, help)));
+      }));
+  }
+
   // ---------------------------------------------------------------- wire up
   renderBrowser();
+  renderDevices();
   renderPlayer();
   renderSync(true);
   renderLibrary();
