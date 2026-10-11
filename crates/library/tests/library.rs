@@ -1226,3 +1226,73 @@ fn a_failed_conversion_leaves_the_old_database_alone() {
     assert_eq!(n, 1);
     assert!(dir.path().join("broken.db.lms-backup").exists());
 }
+
+#[test]
+fn sound_index_is_kept_between_mixes_and_reloaded_after_a_scan() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    // give one track an analysis, as the background analysis would
+    {
+        let c = raw_db(&f);
+        let dim = rms_library::sonic::Index::empty().dim();
+        let blob: Vec<u8> = vec![0.5f32; dim]
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect();
+        c.execute(
+            "INSERT INTO track_analysis (fingerprint, version, features, analyzed_at)
+             SELECT fingerprint, ?, ?, 1 FROM tracks WHERE title = 'Song One'",
+            rusqlite::params![rms_library::sonic::version(), blob],
+        )
+        .unwrap();
+    }
+    let a = f.lib.sound_index();
+    assert_eq!(a.len(), 1);
+    // kept: the same index, not a reload
+    assert!(std::sync::Arc::ptr_eq(&a, &f.lib.sound_index()));
+    // a scan may renumber tracks: reloaded afterwards
+    f.lib.scan(ScanMode::Wipe).unwrap();
+    let b = f.lib.sound_index();
+    assert!(!std::sync::Arc::ptr_eq(&a, &b));
+    assert_eq!(b.len(), 1);
+}
+
+#[test]
+fn the_backup_includes_writes_still_in_the_wal() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("library.sqlite");
+    // an open connection in WAL mode whose last write was never checkpointed
+    let writer = rusqlite::Connection::open(&db).unwrap();
+    writer
+        .execute_batch(
+            "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+             CREATE TABLE metainformation (name TEXT PRIMARY KEY, value TEXT);
+             CREATE TABLE tracks_persistent (id INTEGER PRIMARY KEY, url TEXT, musicbrainz_id TEXT,
+               added INTEGER, rating INTEGER, playCount INTEGER, lastPlayed INTEGER, urlmd5 TEXT);",
+        )
+        .unwrap();
+    writer
+        .execute(
+            "INSERT INTO tracks_persistent (url, added, playCount) VALUES ('file:///late.flac', 1, 9)",
+            [],
+        )
+        .unwrap();
+    let wal = dir.path().join("library.sqlite-wal");
+    assert!(std::fs::metadata(&wal)
+        .map(|m| m.len() > 0)
+        .unwrap_or(false));
+
+    let _lib = Library::open(&db, &dir.path().join("cache")).unwrap();
+    drop(writer);
+    let backup = rusqlite::Connection::open(dir.path().join("library.sqlite.lms-backup")).unwrap();
+    let n: i64 = backup
+        .query_row(
+            "SELECT playCount FROM tracks_persistent WHERE url = 'file:///late.flac'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 9);
+    assert!(!dir.path().join("library.sqlite.lms-backup-wal").exists());
+}

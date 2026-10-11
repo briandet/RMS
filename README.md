@@ -115,7 +115,7 @@ The script builds a release binary (the web UI is built in), installs it as
   survive rescans and wipes, and follow a file that is moved or renamed.  A database from
   an earlier release is converted on first start: it is backed up to
   `library.sqlite.lms-backup` first, history and analysis are kept, and the library is
-  rescanned.
+  rescanned (going back: [docs/library-schema.md](docs/library-schema.md#converting-a-database-from-earlier-releases)).
 * **Artist pictures** (Lyrion's contributor portraits): `artist.jpg` / `<Artist Name>.jpg`
   next to or above an artist's albums, or in the *artist pictures folder* (`artfolder`),
   served at `/contributor/<id>/image` and shown in Squeezer, Jive clients and the web UI.

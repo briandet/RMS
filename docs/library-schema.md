@@ -48,8 +48,9 @@ file's size for some formats, and then the fingerprint changes too.
 Releases before this schema stored the library in Lyrion's schema (`metainformation`,
 `contributors`, `tracks_persistent`, …). Opening such a database converts it:
 
-1. The file is copied to `library.sqlite.lms-backup` (`VACUUM INTO`, which includes the WAL)
-   before anything is changed. An existing backup is never overwritten; a later one gets a
+1. The database is copied to `library.sqlite.lms-backup` before anything is changed.
+   This is an SQLite copy (`VACUUM INTO`), not a file copy, so it includes writes that are
+   still in `library.sqlite-wal`. An existing backup is never overwritten; a later one gets a
    numbered name.
 2. In one transaction: play counts, ratings and "added" dates move to `track_stats`, the
    analysis results are set aside as `legacy_analysis`, the old tables are dropped and the
@@ -60,8 +61,10 @@ Releases before this schema stored the library in Lyrion's schema (`metainformat
    size), so nothing has to be analysed again. When the scan has finished, `legacy_analysis`
    is dropped.
 
-To go back to an earlier release, stop RMS and put the backup in place of
-`library.sqlite`.
+To go back to an earlier release: stop RMS, delete `library.sqlite-wal` and
+`library.sqlite-shm`, and put the backup in place of `library.sqlite`.  The backup is one
+self-contained file.  The `-wal` and `-shm` files belong to the converted database: if they
+are left next to the backup, SQLite applies them to it on the next open and corrupts it.
 
 ## Not carried over
 
