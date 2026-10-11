@@ -22,7 +22,7 @@ pub const SAMPLE_SIZE: u32 = 16;
 pub const CHANNELS: u32 = 2;
 
 /// Chunks of PCM between the player thread and the HTTP stream.
-const QUEUE: usize = 8;
+pub const QUEUE: usize = 8;
 
 /// FLAC block size (samples per channel), the reference encoder's default.
 const FLAC_BLOCK: usize = 4096;
@@ -169,33 +169,13 @@ pub fn player_config(bitrate: u32, normalise: bool) -> PlayerConfig {
     }
 }
 
-/// Open the audio stream of a track: FLAC when `flac`, else PCM.
-pub async fn open(
-    spotify: &Arc<Spotify>,
-    url: &str,
-    start_ms: u32,
-    config: PlayerConfig,
+/// Encode PCM from a player thread's blocking channel on a thread of its own, bridging it
+/// to async: FLAC when `flac`, else PCM.  The output ends when the input channel closes
+/// (after the last FLAC block).
+pub fn encode(
+    sync_rx: std::sync::mpsc::Receiver<Vec<i16>>,
     flac: bool,
-) -> std::io::Result<crate::stream::source::ByteStream> {
-    let (kind, id) =
-        super::parse_url(url).ok_or_else(|| std::io::Error::other("bad Spotify URL"))?;
-    if kind != "track" {
-        return Err(std::io::Error::other("only Spotify tracks can be streamed"));
-    }
-    let uri = SpotifyUri::from_uri(&format!("spotify:track:{id}"))
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
-    let session = spotify.session().await.map_err(std::io::Error::other)?;
-
-    let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(QUEUE);
-    let player = Player::new(config, session, Box::new(NoOpVolume), move || {
-        Box::new(ChannelSink { tx: sync_tx })
-    });
-    let mut events = player.get_player_event_channel();
-    player.load(uri, true, start_ms);
-
-    // Encode on a thread of its own, bridging the player thread's blocking channel to async.
-    // The channel closes when the player is released after the end of the track; the last
-    // FLAC block goes out then.
+) -> std::io::Result<tokio::sync::mpsc::Receiver<Vec<u8>>> {
     let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(QUEUE);
     std::thread::Builder::new()
         .name("spotify-audio".into())
@@ -226,6 +206,37 @@ pub async fn open(
             }
         })
         .map_err(std::io::Error::other)?;
+    Ok(rx)
+}
+
+/// Open the audio stream of a track: FLAC when `flac`, else PCM.
+pub async fn open(
+    spotify: &Arc<Spotify>,
+    url: &str,
+    start_ms: u32,
+    config: PlayerConfig,
+    flac: bool,
+) -> std::io::Result<crate::stream::source::ByteStream> {
+    let (kind, id) =
+        super::parse_url(url).ok_or_else(|| std::io::Error::other("bad Spotify URL"))?;
+    if kind == "connect" {
+        return super::connect::open_stream(&id, flac);
+    }
+    if kind != "track" {
+        return Err(std::io::Error::other("only Spotify tracks can be streamed"));
+    }
+    let uri = SpotifyUri::from_uri(&format!("spotify:track:{id}"))
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let session = spotify.session().await.map_err(std::io::Error::other)?;
+
+    let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(QUEUE);
+    let player = Player::new(config, session, Box::new(NoOpVolume), move || {
+        Box::new(ChannelSink { tx: sync_tx })
+    });
+    let mut events = player.get_player_event_channel();
+    player.load(uri, true, start_ms);
+
+    let rx = encode(sync_rx, flac)?;
 
     // Finish when librespot reports the end of the track (all audio is queued by then).
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
