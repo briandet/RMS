@@ -158,7 +158,9 @@ tracks in the background with [bliss](https://lelele.io/bliss.html) — tempo, t
 loudness and harmony as a small feature vector per song — on half the CPU cores.  Most
 formats are decoded in-process; ffmpeg handles the rest (Opus, WMA, APE, …) and cue-sheet
 tracks.  Once a seed song is analysed, the mixes add songs from anywhere in the library that
-sound like it, and how close they sound counts for more than tags do.  Expect a second or two of
+sound like it, and how close they sound counts for more than tags do.  Tracks that sound like
+the same recording as one in the queue or the mix (another encoding or edit of it) are left
+out; live versions sound too different to be caught this way.  Expect a second or two of
 CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
 and are redone when a file changes.  Lyrion needed the long-gone MusicIP server for this.
 

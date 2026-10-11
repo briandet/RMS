@@ -815,11 +815,17 @@ fn playlist_count(server: &Server) -> usize {
     .unwrap_or(0)
 }
 
-/// Three short tagged MP3s (ffmpeg), so the library scan finds them.
+/// Three short tagged MP3s (ffmpeg), so the library scan finds them.  They sound different
+/// (a tone, noise, a pulse) so the mixes' sound-alike check does not take them for duplicates.
 fn make_tagged_music() -> Option<(tempfile::TempDir, Vec<PathBuf>)> {
     Command::new("ffmpeg").arg("-version").output().ok()?;
     let dir = tempfile::tempdir().unwrap();
     let mut files = Vec::new();
+    let sources = [
+        "sine=frequency=300:duration=2",
+        "anoisesrc=color=pink:duration=2:amplitude=0.3",
+        "aevalsrc='sin(2*PI*60*t)*exp(-8*mod(t,0.5))':duration=2",
+    ];
     for (i, (artist, genre)) in [("Ann", "Rock"), ("Ann", "Rock"), ("Bob", "Jazz")]
         .iter()
         .enumerate()
@@ -827,10 +833,7 @@ fn make_tagged_music() -> Option<(tempfile::TempDir, Vec<PathBuf>)> {
         let p = dir.path().join(format!("{:02} song.mp3", i + 1));
         let ok = Command::new("ffmpeg")
             .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi"])
-            .args([
-                "-i",
-                &format!("sine=frequency={}:duration=2", 300 + 100 * i),
-            ])
+            .args(["-i", sources[i]])
             .args(["-metadata", &format!("title=Song {}", i + 1)])
             .args([
                 "-metadata",

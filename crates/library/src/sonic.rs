@@ -8,7 +8,8 @@
 //!   symphonia lacks and for cue-sheet tracks) and stores the features in `track_analysis`,
 //!   keyed by `urlmd5` with the file's mtime and size so changed files are redone.
 //! * [`Index`] holds every analysed track's features in memory for nearest-neighbour search
-//!   with bliss's weighted distance; the mixer uses it to rank candidates.
+//!   with bliss's weighted distance; the mixer uses it to rank candidates and to leave out
+//!   [near duplicates](Index::near_duplicate).
 
 use crate::url::{fragment, path_from_file_url};
 use crate::Library;
@@ -35,6 +36,11 @@ const SAMPLE_RATE: u32 = 22050;
 const MAX_SECS: f64 = 20.0 * 60.0;
 /// At most this many seed songs are compared against the library.
 const MAX_SEEDS: usize = 50;
+/// Tracks closer than this (bliss distance) are taken for the same recording: another
+/// encoding, a remaster or a slightly different edit.  Measured on real music: re-encodes and
+/// trims 0.01–0.05, a heavy remaster 0.13–0.23, different songs 0.43 and up (median 0.89).
+/// Live versions are 0.2–0.8 away, as far as different songs, so they are not caught.
+const DUPLICATE_DISTANCE: f32 = 0.12;
 
 /// A track waiting for analysis.
 #[derive(Debug, Clone)]
@@ -280,6 +286,8 @@ fn from_blob(b: &[u8]) -> Vec<f32> {
 /// Every analysed playable track's features, for nearest-neighbour search.
 pub struct Index {
     ids: Vec<i64>,
+    /// track id → row
+    pos: HashMap<i64, usize>,
     /// `ids.len() × dim` features, row by row
     features: Vec<f32>,
     /// bliss's per-feature weights (the diagonal of its Mahalanobis matrix)
@@ -308,8 +316,10 @@ impl Index {
                 }
             }
         }
+        let pos = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
         Index {
             ids,
+            pos,
             features,
             weights,
         }
@@ -337,16 +347,23 @@ impl Index {
             .sum()
     }
 
+    /// Whether two tracks sound like the same recording (false unless both are analysed).
+    pub fn near_duplicate(&self, a: i64, b: i64) -> bool {
+        match (self.pos.get(&a), self.pos.get(&b)) {
+            (Some(i), Some(j)) => {
+                self.distance2(self.row(*i), self.row(*j)) < DUPLICATE_DISTANCE * DUPLICATE_DISTANCE
+            }
+            _ => false,
+        }
+    }
+
     /// How close every analysed track sounds to the nearest of `seeds`, or `None` when no
     /// seed is analysed.
     pub fn closeness(&self, seeds: &[i64]) -> Option<Closeness> {
-        let pos: HashMap<i64, usize> = self
-            .ids
+        let mut seed_rows: Vec<usize> = seeds
             .iter()
-            .enumerate()
-            .map(|(i, id)| (*id, i))
+            .filter_map(|s| self.pos.get(s).copied())
             .collect();
-        let mut seed_rows: Vec<usize> = seeds.iter().filter_map(|s| pos.get(s).copied()).collect();
         if seed_rows.is_empty() {
             return None;
         }
@@ -398,6 +415,7 @@ mod tests {
         let dim = weights.len();
         Index {
             ids: rows.iter().map(|r| r.0).collect(),
+            pos: rows.iter().enumerate().map(|(i, r)| (r.0, i)).collect(),
             features: rows.iter().flat_map(|r| vec![r.1; dim]).collect(),
             weights,
         }
@@ -419,6 +437,14 @@ mod tests {
         assert_eq!(c.rank[&5], 0.0);
         assert!(c.rank[&2] > c.rank[&5]);
         assert!(ix.closeness(&[99]).is_none());
+    }
+
+    #[test]
+    fn near_duplicates() {
+        let ix = index(&[(1, 0.0), (2, 0.005), (3, 0.5)]);
+        assert!(ix.near_duplicate(1, 2));
+        assert!(!ix.near_duplicate(1, 3));
+        assert!(!ix.near_duplicate(1, 99));
     }
 
     #[test]

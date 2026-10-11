@@ -6,7 +6,8 @@
 //! * Similar songs: candidates that share genres or artists with the seed tracks, scored
 //!   from their tags (genres, artists, year) and play history (artists played around the same
 //!   time as the seeds, play count, rating, recently played), then picked with a little
-//!   randomness and at most one track per album and two per artist.  Once the library has
+//!   randomness and at most one track per album and two per artist.  Tracks that sound like
+//!   the same recording as one already in the mix, the seeds or the queue are left out.  Once the library has
 //!   been through sonic analysis ([`crate::sonic`]), songs that sound like the seeds join the
 //!   candidates and how close they sound counts most in the score.
 
@@ -16,6 +17,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 use rusqlite::{params_from_iter, Connection};
 use std::collections::{HashMap, HashSet};
+use tracing::debug;
 
 /// Audio tracks a mix may contain (`RandomPlay::Mixer::getIdList`).
 const PLAYABLE: &str =
@@ -205,7 +207,8 @@ impl Library {
             pool.extend(query_ids(&c, &sql, &artists));
         }
         // songs that sound like the seeds, whatever their tags
-        let sound = crate::sonic::Index::load(&c).closeness(seeds);
+        let index = crate::sonic::Index::load(&c);
+        let sound = index.closeness(seeds);
         if let Some(sound) = &sound {
             pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
         }
@@ -219,8 +222,25 @@ impl Library {
         pool.retain(|id| !exclude.contains(id) && !seed_set.contains(id) && seen.insert(*id));
 
         let candidates = load_candidates(&c, &pool);
+        let mut avoid: Vec<i64> = seeds.to_vec();
+        avoid.extend(exclude.iter().filter(|id| !seed_set.contains(id)));
+        let duplicate = |a: i64, b: i64| {
+            let dup = index.near_duplicate(a, b);
+            if dup {
+                debug!("mix: track {a} sounds like track {b}, left out");
+            }
+            dup
+        };
         let now = crate::scanner::now();
-        pick(&profile, &candidates, n, now, &mut rand::rng())
+        pick(
+            &profile,
+            &candidates,
+            &avoid,
+            &duplicate,
+            n,
+            now,
+            &mut rand::rng(),
+        )
     }
 }
 
@@ -410,10 +430,14 @@ impl Profile {
 }
 
 /// Choose `n` of the candidates: the best scores with some randomness, at most one track per
-/// album and two per artist (relaxed when there are not enough candidates).
+/// album and two per artist (relaxed when there are not enough candidates), and none that
+/// `duplicate` takes for the same recording as a track in `avoid` or one already chosen
+/// (never relaxed).
 pub fn pick(
     profile: &Profile,
     candidates: &[Candidate],
+    avoid: &[i64],
+    duplicate: &dyn Fn(i64, i64) -> bool,
     n: usize,
     now: i64,
     rng: &mut impl Rng,
@@ -445,6 +469,7 @@ pub fn pick(
                 return chosen;
             }
             if taken.contains(&c.id)
+                || avoid.iter().chain(&chosen).any(|o| duplicate(c.id, *o))
                 || c.album
                     .is_some_and(|a| albums.get(&a).copied().unwrap_or(0) >= max_album)
                 || c.artists
@@ -500,6 +525,20 @@ mod tests {
     }
 
     #[test]
+    fn leaves_out_duplicates() {
+        let p = Profile::default();
+        let cands: Vec<Candidate> = (2..=6).map(|i| track(i, i, 100 + i, &[], 2000)).collect();
+        // 2 is the queued 1 again, 4 and 5 are one recording twice
+        let same = |a: i64, b: i64| matches!((a.min(b), a.max(b)), (1, 2) | (4, 5));
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        let got = pick(&p, &cands, &[1], &same, 5, 0, &mut rng);
+        assert!(!got.contains(&2));
+        assert_eq!(got.len(), 3);
+        assert!(got.contains(&3) && got.contains(&6));
+        assert!(got.contains(&4) != got.contains(&5));
+    }
+
+    #[test]
     fn sounding_alike_beats_sharing_a_genre() {
         let seeds = [track(1, 10, 100, &[7], 1990)];
         let mut p = Profile::from_seeds(&seeds);
@@ -535,12 +574,12 @@ mod tests {
             .collect();
         cands.extend((0..6).map(|i| track(200 + i, 30 + i, 300 + i, &[7], 1991)));
         let mut rng = rand::rngs::StdRng::seed_from_u64(1);
-        let got = pick(&p, &cands, 5, 0, &mut rng);
+        let got = pick(&p, &cands, &[], &|_, _| false, 5, 0, &mut rng);
         assert_eq!(got.len(), 5);
         // only one from the big album
         assert_eq!(got.iter().filter(|id| (100..110).contains(*id)).count(), 1);
         // asking for more than the spread allows relaxes the limits rather than coming up short
-        let got = pick(&p, &cands, 14, 0, &mut rng);
+        let got = pick(&p, &cands, &[], &|_, _| false, 14, 0, &mut rng);
         assert_eq!(got.len(), 14);
         let unique: HashSet<_> = got.iter().collect();
         assert_eq!(unique.len(), 14);
