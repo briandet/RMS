@@ -3,6 +3,11 @@
 //! `<audio>` element and reports back.  Messages are JSON: first `{"type": "welcome",
 //! "player": "<id>"}`, then [`ToRenderer`] from the server; [`FromRenderer`] from the
 //! browser.  The player lasts as long as the connection.
+//!
+//! A browser that plays through Web Audio (`clock=1`) keeps time: it sends `{"type":
+//! "clock", "jiffies": <ms>}` first and its play points with the time they were taken, starts
+//! at the time it is told to (`resume` with `at`), and plays a little ahead or behind on
+//! `hold` and `skip`, so the server keeps it in step with the players it is synced with.
 
 use super::{mac_for, FromRenderer, Identity, ToRenderer};
 use crate::server::Server;
@@ -22,10 +27,15 @@ pub struct Params {
     pub name: Option<String>,
     /// Formats the browser plays, best first (`flc,mp3,ogg,ops,aac`).
     pub formats: Option<String>,
+    /// `1`: the browser plays through Web Audio and keeps a clock, so it reports exact play
+    /// points and can be kept in sync (it then asks for `pcm` at `rate`).
+    pub clock: Option<String>,
+    /// The highest sample rate it plays (its audio output's rate).
+    pub rate: Option<u32>,
 }
 
 /// Formats a browser may declare.
-const KNOWN: &[&str] = &["flc", "mp3", "ogg", "ops", "aac"];
+const KNOWN: &[&str] = &["pcm", "flc", "mp3", "ogg", "ops", "aac"];
 
 pub async fn handle(
     State(server): State<Arc<Server>>,
@@ -55,7 +65,11 @@ pub async fn handle(
         model: "browser".into(),
         model_name: "Web browser".into(),
         formats,
-        max_sample_rate: 192_000,
+        max_sample_rate: p
+            .rate
+            .filter(|r| (8_000..=384_000).contains(r))
+            .unwrap_or(192_000),
+        accurate: p.clock.as_deref() == Some("1"),
     };
     ws.on_upgrade(move |socket| relay(server, identity, socket))
 }

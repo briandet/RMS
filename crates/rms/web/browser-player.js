@@ -1,18 +1,30 @@
 // "Play in this browser": the browser becomes a player of the server.  It connects to
 // /api/v1/browser-player (a WebSocket, see crates/rms/src/bridge/browser.rs), plays what the
-// server sends with <audio> elements, and reports what they do.  The server treats it like
-// any Squeezebox: the queue, sync groups, alarms and every client's controls work on it.
+// server sends, and reports what it does.  The server treats it like any Squeezebox: the
+// queue, sync groups, alarms and every client's controls work on it.
+//
+// Two ways to play:
+// - Web Audio: the server sends raw samples, and an AudioWorklet (pcm-worklet.js; on pages
+//   that aren't https, where browsers have none, a ScriptProcessorNode) plays them on the
+//   audio clock.  The browser reports its
+//   clock and exactly where playback is on it, starts at the moment it is told and plays a
+//   little ahead or behind when told, so it keeps in step with the players it is synced with
+//   the way a Squeezebox does.  Tracks follow each other without a gap.
+// - <audio> elements: any format the browser plays, but only roughly in step.
 //
 // Lock-screen and media-key controls come from the Media Session API.
 
 import { serverRoot, command, sizedArtwork } from './api.js';
 import { store, on, emit } from './store.js';
 import { storage, toast } from './util.js';
+import { PcmOutput } from './pcm-output.js';
 
 /** @typedef {import('./api-types').ToRenderer} ToRenderer */
 /** @typedef {import('./api-types').FromRenderer} FromRenderer */
+/** @typedef {import('./api-types').Pcm} Pcm */
 
 const ENABLED = 'rms.browserPlayer';
+const PRECISE = 'rms.browserPrecise';
 const ID = 'rms.browserId';
 const NAME = 'rms.browserName';
 
@@ -27,6 +39,11 @@ export function playableFormats() {
     ['ogg', 'audio/ogg; codecs="vorbis"'],
     ['aac', 'audio/aac'],
   ].filter(([, t]) => can(t)).map(([f]) => f);
+}
+
+/** Whether this browser can play through Web Audio (and so keep in sync). */
+export function webAudioSupported() {
+  return typeof AudioContext !== 'undefined' && typeof ReadableStream !== 'undefined';
 }
 
 /** A name like "Firefox on Linux". */
@@ -52,6 +69,8 @@ export const browserPlayer = {
   /** The server's id of this browser as a player, once connected. */
   playerId: null,
   enabled: () => storage.get(ENABLED) === '1',
+  /** Plays through Web Audio, in sync (unless turned off, or not supported). */
+  precise: () => webAudioSupported() && storage.get(PRECISE) !== '0',
   name: () => storage.get(NAME) || defaultName(),
   connected: () => !!socket && socket.readyState === WebSocket.OPEN && !!browserPlayer.playerId,
   /** Make it the selected player once it is connected (it was just turned on). */
@@ -61,129 +80,520 @@ export const browserPlayer = {
 let socket = null;
 let retry = 0;
 let retryTimer = null;
-// the playing element and the one holding the next track
-let current = null;
-let next = null;
-let startedSent = false;
-let lastProgress = 0;
-let blocked = false;
-
-function newAudio() {
-  const a = new Audio();
-  a.preload = 'auto';
-  a.addEventListener('playing', () => { if (a === current) onPlaying(); });
-  a.addEventListener('pause', () => { if (a === current && !a.ended && startedSent) report({ type: 'paused' }); });
-  a.addEventListener('timeupdate', () => { if (a === current) progress(false); });
-  a.addEventListener('ended', () => { if (a === current) onEnded(); });
-  a.addEventListener('canplay', () => { if (a === current && !a.autoplay && !startedSent) report({ type: 'ready' }); });
-  a.addEventListener('error', () => {
-    if (a !== current || !a.getAttribute('src')) return;
-    report({ type: 'error', message: a.error?.message || `media error ${a.error?.code || ''}`.trim() });
-  });
-  return a;
-}
+/** The engine playing: {@link webAudio} or {@link htmlAudio}. */
+let engine = null;
 
 /** @param {FromRenderer} msg */
 function report(msg) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg));
 }
 
-function progress(force) {
-  const now = performance.now();
-  if (!force && now - lastProgress < 1000) return;
-  lastProgress = now;
-  const d = current?.duration;
-  report({ type: 'progress', elapsed: current?.currentTime || 0, ...(Number.isFinite(d) ? { duration: d } : {}) });
-}
-
-function onPlaying() {
-  if (!startedSent) {
-    startedSent = true;
-    report({ type: 'started' });
-  } else {
-    report({ type: 'resumed' });
-  }
-  progress(true);
-}
-
-function onEnded() {
-  if (next?.getAttribute('src')) {
-    // the preloaded track takes over: gapless as far as the browser allows
-    const old = current;
-    current = next;
-    next = old;
-    next.removeAttribute('src');
-    next.load();
-    startedSent = false;
-    play(current);
-  } else {
-    progress(true);
-    report({ type: 'ended' });
-  }
-}
-
 const absolute = (url) => serverRoot + url.replace(/^\/+/, '');
 
-function play(a) {
-  a.play().then(() => { blocked = false; }).catch((e) => {
-    if (e.name === 'NotAllowedError') {
-      // autoplay rules: wait for the next click or key on the page
-      if (!blocked) toast('Click anywhere on the page to let this browser play', 'error');
-      blocked = true;
-      const resume = () => { window.removeEventListener('pointerdown', resume, true); window.removeEventListener('keydown', resume, true); if (a === current) play(a); };
-      window.addEventListener('pointerdown', resume, true);
-      window.addEventListener('keydown', resume, true);
-    } else if (e.name !== 'AbortError') {
-      report({ type: 'error', message: e.message });
-    }
-  });
+/** Browsers play only after a click or key on the page: ask for one, then call `retry`. */
+let blocked = false;
+function needGesture(retryFn) {
+  if (!blocked) toast('Click anywhere on the page to let this browser play', 'error');
+  blocked = true;
+  const go = () => {
+    window.removeEventListener('pointerdown', go, true);
+    window.removeEventListener('keydown', go, true);
+    blocked = false;
+    retryFn();
+  };
+  window.addEventListener('pointerdown', go, true);
+  window.addEventListener('keydown', go, true);
 }
 
-/** @param {ToRenderer} msg */
-function handle(msg) {
-  switch (msg.type) {
-    case 'load':
-      startedSent = false;
-      next.removeAttribute('src');
-      current.autoplay = !!msg.autostart;
-      current.src = absolute(msg.url);
-      if (msg.autostart) play(current);
-      else current.load();
-      break;
-    case 'preload':
-      next.src = absolute(msg.url);
-      next.load();
-      break;
-    case 'pause':
-      current.pause();
-      break;
-    case 'resume':
-      if (current.getAttribute('src')) play(current);
-      break;
-    case 'stop':
-      startedSent = false;
-      for (const a of [current, next]) { a.pause(); a.removeAttribute('src'); a.load(); }
-      break;
-    case 'volume': {
-      // the server's 0–100 is roughly logarithmic; the element's 0–1 is linear
-      const v = Math.max(0, Math.min(100, msg.volume)) / 100;
-      for (const a of [current, next]) { a.volume = v * v; a.muted = !!msg.muted; }
-      break;
-    }
-    default:
-      break;
+// ------------------------------------------------------------------ <audio> elements
+
+const htmlAudio = (() => {
+  // the playing element and the one holding the next track
+  let current = null;
+  let next = null;
+  let startedSent = false;
+  let lastProgress = 0;
+
+  function newAudio() {
+    const a = new Audio();
+    a.preload = 'auto';
+    a.addEventListener('playing', () => { if (a === current) onPlaying(); });
+    a.addEventListener('pause', () => { if (a === current && !a.ended && startedSent) report({ type: 'paused' }); });
+    a.addEventListener('timeupdate', () => { if (a === current) progress(false); });
+    a.addEventListener('ended', () => { if (a === current) onEnded(); });
+    a.addEventListener('canplay', () => { if (a === current && !a.autoplay && !startedSent) report({ type: 'ready' }); });
+    a.addEventListener('error', () => {
+      if (a !== current || !a.getAttribute('src')) return;
+      report({ type: 'error', message: a.error?.message || `media error ${a.error?.code || ''}`.trim() });
+    });
+    return a;
   }
-}
 
-function connect() {
+  function init() {
+    current ||= newAudio();
+    next ||= newAudio();
+  }
+
+  function progress(force) {
+    const now = performance.now();
+    if (!force && now - lastProgress < 1000) return;
+    lastProgress = now;
+    const d = current?.duration;
+    report({ type: 'progress', elapsed: current?.currentTime || 0, ...(Number.isFinite(d) ? { duration: d } : {}) });
+  }
+
+  function onPlaying() {
+    if (!startedSent) {
+      startedSent = true;
+      report({ type: 'started' });
+    } else {
+      report({ type: 'resumed' });
+    }
+    progress(true);
+  }
+
+  function onEnded() {
+    if (next?.getAttribute('src')) {
+      // the preloaded track takes over: gapless as far as the browser allows
+      const old = current;
+      current = next;
+      next = old;
+      next.removeAttribute('src');
+      next.load();
+      startedSent = false;
+      play(current);
+    } else {
+      progress(true);
+      report({ type: 'ended' });
+    }
+  }
+
+  function play(a) {
+    a.play().then(() => { blocked = false; }).catch((e) => {
+      if (e.name === 'NotAllowedError') needGesture(() => { if (a === current) play(a); });
+      else if (e.name !== 'AbortError') report({ type: 'error', message: e.message });
+    });
+  }
+
+  function stop() {
+    startedSent = false;
+    for (const a of [current, next]) { if (a) { a.pause(); a.removeAttribute('src'); a.load(); } }
+  }
+
+  /** @param {ToRenderer} msg */
+  function handle(msg) {
+    init();
+    switch (msg.type) {
+      case 'load':
+        startedSent = false;
+        next.removeAttribute('src');
+        current.autoplay = !!msg.autostart;
+        current.src = absolute(msg.url);
+        if (msg.autostart) play(current);
+        else current.load();
+        break;
+      case 'preload':
+        next.src = absolute(msg.url);
+        next.load();
+        break;
+      case 'pause':
+        current.pause();
+        break;
+      case 'resume':
+        if (current.getAttribute('src')) play(current);
+        break;
+      case 'stop':
+        stop();
+        break;
+      case 'volume': {
+        // the server's 0–100 is roughly logarithmic; the element's 0–1 is linear
+        const v = Math.max(0, Math.min(100, msg.volume)) / 100;
+        for (const a of [current, next]) { a.volume = v * v; a.muted = !!msg.muted; }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return {
+    query: () => ({ formats: playableFormats().join(',') }),
+    handle,
+    stop,
+    // a click is what lets the page play later on
+    unlock() { init(); current.play().catch(() => {}); },
+  };
+})();
+
+// ------------------------------------------------------------------ Web Audio
+
+const webAudio = (() => {
+  /** Start playing once this much is buffered (seconds); report ready at this much. */
+  const START_AFTER = 0.5;
+  const READY_AFTER = 1.0;
+  /** Fetch no further ahead than this (seconds): a track is not held in memory whole. */
+  const AHEAD = 30;
+
+  /** @type {AudioContext|null} */
+  let ctx = null;
+  /** Sends a message to the output (pcm-output.js). */
+  let post = () => {};
+  /** @type {GainNode|null} */
+  let gain = null;
+  let loading = null;
+  let sr = 44100;
+  let volume = 1;
+
+  let seq = 0;
+  /** The track playing, or loaded and waiting to start: {id, autostart, started, ready, fetched}. */
+  let current = null;
+  /** The track after it, preloaded. */
+  let next = null;
+  /** Aborts the fetches of what is loaded. */
+  let abort = new AbortController();
+  /** Fetches run one after another, in queue order. */
+  let fetching = Promise.resolve();
+  let fetchesRunning = 0;
+  let paused = false;
+  /** The last word from the worklet on where output is. */
+  let pos = null;
+  /** Frames sent to the worklet and not yet played, as far as known here. */
+  let buffered = 0;
+  let lastProgress = 0;
+
+  /** Create the audio context and the worklet (once). */
+  function setup() {
+    if (loading) return loading;
+    ctx = new AudioContext({ sampleRate: 44100, latencyHint: 'playback' });
+    sr = ctx.sampleRate;
+    gain = ctx.createGain();
+    gain.gain.value = volume;
+    gain.connect(ctx.destination);
+    if (ctx.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+      loading = ctx.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).then(() => {
+        const node = new AudioWorkletNode(ctx, 'rms-pcm', { numberOfInputs: 0, outputChannelCount: [2] });
+        node.connect(gain);
+        node.port.onmessage = (e) => fromOutput(e.data);
+        post = (m, transfer) => node.port.postMessage(m, transfer || []);
+      });
+    } else {
+      // no AudioWorklet (not https): the same output on the page's own thread
+      const out = new PcmOutput(fromOutput, 1);
+      const node = ctx.createScriptProcessor(2048, 1, 2);
+      node.onaudioprocess = (e) => {
+        const b = e.outputBuffer;
+        out.render(b.getChannelData(0), b.getChannelData(1), Math.round(e.playbackTime * sr));
+      };
+      node.connect(gain);
+      post = (m) => out.message(m);
+      loading = Promise.resolve();
+    }
+    return loading;
+  }
+
+  /** The audio context must run to play: browsers allow that after a click or key. */
+  function running() {
+    if (!ctx || ctx.state === 'running') return;
+    ctx.resume().then(() => {
+      if (ctx.state !== 'running') needGesture(running);
+    }).catch(() => needGesture(running));
+    // a context that stays suspended needs a click
+    setTimeout(() => { if (ctx.state === 'suspended' && !blocked) needGesture(running); }, 500);
+  }
+
+  /**
+   * A moment of the audio clock and when it is heard: `contextTime` seconds of the context
+   * are heard at `performanceTime` (performance.now() time).
+   */
+  function timestamp() {
+    const ts = ctx.getOutputTimestamp?.();
+    if (ts?.performanceTime) return ts;
+    // estimated: what is rendered now is heard after the output's latency
+    return {
+      contextTime: ctx.currentTime,
+      performanceTime: performance.now() + ((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000,
+    };
+  }
+
+  /** The context frame heard at `ms` (performance.now() time). */
+  function frameAt(ms) {
+    const ts = timestamp();
+    return Math.round((ts.contextTime + (ms - ts.performanceTime) / 1000) * sr);
+  }
+
+  /** When context frame `frame` is heard (performance.now() time). */
+  function heardAt(frame) {
+    const ts = timestamp();
+    return ts.performanceTime + (frame / sr - ts.contextTime) * 1000;
+  }
+
+  /** Seconds into the current track heard at `now`. */
+  function elapsed(now) {
+    if (!pos || !current || pos.track !== current.id) return 0;
+    let e = pos.played / sr;
+    if (pos.playing) e += (now - heardAt(pos.frame)) / 1000;
+    return Math.max(0, e);
+  }
+
+  function progress(force) {
+    const now = performance.now();
+    if (!current?.started || (!force && now - lastProgress < 1000)) return;
+    lastProgress = now;
+    report({ type: 'progress', elapsed: elapsed(now), jiffies: Math.round(now) >>> 0 });
+  }
+
+  function fromOutput(m) {
+    switch (m.type) {
+      case 'pos':
+        pos = m;
+        buffered = m.buffered;
+        if (m.playing && !paused) progress(false);
+        break;
+      case 'track':
+        if (next && m.track === next.id) {
+          current = next;
+          next = null;
+        }
+        if (current && m.track === current.id && !current.started) {
+          current.started = true;
+          pos = null;
+          report({ type: 'started' });
+          if (current.fetched) report({ type: 'fetched' });
+        }
+        break;
+      case 'drained':
+        // the end, unless more is on its way (then it is only an underrun)
+        if (current?.started && !paused && fetchesRunning === 0) {
+          progress(true);
+          report({ type: 'ended' });
+          current = null;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Start the current track now, or at `at` (milliseconds of performance.now()). */
+  function start(at) {
+    running();
+    paused = false;
+    post({ type: 'start', frame: at === undefined ? 0 : frameAt(at) });
+  }
+
+  /** Converts a raw sample stream into stereo float samples at the context's rate. */
+  function converter(/** @type {Pcm} */ pcm) {
+    const bytes = pcm.bits / 8;
+    const channels = Math.max(1, pcm.channels);
+    const frameBytes = bytes * channels;
+    const le = pcm.little_endian;
+    let rest = new Uint8Array(0);
+    // linear resampling when the stream's rate isn't the context's
+    const step = pcm.rate / sr;
+    let t = 0;
+    let prevL = 0;
+    let prevR = 0;
+    const sample = (v, o) => {
+      switch (bytes) {
+        case 1: return (v.getUint8(o) - 128) / 128;
+        case 2: return v.getInt16(o, le) / 32768;
+        case 3: {
+          const b0 = v.getUint8(o);
+          const b1 = v.getUint8(o + 1);
+          const b2 = v.getUint8(o + 2);
+          const x = le ? (b2 << 16) | (b1 << 8) | b0 : (b0 << 16) | (b1 << 8) | b2;
+          return ((x << 8) >> 8) / 8388608;
+        }
+        default: return v.getInt32(o, le) / 2147483648;
+      }
+    };
+    return (/** @type {Uint8Array} */ chunk) => {
+      let data = chunk;
+      if (rest.length) {
+        data = new Uint8Array(rest.length + chunk.length);
+        data.set(rest);
+        data.set(chunk, rest.length);
+      }
+      const frames = Math.floor(data.length / frameBytes);
+      rest = data.slice(frames * frameBytes);
+      const v = new DataView(data.buffer, data.byteOffset, frames * frameBytes);
+      let left = new Float32Array(frames);
+      let right = new Float32Array(frames);
+      for (let i = 0, o = 0; i < frames; i++, o += frameBytes) {
+        left[i] = sample(v, o);
+        right[i] = channels > 1 ? sample(v, o + bytes) : left[i];
+      }
+      if (step !== 1 && frames) {
+        // input sample k is at position k + 1, the last one of the chunk before at 0
+        const n = Math.max(0, Math.ceil((frames - t) / step));
+        const outL = new Float32Array(n);
+        const outR = new Float32Array(n);
+        let j = 0;
+        for (; j < n && t < frames; j++, t += step) {
+          const i = Math.floor(t);
+          const f = t - i;
+          const aL = i === 0 ? prevL : left[i - 1];
+          const aR = i === 0 ? prevR : right[i - 1];
+          outL[j] = aL + (left[i] - aL) * f;
+          outR[j] = aR + (right[i] - aR) * f;
+        }
+        t -= frames;
+        prevL = left[frames - 1];
+        prevR = right[frames - 1];
+        left = outL.subarray(0, j);
+        right = outR.subarray(0, j);
+      }
+      return { left, right };
+    };
+  }
+
+  const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+  /** Fetch track `t`'s samples into the worklet. */
+  async function fetchTrack(t, url, pcm, signal) {
+    let res;
+    try {
+      res = await fetch(absolute(url), { signal });
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      if (!signal.aborted) report({ type: 'error', message: e.message });
+      return;
+    }
+    const convert = converter(pcm || { bits: 16, rate: 44100, channels: 2, little_endian: true });
+    const reader = res.body.getReader();
+    let total = 0;
+    try {
+      for (;;) {
+        // keep only so much ahead of what plays
+        while (buffered > AHEAD * sr && !signal.aborted) await sleep(250);
+        const { done, value } = await reader.read();
+        if (signal.aborted) return;
+        if (done) break;
+        const { left, right } = convert(value);
+        if (!left.length) continue;
+        post({ type: 'audio', track: t.id, left, right }, [left.buffer, right.buffer]);
+        total += left.length;
+        buffered += left.length;
+        // enough to begin
+        if (t === current && !t.started && !t.ready) {
+          if (t.autostart && total >= START_AFTER * sr) { t.ready = true; start(); }
+          if (!t.autostart && total >= READY_AFTER * sr) { t.ready = true; report({ type: 'ready' }); }
+        }
+      }
+    } catch (e) {
+      if (!signal.aborted) report({ type: 'error', message: e.message });
+      return;
+    }
+    if (t === current && !t.started && !t.ready) {
+      // a short track: all there is
+      t.ready = true;
+      if (t.autostart) start();
+      else report({ type: 'ready' });
+    }
+    // the next track can come (once this one plays: until then, it is the next one)
+    t.fetched = true;
+    if (t.started) report({ type: 'fetched' });
+  }
+
+  function queueFetch(t, url, pcm) {
+    const signal = abort.signal;
+    fetching = fetching.then(async () => {
+      if (signal.aborted) return;
+      fetchesRunning++;
+      try { await fetchTrack(t, url, pcm, signal); } finally { fetchesRunning--; }
+    });
+  }
+
+  function stop() {
+    abort.abort();
+    abort = new AbortController();
+    fetching = Promise.resolve();
+    current = null;
+    next = null;
+    paused = false;
+    pos = null;
+    buffered = 0;
+    post({ type: 'clear' });
+  }
+
+  /** @param {ToRenderer} msg */
+  async function handle(msg) {
+    await setup();
+    switch (msg.type) {
+      case 'load':
+        stop();
+        current = { id: ++seq, autostart: !!msg.autostart, started: false, ready: false, fetched: false };
+        if (msg.autostart) running();
+        queueFetch(current, msg.url, msg.pcm);
+        break;
+      case 'preload':
+        next = { id: ++seq, autostart: true, started: false, ready: true, fetched: false };
+        queueFetch(next, msg.url, msg.pcm);
+        break;
+      case 'pause':
+        if (!current) break;
+        progress(true);
+        paused = true;
+        post({ type: 'pause' });
+        if (current.started) report({ type: 'paused' });
+        break;
+      case 'resume':
+        if (!current) break;
+        start(msg.at ?? undefined);
+        if (current.started) report({ type: 'resumed' });
+        break;
+      case 'stop':
+        stop();
+        break;
+      case 'hold':
+        post({ type: 'hold', frames: Math.round((msg.ms * sr) / 1000) });
+        break;
+      case 'skip':
+        post({ type: 'skip', frames: Math.round((msg.ms * sr) / 1000) });
+        break;
+      case 'volume': {
+        const v = Math.max(0, Math.min(100, msg.volume)) / 100;
+        volume = msg.muted ? 0 : v * v;
+        gain?.gain.setTargetAtTime(volume, ctx.currentTime, 0.02);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return {
+    query: () => ({ formats: 'pcm', rate: String(sr), clock: '1' }),
+    /** Messages are handled in order, though setting up is asynchronous. */
+    handle: (() => {
+      let chain = Promise.resolve();
+      return (msg) => { chain = chain.then(() => handle(msg)).catch((e) => report({ type: 'error', message: e.message })); };
+    })(),
+    stop,
+    unlock() { setup().then(running).catch(() => {}); },
+    prepare: setup,
+  };
+})();
+
+// ------------------------------------------------------------------ the connection
+
+async function connect() {
   clearTimeout(retryTimer);
   if (!browserPlayer.enabled() || socket) return;
-  current ||= newAudio();
-  next ||= newAudio();
+  engine = browserPlayer.precise() ? webAudio : htmlAudio;
+  if (engine === webAudio) {
+    try {
+      await webAudio.prepare();
+    } catch {
+      engine = htmlAudio;
+    }
+    if (socket || !browserPlayer.enabled()) return;
+  }
   const base = new URL(serverRoot, location.href);
   base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
-  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), formats: playableFormats().join(',') });
+  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), ...engine.query() });
   const ws = new WebSocket(`${base.href}api/v1/browser-player?${q}`);
+  const own = engine;
   socket = ws;
   ws.addEventListener('message', (e) => {
     let msg;
@@ -191,15 +601,18 @@ function connect() {
     if (msg.type === 'welcome') {
       browserPlayer.playerId = msg.player;
       retry = 0;
+      // the clock the play points are on (before anything else)
+      if (own === webAudio) report({ type: 'clock', jiffies: Math.round(performance.now()) >>> 0 });
       emit('browser-player', browserPlayer);
       return;
     }
-    handle(msg);
+    own.handle(msg);
   });
   ws.addEventListener('close', () => {
     if (socket !== ws) return;
     socket = null;
     browserPlayer.playerId = null;
+    own.stop();
     emit('browser-player', browserPlayer);
     if (browserPlayer.enabled()) {
       retry = Math.min(retry + 1, 6);
@@ -214,24 +627,23 @@ function disconnect() {
   socket = null;
   browserPlayer.playerId = null;
   ws?.close();
-  for (const a of [current, next]) { if (a) { a.pause(); a.removeAttribute('src'); a.load(); } }
+  engine?.stop();
   emit('browser-player', browserPlayer);
 }
 
-/** Turn "play in this browser" on or off (call from a click: browsers only play after one). */
-export function setBrowserPlayer(on, name) {
+/**
+ * Turn "play in this browser" on or off, or change how it plays (call from a click:
+ * browsers only play after one).
+ */
+export function setBrowserPlayer(on, name, precise) {
   if (name !== undefined) storage.set(NAME, name.trim());
+  if (precise !== undefined) storage.set(PRECISE, precise ? '1' : '0');
   storage.set(ENABLED, on ? '1' : '0');
+  disconnect();
   if (on) {
     browserPlayer.selectWhenConnected = true;
-    current ||= newAudio();
-    next ||= newAudio();
-    // a click is what lets the page play later on
-    current.play().catch(() => {});
-    disconnect();
+    (browserPlayer.precise() ? webAudio : htmlAudio).unlock();
     connect();
-  } else {
-    disconnect();
   }
 }
 

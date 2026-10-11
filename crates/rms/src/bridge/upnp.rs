@@ -160,6 +160,7 @@ async fn add(
             .map(|(code, _)| code.clone())
             .collect(),
         max_sample_rate: 96_000,
+        accurate: false,
     };
     let http = server.http.clone();
     devices::found(
@@ -685,7 +686,7 @@ impl Driver {
             ToRenderer::Pause => {
                 let _ = self.call_av("Pause", &[]).await;
             }
-            ToRenderer::Resume => match self.phase {
+            ToRenderer::Resume { .. } => match self.phase {
                 Phase::Cued | Phase::Loading => {
                     if self.play().await.is_ok() {
                         self.phase = Phase::Starting;
@@ -703,6 +704,8 @@ impl Driver {
                 self.fallback = None;
                 let _ = self.call_av("Stop", &[]).await;
             }
+            // (only for renderers with their own clock)
+            ToRenderer::Hold { .. } | ToRenderer::Skip { .. } => {}
             ToRenderer::Volume { volume, muted } => {
                 if self.volume == Some((volume, muted)) {
                     return;
@@ -818,6 +821,7 @@ impl Driver {
                 self.report(FromRenderer::Progress {
                     elapsed,
                     duration: s.duration,
+                    jiffies: None,
                 })
                 .await;
             }

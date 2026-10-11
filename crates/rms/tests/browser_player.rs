@@ -253,3 +253,112 @@ async fn a_browser_plays_the_queue() {
     ws.ws.close(None).await.unwrap();
     wait_player(http, &id, "disconnected", |p| p["connected"] == false).await;
 }
+
+/// A browser playing through Web Audio keeps time: it starts with the Squeezebox it is synced
+/// with, and is moved on when it falls behind it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_clocked_browser_keeps_in_sync() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path();
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg("sine=frequency=440:duration=30")
+        .args(["-ac", "2", "-ar", "44100"])
+        .args(["-metadata", "title=Tone", "-metadata", "artist=A"])
+        .args(["-metadata", "album=Album", "-metadata", "track=1"])
+        .arg(m.join("tone.flac"))
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let server = start_server(m);
+    let http = server.http;
+    for _ in 0..100 {
+        if get(http, "/api/v1/server").await["library"]["tracks"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // the browser's clock: its own milliseconds
+    let t0 = std::time::Instant::now();
+    let clock = move || 1_000_000 + t0.elapsed().as_millis() as u64;
+    let url = format!(
+        "ws://127.0.0.1:{http}/api/v1/browser-player?id=clocked&name=Clocked&formats=pcm&rate=44100&clock=1"
+    );
+    let (ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    let mut b = Browser {
+        ws,
+        skipped: Vec::new(),
+    };
+    let id = recv(&mut b, "welcome").await["player"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(&mut b, json!({"type": "clock", "jiffies": clock()})).await;
+    wait_player(http, &id, "connected", |p| p["connected"] == true).await;
+
+    let mut sb = tokio::task::block_in_place(|| {
+        let mut p = FakePlayer::connect(server.slim);
+        p.expect(b"audg", Duration::from_secs(5));
+        p
+    });
+    wait_player(http, MAC_S, "squeezebox", |p| p["connected"] == true).await;
+    command(http, &id, json!({"command": "sync", "with": MAC_S})).await;
+    command(
+        http,
+        MAC_S,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+
+    // both get the track, the browser as raw samples, and wait to start together
+    let load = recv(&mut b, "load").await;
+    assert_eq!(load["format"], "pcm");
+    assert_eq!(load["autostart"], false);
+    assert_eq!(
+        load["pcm"],
+        json!({"bits": 16, "rate": 44100, "channels": 2, "little_endian": true})
+    );
+    tokio::task::block_in_place(|| {
+        sb.expect_strm(b's', Duration::from_secs(5));
+        sb.stat(b"STMc", 0);
+        sb.stat(b"STMl", 0);
+    });
+    send(&mut b, json!({"type": "ready"})).await;
+    // ...at a moment of the browser's own clock, a little ahead
+    let resume = recv(&mut b, "resume").await;
+    let at = resume["at"].as_u64().expect("a start time");
+    let now = clock();
+    assert!(
+        at > now && at < now + 2000,
+        "starts at {at}, the clock is at {now}"
+    );
+    tokio::task::block_in_place(|| sb.expect_strm(b'u', Duration::from_secs(5)));
+    let started = std::time::Instant::now();
+    send(&mut b, json!({"type": "started"})).await;
+    tokio::task::block_in_place(|| sb.stat(b"STMs", 0));
+
+    // the browser plays 400 ms behind the Squeezebox: it is told to skip that much
+    let skip = loop {
+        assert!(started.elapsed() < Duration::from_secs(10), "no skip");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let ms = started.elapsed().as_millis() as u64 + 1000;
+        tokio::task::block_in_place(|| sb.stat(b"STMt", ms as u32));
+        send(
+            &mut b,
+            json!({"type": "progress", "elapsed": (ms - 400) as f64 / 1000.0, "jiffies": clock()}),
+        )
+        .await;
+        if let Ok(Some(Ok(Message::Text(t)))) =
+            tokio::time::timeout(Duration::from_millis(10), b.ws.next()).await
+        {
+            let v: Value = serde_json::from_str(&t).unwrap();
+            if v["type"] == "skip" {
+                break v;
+            }
+        }
+    };
+    let ms = skip["ms"].as_u64().unwrap();
+    assert!((300..=500).contains(&ms), "skipped {ms} ms");
+}

@@ -303,8 +303,8 @@ export type ToRenderer = { "type": "load", url: string, format: string,
 /**
  * For `pcm`.
  */
-pcm?: Pcm, autostart: boolean, } | { "type": "preload", url: string, format: string, pcm?: Pcm, } | { "type": "pause" } | { "type": "resume" } | { "type": "stop" } | { "type": "volume", volume: number, muted: boolean, };
+pcm?: Pcm, autostart: boolean, } | { "type": "preload", url: string, format: string, pcm?: Pcm, } | { "type": "pause" } | { "type": "resume", at?: number, } | { "type": "stop" } | { "type": "volume", volume: number, muted: boolean, } | { "type": "hold", ms: number, } | { "type": "skip", ms: number, };
 
-export type FromRenderer = { "type": "ready" } | { "type": "started" } | { "type": "progress", elapsed: number, duration?: number, } | { "type": "paused" } | { "type": "resumed" } | { "type": "ended" } | { "type": "error", message: string, };
+export type FromRenderer = { "type": "ready" } | { "type": "started" } | { "type": "progress", elapsed: number, duration?: number, jiffies?: number, } | { "type": "clock", jiffies: number, } | { "type": "fetched" } | { "type": "paused" } | { "type": "resumed" } | { "type": "ended" } | { "type": "error", message: string, };
 
 export type Pcm = { bits: number, rate: number, channels: number, little_endian: boolean, };

@@ -7,8 +7,14 @@
 //! The renderer fetches the audio itself from the URL it is given (`/stream.mp3?player=…`,
 //! relative to the server's HTTP root), in a format it declared it can play.  It reports
 //! what it is doing back, and the bridge turns that into the player's status messages:
-//! a track started (`STMs`), the position (`STMt`), ready for the next track (`STMd`, near
-//! the end so the next one can be preloaded), out of music (`STMu`).
+//! a track started (`STMs`), the position (`STMt`), ready for the next track (`STMd`, when
+//! the track has been fetched, or near its end, so the next one can be preloaded), out of
+//! music (`STMu`).
+//!
+//! An *accurate* renderer (the browser's Web Audio player) keeps time like a Squeezebox:
+//! it reports its own clock and exactly where playback is on it, and it can start at a
+//! given moment, wait for some milliseconds or skip some.  The server then syncs it with
+//! other players as it syncs Squeezeboxes.
 
 pub mod airplay;
 pub mod browser;
@@ -43,6 +49,9 @@ pub struct Identity {
     pub formats: Vec<String>,
     /// The highest sample rate it plays; the server resamples above it.
     pub max_sample_rate: u32,
+    /// Reports exact play points on its own clock and follows sync adjustments
+    /// ([`FromRenderer::Clock`], `jiffies` in progress, [`ToRenderer::Hold`] / `Skip`).
+    pub accurate: bool,
 }
 
 /// What raw (`pcm`) samples are like.
@@ -83,12 +92,26 @@ pub enum ToRenderer {
         pcm: Option<Pcm>,
     },
     Pause,
-    Resume,
+    /// Resume, or start what was loaded without autostart; for an accurate renderer
+    /// possibly `at` a moment of its clock (sync).
+    Resume {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        at: Option<u32>,
+    },
     Stop,
     /// 0–100.
     Volume {
         volume: u8,
         muted: bool,
+    },
+    /// Play silence for `ms`, then go on (a sync adjustment: the others are behind).
+    Hold {
+        ms: u32,
+    },
+    /// Skip `ms` of audio (a sync adjustment: this player is behind).
+    Skip {
+        ms: u32,
     },
 }
 
@@ -100,13 +123,23 @@ pub enum FromRenderer {
     Ready,
     /// A track (the loaded or the preloaded one) started playing.
     Started,
-    /// Seconds into the current track, and its length when known.
+    /// Seconds into the current track, and its length when known.  An accurate renderer
+    /// gives the moment of its clock this is true at (`jiffies`, now).
     Progress {
         elapsed: f64,
         #[serde(default)]
         #[ts(optional)]
         duration: Option<f64>,
+        #[serde(default)]
+        #[ts(optional)]
+        jiffies: Option<u32>,
     },
+    /// The renderer's clock (milliseconds, wrapping), now.
+    Clock {
+        jiffies: u32,
+    },
+    /// The current track's audio has all been fetched: the next one can come.
+    Fetched,
     Paused,
     Resumed,
     /// The current track ended and nothing preloaded followed.
@@ -123,12 +156,25 @@ const PRELOAD_BEFORE_END: f64 = 10.0;
 struct Playback {
     loaded: bool,
     playing: bool,
+    /// Seconds into the track at `elapsed_at`.
     elapsed: f64,
+    elapsed_at: Option<Instant>,
     duration: Option<f64>,
     /// Asked for the next track (`STMd`) since the current one started.
     asked_next: bool,
     /// The next track is preloaded.
     next: bool,
+}
+
+impl Playback {
+    /// Seconds into the track now: the last report, moved on by the time since while
+    /// playing (a status message must not carry a stale position with a current clock).
+    fn elapsed_now(&self) -> f64 {
+        match (self.playing, self.elapsed_at) {
+            (true, Some(at)) => self.elapsed + at.elapsed().as_secs_f64(),
+            _ => self.elapsed,
+        }
+    }
 }
 
 /// Connect `identity` to the server and relay between it and the renderer until the
@@ -143,17 +189,39 @@ pub async fn run(
     let mut sock = TcpStream::connect(("127.0.0.1", port)).await?;
     sock.set_nodelay(true)?;
     let started = Instant::now();
-    let jiffies = move || started.elapsed().as_millis() as u32;
+    // the player's clock: ours, or the renderer's when it reports one
+    let mut offset: u32 = 0;
+    if identity.accurate {
+        // its clock first, so the server knows it from the first status message
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match tokio::time::timeout_at(deadline, from_renderer.recv()).await {
+                Ok(Some(FromRenderer::Clock { jiffies })) => {
+                    offset = jiffies.wrapping_sub(started.elapsed().as_millis() as u32);
+                    break;
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) => return Ok(()),
+                Err(_) => anyhow::bail!("{}: no clock from the renderer", identity.name),
+            }
+        }
+    }
+    let local = move || started.elapsed().as_millis() as u32;
     info!(
         "{} ({}) connected as {}",
         identity.name, identity.model_name, identity.mac
     );
 
     let caps = format!(
-        "Model={},ModelName={},Firmware=rms-bridge,MaxSampleRate={},{}",
+        "Model={},ModelName={},Firmware=rms-bridge,MaxSampleRate={},{}{}",
         identity.model,
         identity.model_name,
         identity.max_sample_rate,
+        if identity.accurate {
+            "AccuratePlayPoints=1,"
+        } else {
+            ""
+        },
         identity.formats.join(",")
     );
     let helo = Helo {
@@ -193,12 +261,13 @@ pub async fn run(
                         continue;
                     }
                     let ev = on_frame(&server, &identity, &mut pb, &to_renderer, &op, &body).await;
+                    let jiffies = local().wrapping_add(offset);
                     for e in ev {
-                        stat(&mut sock, e, &pb, jiffies(), 0).await?;
+                        stat(&mut sock, e, &pb, jiffies, 0).await?;
                     }
                     if &op == b"strm" && body.first() == Some(&b't') {
                         let ts = StrmHeader::parse(&body).map(|(h, _)| h.replay_gain).unwrap_or(0);
-                        stat(&mut sock, *b"STMt", &pb, jiffies(), ts).await?;
+                        stat(&mut sock, *b"STMt", &pb, jiffies, ts).await?;
                     }
                 }
             }
@@ -208,13 +277,30 @@ pub async fn run(
                     let _ = sock.shutdown().await;
                     return Ok(());
                 };
-                for e in on_renderer(&mut pb, msg) {
-                    stat(&mut sock, e, &pb, jiffies(), 0).await?;
+                // an accurate renderer's report is true at its clock's `jiffies`: keep ours
+                // in step, so the status message carries exactly that moment
+                if let FromRenderer::Clock { jiffies }
+                | FromRenderer::Progress { jiffies: Some(jiffies), .. } = &msg
+                {
+                    if identity.accurate {
+                        offset = jiffies.wrapping_sub(local());
+                    }
+                }
+                let progress = matches!(msg, FromRenderer::Progress { .. });
+                let ev = on_renderer(&mut pb, msg);
+                let jiffies = local().wrapping_add(offset);
+                for e in &ev {
+                    stat(&mut sock, *e, &pb, jiffies, 0).await?;
+                }
+                // a play point for the server's sync, as squeezelite sends them
+                if progress && identity.accurate && ev.is_empty() && pb.playing {
+                    stat(&mut sock, *b"STMt", &pb, jiffies, 0).await?;
                 }
             }
             _ = tick.tick() => {
-                if pb.playing {
-                    stat(&mut sock, *b"STMt", &pb, jiffies(), 0).await?;
+                // accurate renderers send their play points themselves
+                if pb.playing && !identity.accurate {
+                    stat(&mut sock, *b"STMt", &pb, local().wrapping_add(offset), 0).await?;
                 }
             }
         }
@@ -282,15 +368,26 @@ async fn on_frame(
                     vec![*b"STMc"]
                 }
                 StrmCommand::Pause => {
-                    // with an interval: pause for that long (sync adjustment), ignored
+                    // with an interval: silence for that long (a sync adjustment)
                     if h.replay_gain != 0 {
+                        if identity.accurate {
+                            let _ = to.send(ToRenderer::Hold { ms: h.replay_gain }).await;
+                        }
                         return Vec::new();
                     }
                     let _ = to.send(ToRenderer::Pause).await;
                     Vec::new()
                 }
                 StrmCommand::Unpause => {
-                    let _ = to.send(ToRenderer::Resume).await;
+                    // a non-zero interval is the moment (player clock) to start at
+                    let at = (identity.accurate && h.replay_gain != 0).then_some(h.replay_gain);
+                    let _ = to.send(ToRenderer::Resume { at }).await;
+                    Vec::new()
+                }
+                StrmCommand::SkipAhead => {
+                    if identity.accurate && h.replay_gain != 0 {
+                        let _ = to.send(ToRenderer::Skip { ms: h.replay_gain }).await;
+                    }
                     Vec::new()
                 }
                 StrmCommand::Stop => {
@@ -326,13 +423,17 @@ fn on_renderer(pb: &mut Playback, msg: FromRenderer) -> Vec<[u8; 4]> {
             pb.playing = true;
             pb.loaded = true;
             pb.elapsed = 0.0;
+            pb.elapsed_at = Some(Instant::now());
             pb.duration = None;
             pb.asked_next = false;
             pb.next = false;
             vec![*b"STMs"]
         }
-        FromRenderer::Progress { elapsed, duration } => {
+        FromRenderer::Progress {
+            elapsed, duration, ..
+        } => {
             pb.elapsed = elapsed.max(0.0);
+            pb.elapsed_at = Some(Instant::now());
             pb.duration = duration.filter(|d| d.is_finite() && *d > 0.0);
             match pb.duration {
                 Some(d) if pb.playing && !pb.asked_next && d - pb.elapsed < PRELOAD_BEFORE_END => {
@@ -342,11 +443,21 @@ fn on_renderer(pb: &mut Playback, msg: FromRenderer) -> Vec<[u8; 4]> {
                 _ => Vec::new(),
             }
         }
+        FromRenderer::Clock { .. } => Vec::new(),
+        FromRenderer::Fetched => {
+            if pb.asked_next {
+                return Vec::new();
+            }
+            pb.asked_next = true;
+            vec![*b"STMd"]
+        }
         FromRenderer::Paused => {
+            pb.elapsed = pb.elapsed_now();
             pb.playing = false;
             vec![*b"STMp"]
         }
         FromRenderer::Resumed => {
+            pb.elapsed_at = Some(Instant::now());
             pb.playing = true;
             vec![*b"STMr"]
         }
@@ -419,7 +530,7 @@ async fn stat(
     jiffies: u32,
     server_timestamp: u32,
 ) -> std::io::Result<()> {
-    let ms = (pb.elapsed * 1000.0) as u32;
+    let ms = (pb.elapsed_now() * 1000.0) as u32;
     let active = pb.loaded || pb.playing;
     let st = Stat {
         event_code: event,
@@ -466,6 +577,7 @@ mod tests {
         let at = |e| FromRenderer::Progress {
             elapsed: e,
             duration: Some(100.0),
+            jiffies: None,
         };
         assert!(on_renderer(&mut pb, at(50.0)).is_empty());
         assert_eq!(on_renderer(&mut pb, at(91.0)), vec![*b"STMd"]);
@@ -477,6 +589,7 @@ mod tests {
         let live = FromRenderer::Progress {
             elapsed: 5000.0,
             duration: None,
+            jiffies: None,
         };
         assert!(on_renderer(&mut pb, live).is_empty());
         assert_eq!(

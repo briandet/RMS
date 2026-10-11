@@ -7,7 +7,7 @@ import {
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
 import { connectHelp } from './common.js';
-import { browserPlayer, setBrowserPlayer, playableFormats } from '../browser-player.js';
+import { browserPlayer, setBrowserPlayer, playableFormats, webAudioSupported } from '../browser-player.js';
 
 export const cacheable = false;
 
@@ -419,6 +419,7 @@ export function render(node, { ctx }) {
       return;
     }
     const checkId = fieldId();
+    const preciseId = fieldId();
     const nameId = fieldId();
     const nameInput = h('input', { id: nameId, type: 'text', value: browserPlayer.name(), maxlength: 64 });
     const state = browserPlayer.enabled()
@@ -442,7 +443,14 @@ export function render(node, { ctx }) {
       } },
       h('label', { for: nameId }, 'Name as a player'),
       h('div', { class: 'inline-row' }, nameInput, h('button', { class: 'btn', type: 'submit' }, 'Save'))),
-      h('p', { class: 'muted small' }, `Formats: ${formats.join(', ')}.`));
+      ...(webAudioSupported() ? [h('div', { class: 'field check' },
+        h('input', { id: preciseId, type: 'checkbox', checked: browserPlayer.precise(), onchange: (e) => {
+          setBrowserPlayer(browserPlayer.enabled(), undefined, e.target.checked);
+          renderBrowser();
+        } }),
+        h('label', { for: preciseId }, 'Keep in sync with other players',
+          h('span', { class: 'muted small block' }, 'Plays through Web Audio, in step with the players it is synced with. Turn off to play through the browser’s own player, which some phones keep playing with the screen off.')))] : []),
+      h('p', { class: 'muted small' }, browserPlayer.precise() ? 'Audio comes as raw samples.' : `Formats: ${formats.join(', ')}.`));
   }
 
   // ---------------------------------------------------------------- other players

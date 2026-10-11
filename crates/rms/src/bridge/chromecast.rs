@@ -236,6 +236,7 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
         model_name: c.model_name.clone(),
         formats: vec!["flc".into(), "mp3".into(), "aac".into()],
         max_sample_rate: 96_000,
+        accurate: false,
     };
     let server2 = server.clone();
     let name = c.name.clone();
@@ -589,7 +590,7 @@ impl Cast {
                 self.next = Some(self.item(&url, &format, true));
             }
             ToRenderer::Pause => self.play(false).await?,
-            ToRenderer::Resume => self.play(true).await?,
+            ToRenderer::Resume { .. } => self.play(true).await?,
             ToRenderer::Stop => {
                 self.queued = None;
                 self.next = None;
@@ -598,6 +599,8 @@ impl Cast {
                         .await?;
                 }
             }
+            // (only for renderers with their own clock)
+            ToRenderer::Hold { .. } | ToRenderer::Skip { .. } => {}
             ToRenderer::Volume { volume, muted } => {
                 self.volume = Some((volume, muted));
                 self.apply_volume().await?;
@@ -756,6 +759,7 @@ impl Cast {
                 reports.push(FromRenderer::Progress {
                     elapsed,
                     duration: m.duration.or(m.item.duration),
+                    jiffies: None,
                 });
             }
             // asked before the device said which media session it was

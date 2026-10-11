@@ -126,6 +126,7 @@ fn start(server: &Arc<Server>, key: String, target: Target) {
         model_name: target.model_name.clone(),
         formats: vec!["pcm".into()],
         max_sample_rate: SAMPLE_RATE,
+        accurate: false,
     };
     devices::found(
         server,
@@ -617,12 +618,13 @@ impl Driver {
                     self.report(FromRenderer::Progress {
                         elapsed,
                         duration: None,
+                        jiffies: None,
                     })
                     .await;
                 }
                 self.report(FromRenderer::Paused).await;
             }
-            ToRenderer::Resume => {
+            ToRenderer::Resume { .. } => {
                 let Some(t) = self.track.as_mut().filter(|t| t.paused) else {
                     return Ok(());
                 };
@@ -641,6 +643,8 @@ impl Driver {
                 }
                 self.idle_since = Instant::now();
             }
+            // (only for renderers with their own clock)
+            ToRenderer::Hold { .. } | ToRenderer::Skip { .. } => {}
             ToRenderer::Volume { volume, muted } => {
                 // (the server repeats it, e.g. while it fades on pause)
                 if self.volume != Some((volume, muted)) {
@@ -893,6 +897,7 @@ impl Driver {
             self.report(FromRenderer::Progress {
                 elapsed,
                 duration: None,
+                jiffies: None,
             })
             .await;
             return Ok(true);
