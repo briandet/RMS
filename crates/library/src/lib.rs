@@ -13,7 +13,10 @@
 macro_rules! re {
     ($s:expr) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        RE.get_or_init(|| regex::Regex::new($s).unwrap())
+        // compiled once, wherever the macro is used
+        #[allow(clippy::regex_creation_in_loops)]
+        let re = RE.get_or_init(|| regex::Regex::new($s).unwrap());
+        re
     }};
 }
 

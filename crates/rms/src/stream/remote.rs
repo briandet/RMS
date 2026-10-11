@@ -124,15 +124,13 @@ pub async fn probe(client: &reqwest::Client, url: &str) -> Probe {
         let text = decode_text(&body);
         if text.trim_start().starts_with("#EXTM3U")
             && (text.contains("#EXT-X-") || lms_type == "m3u8")
-        {
-            if text.contains("#EXT-X-TARGETDURATION")
+            && (text.contains("#EXT-X-TARGETDURATION")
                 || text.contains("#EXT-X-STREAM-INF")
-                || text.contains("#EXT-X-MEDIA-SEQUENCE")
-            {
-                probe.is_hls = true;
-                probe.content_type = Some("aac".into());
-                return probe;
-            }
+                || text.contains("#EXT-X-MEDIA-SEQUENCE"))
+        {
+            probe.is_hls = true;
+            probe.content_type = Some("aac".into());
+            return probe;
         }
         probe.entries = parse_playlist(&text, &lms_type, &probe.url);
         return probe;

@@ -1,6 +1,9 @@
 //! Commands (`Slim::Control::Commands`).
 
 use super::request::{Request, Status};
+use crate::player::command::{
+    playlist_changed, remove_track, run, Change, Enqueue, PlayerCommand, Position, Repeat, Shuffle,
+};
 use crate::player::playlist::Entry;
 use crate::player::Player;
 use crate::server::Server;
@@ -25,12 +28,6 @@ fn ctrl(p: &Player) -> Arc<Mutex<crate::player::controller::Controller>> {
     p.controller()
 }
 
-/// Mark the playlist as changed: timestamp, persistence, keep streaming going.
-pub(crate) fn playlist_changed(c: &mut crate::player::controller::Controller) {
-    c.playlist.timestamp = crate::util::now();
-    c.save_playlist();
-}
-
 // ---- play control ------------------------------------------------------------------------
 
 /// `play`, `pause`, `stop`, `mode <x>` (`playcontrolCommand`).
@@ -38,55 +35,24 @@ pub fn playcontrol(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let c = ctrl(&p);
-    let curmode = c.lock().mode();
-    let mut want = match r.term(0) {
-        "play" => "play",
-        "stop" => "stop",
-        "mode" => r.term(1),
+    let fade = r.param_f64("_fadein");
+    let cmd = match r.term(0) {
+        "play" => PlayerCommand::Play { fade },
+        "stop" => PlayerCommand::Stop,
+        "mode" => match r.term(1) {
+            "play" => PlayerCommand::Play { fade },
+            "pause" => PlayerCommand::Pause,
+            "stop" => PlayerCommand::Stop,
+            _ => return r.set_done(),
+        },
         "pause" => match r.param("_newvalue") {
-            Some("1") => "pause",
-            Some("0") => "play",
-            _ => {
-                if curmode == "pause" || curmode == "stop" {
-                    "play"
-                } else {
-                    "pause"
-                }
-            }
+            Some("1") => PlayerCommand::Pause,
+            Some("0") => PlayerCommand::Play { fade },
+            _ => PlayerCommand::TogglePause { fade },
         },
         _ => return r.bad_dispatch(),
-    }
-    .to_string();
-    if r.term(0) == "pause" && r.param("_newvalue") == Some("1") && curmode != "play" {
-        return r.set_done();
-    }
-    let fade = r.param_f64("_fadein");
-    if want == "play" && curmode == "pause" {
-        want = "resume".into();
-    }
-    if want != curmode {
-        if !p.power() && (want == "play" || want == "resume") {
-            server.set_power(&p, true, true);
-        }
-        let mut c = c.lock();
-        match want.as_str() {
-            "play" => {
-                if !c.playlist.is_empty() {
-                    let idx = c.playing_song_index().min(c.playlist.len() - 1);
-                    c.play(Some(idx), None, fade);
-                    drop(c);
-                    server
-                        .notifier
-                        .notify(Some(p.id), &["playlist", "jump", &idx.to_string()]);
-                }
-            }
-            "resume" => c.resume(fade),
-            "pause" => c.pause(),
-            "stop" => c.stop(),
-            _ => {}
-        }
-    }
+    };
+    let _ = run(server, &p, cmd);
     r.set_done();
 }
 
@@ -98,35 +64,39 @@ pub fn time(server: &Arc<Server>, r: &mut Request) {
     let Some(t) = r.param("_newvalue").map(str::to_string) else {
         return r.bad_params();
     };
-    if t.parse::<f64>().is_err() {
+    let Ok(secs) = t.parse::<f64>() else {
         return r.bad_params();
+    };
+    let change = if t.starts_with('+') || t.starts_with('-') {
+        Change::By(secs)
+    } else {
+        Change::To(secs)
+    };
+    match run(server, &p, PlayerCommand::Seek(change)) {
+        Ok(_) => r.set_done(),
+        Err(_) => r.bad_params(),
     }
-    ctrl(&p).lock().jump_to_time(&t, false);
-    r.set_done();
 }
 
 pub fn power(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let new = match r.param("_newvalue") {
-        Some("0") => false,
-        Some("1") => true,
-        _ => !p.power(),
+    let on = match r.param("_newvalue") {
+        Some("0") => Some(false),
+        Some("1") => Some(true),
+        _ => None,
     };
     if let Some(seq) = r.param_i64("seq_no") {
         p.state.lock().sequence_number = seq as u32;
     }
-    if new == p.power() {
-        return; // LMS: no status change → echoed, not notified
-    }
     let noplay = r.param_bool("_noplay");
-    server.set_power(&p, new, noplay);
-    server.notifier.notify(
-        Some(p.id),
-        &["prefset", "server", "power", if new { "1" } else { "0" }],
-    );
-    r.set_done();
+    // LMS: no status change → echoed, not notified
+    if let Ok(o) = run(server, &p, PlayerCommand::Power { on, noplay }) {
+        if o.changed {
+            r.set_done();
+        }
+    }
 }
 
 pub fn sleep(server: &Arc<Server>, r: &mut Request) {
@@ -136,13 +106,7 @@ pub fn sleep(server: &Arc<Server>, r: &mut Request) {
     let Some(secs) = r.param_f64("_newvalue") else {
         return r.bad_params();
     };
-    let mut s = p.state.lock();
-    if secs > 0.0 {
-        s.sleep_time = crate::util::now() + secs;
-    } else {
-        s.sleep_time = 0.0;
-    }
-    drop(s);
+    let _ = run(server, &p, PlayerCommand::Sleep(secs));
     r.set_done();
 }
 
@@ -155,59 +119,36 @@ pub fn mixer(server: &Arc<Server>, r: &mut Request) {
     if let Some(seq) = r.param_i64("seq_no") {
         p.state.lock().sequence_number = seq as u32;
     }
-    let group: Vec<Arc<Player>> = if p.prefs.get_bool("syncVolume") {
-        ctrl(&p)
-            .lock()
-            .all_players()
-            .into_iter()
-            .filter(|o| o.id != p.id && o.prefs.get_bool("syncVolume"))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let relative = |v: &str| v.starts_with('+') || v.starts_with('-');
     match entity.as_str() {
         "volume" => {
             let Some(v) = val else { return r.bad_params() };
-            let relative = v.starts_with('+') || v.starts_with('-');
             let Ok(n) = v.parse::<f64>() else {
                 return r.bad_params();
             };
-            let mut old = p.volume();
-            if p.is_muted() {
-                old = 0;
-            }
-            let new = if relative { old as f64 + n } else { n }.round() as i32;
-            let new = p.set_volume(new, false);
-            crate::display::show_volume(&p);
-            for o in group {
-                o.set_volume(new, false);
-                crate::display::show_volume(&o);
-            }
-            server.notifier.notify(
-                Some(p.id),
-                &["prefset", "server", "volume", &new.to_string()],
-            );
+            let n = n.round() as i32;
+            let change = if relative(&v) {
+                Change::By(n)
+            } else {
+                Change::To(n)
+            };
+            let _ = run(server, &p, PlayerCommand::Volume(change));
         }
         "muting" => {
             let muted = match val.as_deref() {
-                Some("0") => false,
-                Some("1") => true,
-                _ => !p.is_muted(),
+                Some("0") => Some(false),
+                Some("1") => Some(true),
+                _ => None,
             };
-            p.set_muted(muted);
-            crate::display::show_volume(&p);
-            for o in group {
-                o.set_muted(muted);
-            }
+            let _ = run(server, &p, PlayerCommand::Mute(muted));
         }
         "bass" | "treble" | "pitch" | "stereoxl" => {
             let Some(v) = val else { return r.bad_params() };
-            let relative = v.starts_with('+') || v.starts_with('-');
             let Ok(n) = v.parse::<i64>() else {
                 return r.bad_params();
             };
             let old = p.prefs.get_i64(&entity);
-            let new = if relative { old + n } else { n };
+            let new = if relative(&v) { old + n } else { n };
             p.prefs.set(&entity, json!(new));
             let mut s = p.state.lock();
             match entity.as_str() {
@@ -230,7 +171,7 @@ pub fn name(server: &Arc<Server>, r: &mut Request) {
         return r.bad_params();
     };
     if n != "0" {
-        p.set_name(&n);
+        let _ = run(server, &p, PlayerCommand::Rename(n));
     }
     r.set_done();
 }
@@ -243,17 +184,16 @@ pub fn sync(server: &Arc<Server>, r: &mut Request) {
         return r.bad_params();
     };
     if v == "-" {
-        server.unsync(&p);
+        let _ = run(server, &p, PlayerCommand::Unsync);
     } else {
         let buddy = server.resolve_client(&v).or_else(|| {
             v.parse::<usize>()
                 .ok()
                 .and_then(|i| server.connected_players().get(i).cloned())
         });
-        if let Some(b) = buddy {
-            if b.id != p.id {
-                server.sync(&b, &p, r.param_bool("noRestart"));
-            }
+        if let Some(with) = buddy {
+            let no_restart = r.param_bool("noRestart");
+            let _ = run(server, &p, PlayerCommand::Sync { with, no_restart });
         }
     }
     r.set_done();
@@ -385,7 +325,14 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
         Some((ns, n)) => (ns.to_string(), n.to_string()),
         None => ("server".to_string(), name.clone()),
     };
-    let value: Value = if pname == "mediadirs" || pname == "disabledformats" {
+    let lists = [
+        "mediadirs",
+        "disabledformats",
+        "upnpRenderers",
+        "chromecastHosts",
+        "airplayHosts",
+    ];
+    let value: Value = if lists.contains(&pname.as_str()) {
         // arrays: accept JSON or comma separated
         serde_json::from_str(&val).unwrap_or_else(|_| {
             json!(val
@@ -434,6 +381,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
                     | "groupdiscs"
             ) {
                 server.apply_library_config();
+            }
+            if pname.starts_with("bridge") {
+                crate::bridge::devices::reconfigure(server);
             }
             if matches!(pname.as_str(), "autorescan" | "mediadirs" | "playlistdir") {
                 crate::watch::start(server);
@@ -540,12 +490,7 @@ pub fn playlist_clear(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let c = ctrl(&p);
-    let mut c = c.lock();
-    c.stop();
-    c.playlist.clear();
-    c.queue.clear();
-    playlist_changed(&mut c);
+    let _ = run(server, &p, PlayerCommand::Clear);
     r.set_done();
 }
 
@@ -556,48 +501,9 @@ pub fn playlist_delete(server: &Arc<Server>, r: &mut Request) {
     let Some(idx) = r.param_i64("_index") else {
         return r.bad_params();
     };
-    let c = ctrl(&p);
-    let mut c = c.lock();
-    remove_track(&mut c, idx.max(0) as usize);
-    playlist_changed(&mut c);
+    let index = idx.max(0) as usize;
+    let _ = run(server, &p, PlayerCommand::Remove { index });
     r.set_done();
-}
-
-/// `Slim::Player::Playlist::removeTrack`: stop/skip appropriately when the playing song goes.
-fn remove_track(c: &mut crate::player::controller::Controller, idx: usize) {
-    if idx >= c.playlist.len() {
-        return;
-    }
-    let playing = c.playing_song_index();
-    let streaming = c.streaming_song_index();
-    let was_stopped = c.is_stopped();
-    if idx == playing && !was_stopped {
-        if c.playlist.len() == 1 {
-            c.stop();
-        } else {
-            c.playlist.delete(idx);
-            // the song that took its place plays next
-            let next = idx.min(c.playlist.len() - 1);
-            let paused = c.is_paused();
-            c.play(Some(next), None, None);
-            if paused {
-                c.pause();
-            }
-            return;
-        }
-    } else if idx == streaming && idx != playing && !was_stopped {
-        c.flush();
-    }
-    c.playlist.delete(idx);
-    for s in c.queue.iter_mut() {
-        if s.index > idx {
-            s.index -= 1;
-        }
-    }
-    if c.playlist.is_empty() {
-        c.queue.clear();
-        c.stop();
-    }
 }
 
 pub fn playlist_deleteitem(server: &Arc<Server>, r: &mut Request) {
@@ -636,21 +542,8 @@ pub fn playlist_move(server: &Arc<Server>, r: &mut Request) {
     let (Some(from), Some(to)) = (r.param_i64("_fromindex"), r.param_i64("_toindex")) else {
         return r.bad_params();
     };
-    let c = ctrl(&p);
-    let mut c = c.lock();
     let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-    c.playlist.move_song(from, to);
-    // keep queue indexes consistent with the moved positions
-    for s in c.queue.iter_mut() {
-        if s.index == from {
-            s.index = to;
-        } else if from < s.index && to >= s.index {
-            s.index -= 1;
-        } else if from > s.index && to <= s.index {
-            s.index += 1;
-        }
-    }
-    playlist_changed(&mut c);
+    let _ = run(server, &p, PlayerCommand::Move { from, to });
     r.set_done();
 }
 
@@ -658,19 +551,10 @@ pub fn playlist_repeat(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let c = ctrl(&p);
-    let mut c = c.lock();
-    let new = match r.param_i64("_newvalue") {
-        Some(v) => v.clamp(0, 2) as u8,
-        None => [1u8, 2, 0][c.playlist.repeat as usize % 3],
-    };
-    c.playlist.repeat = new;
-    c.save_playlist();
-    drop(c);
-    server.notifier.notify(
-        Some(p.id),
-        &["prefset", "server", "repeat", &new.to_string()],
-    );
+    let mode = r
+        .param_i64("_newvalue")
+        .map(|v| Repeat::from_lms(v.clamp(0, 2) as u8));
+    let _ = run(server, &p, PlayerCommand::Repeat(mode));
     r.set_done();
 }
 
@@ -678,42 +562,10 @@ pub fn playlist_shuffle(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let c = ctrl(&p);
-    let mut c = c.lock();
-    let new = match r.param_i64("_newvalue") {
-        Some(v) => v.clamp(0, 2) as u8,
-        None => [1u8, 2, 0][c.playlist.shuffle as usize % 3],
-    };
-    let playing = !c.is_stopped();
-    let cur_entry = c.playlist.order.get(c.playing_song_index()).copied();
-    c.playlist.current = c
-        .playing_song_index()
-        .min(c.playlist.len().saturating_sub(1));
-    c.playlist.set_shuffle(new, playing);
-    // re-point queue songs at their new positions
-    let order = c.playlist.order.clone();
-    if let Some(ce) = cur_entry {
-        let newpos = order.iter().position(|&i| i == ce).unwrap_or(0);
-        for s in c.queue.iter_mut() {
-            s.index = newpos;
-        }
-        c.playlist.current = newpos;
-        if playing {
-            // drop any already-streamed next song so the new order is followed
-            while c.queue.len() > 1 {
-                c.queue.pop_front();
-            }
-            if c.streaming_state != crate::player::controller::StreamingState::Streaming {
-                c.flush();
-            }
-        }
-    }
-    playlist_changed(&mut c);
-    drop(c);
-    server.notifier.notify(
-        Some(p.id),
-        &["prefset", "server", "shuffle", &new.to_string()],
-    );
+    let mode = r
+        .param_i64("_newvalue")
+        .map(|v| Shuffle::from_lms(v.clamp(0, 2) as u8));
+    let _ = run(server, &p, PlayerCommand::Shuffle(mode));
     r.set_done();
 }
 
@@ -722,55 +574,26 @@ pub fn playlist_jump(server: &Arc<Server>, r: &mut Request) {
     let Some(p) = player(server, r) else {
         return r.bad_dispatch();
     };
-    let c = ctrl(&p);
-    let count = c.lock().playlist.len();
-    if count == 0 {
-        return;
-    }
-    if !p.power() {
-        server.set_power(&p, true, true);
-    }
     let idx_s = r.param("_index").unwrap_or("0").to_string();
-    let fade = r.param_f64("_fadein");
-    let noplay = r.param_bool("_noplay");
-    let seek = r
-        .param("_seekdata")
-        .and_then(|s| s.split(':').next_back().and_then(|t| t.parse::<f64>().ok()));
-    let mut c = c.lock();
-    let relative = idx_s.starts_with('+') || idx_s.starts_with('-');
     let n: i64 = idx_s.parse().unwrap_or(0);
-    let mut new_index: i64;
-    if relative {
-        if !c.is_stopped() {
-            if n == 0 || (n == -1 && count == 1) {
-                c.jump_to_time("0", true);
-                return r.set_done();
-            }
-            if n == 1 {
-                c.skip();
-                return r.set_done();
-            }
-        }
-        new_index = c.playing_song_index() as i64 + n;
-        if new_index >= count as i64
-            && c.playlist.shuffle != 0
-            && c.playlist.repeat == 2
-            && server.prefs.server.get_bool("reshuffleOnRepeat")
-        {
-            c.playlist.reshuffle(false);
-        }
+    let to = if idx_s.starts_with('+') || idx_s.starts_with('-') {
+        Position::By(n)
     } else {
-        new_index = n;
+        Position::Index(n.max(0) as usize)
+    };
+    let cmd = PlayerCommand::Jump {
+        to,
+        fade: r.param_f64("_fadein"),
+        noplay: r.param_bool("_noplay"),
+        seek: r
+            .param("_seekdata")
+            .and_then(|s| s.split(':').next_back().and_then(|t| t.parse::<f64>().ok())),
+    };
+    if let Ok(o) = run(server, &p, cmd) {
+        if o.changed {
+            r.set_done();
+        }
     }
-    new_index = new_index.rem_euclid(count as i64);
-    let new_index = new_index as usize;
-    if noplay && c.is_stopped() {
-        c.reset_song_queue(Some(new_index));
-    } else {
-        c.play(Some(new_index), seek, fade);
-    }
-    c.save_playlist();
-    r.set_done();
 }
 
 pub fn playlist_save(server: &Arc<Server>, r: &mut Request) {
@@ -1097,8 +920,9 @@ pub async fn playlist_xitem(server: Arc<Server>, mut r: Request) -> Request {
     r
 }
 
-/// Add tracks to the playlist with LMS `playlistXtracksCommand` semantics.
-/// `cmd` is `load|play|add|insert|delete`.  Returns the result `index`.
+/// Put `entries` into the queue: `cmd` is `load`/`play` (replace and play from
+/// `play_index`), `add`, `insert` (after the current track) or `delete`.  Returns the
+/// queue index of the first entry.
 pub fn apply_tracks(
     server: &Arc<Server>,
     p: &Arc<Player>,
@@ -1107,61 +931,17 @@ pub fn apply_tracks(
     play_index: Option<usize>,
     fade: Option<f64>,
 ) -> usize {
-    let c = ctrl(p);
-    let mut c = c.lock();
-    let index;
-    match cmd {
-        "load" | "play" => {
-            c.stop();
-            c.playlist.clear();
-            c.queue.clear();
-            c.playlist.append(entries);
-            c.playlist.modified = false;
-            index = 0;
-            if !c.playlist.is_empty() {
-                let mut j = play_index.unwrap_or(0).min(c.playlist.len() - 1);
-                if c.playlist.shuffle != 0 && play_index.is_some() {
-                    c.playlist.jump_to_entry(j);
-                    j = c.playlist.current;
-                }
-                drop(c);
-                if !p.power() {
-                    server.set_power(p, true, true);
-                }
-                let cc = p.controller();
-                let mut c = cc.lock();
-                c.play(Some(j), None, fade);
-                playlist_changed(&mut c);
-                drop(c);
-                server
-                    .notifier
-                    .notify(Some(p.id), &["playlist", "jump", &j.to_string()]);
-                return index;
-            }
-        }
-        "add" => {
-            let n = entries.len();
-            c.playlist.append(entries);
-            index = c.playlist.len() - n;
-            c.playlist.modified = true;
-            c.next_if_streamed();
-        }
-        "insert" => {
-            index = c.streaming_song_index() + 1;
-            c.playlist.insert_after_current(entries);
-            c.playlist.modified = true;
-            c.next_if_streamed();
-            drop(c);
-            server
-                .notifier
-                .notify(Some(p.id), &["playlist", "load_done"]);
-            let cc = p.controller();
-            let mut c = cc.lock();
-            playlist_changed(&mut c);
-            return index;
-        }
+    let how = match cmd {
+        "load" | "play" => Enqueue::Play {
+            start: play_index,
+            fade,
+        },
+        "add" => Enqueue::Add,
+        "insert" => Enqueue::Next,
         "delete" => {
             let urls: Vec<String> = entries.into_iter().map(|e| e.url).collect();
+            let c = ctrl(p);
+            let mut c = c.lock();
             loop {
                 let pos = c
                     .playlist
@@ -1174,12 +954,15 @@ pub fn apply_tracks(
                 }
             }
             c.playlist.modified = true;
-            index = 0;
+            playlist_changed(&mut c);
+            return 0;
         }
-        _ => index = 0,
-    }
-    playlist_changed(&mut c);
-    index
+        _ => return 0,
+    };
+    run(server, p, PlayerCommand::Enqueue { entries, how })
+        .ok()
+        .and_then(|o| o.index)
+        .unwrap_or(0)
 }
 
 /// `playlist <cmd>tracks <what> [listref] [fadein] [index]`.

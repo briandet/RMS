@@ -1,6 +1,7 @@
 //! Players: identity, connection, capabilities and audio settings (`Slim::Player::Client`
 //! / `Slim::Player::Squeezebox2` / `Slim::Player::SqueezePlay`).
 
+pub mod command;
 pub mod connection;
 pub mod controller;
 pub mod playlist;
@@ -209,10 +210,6 @@ impl Capabilities {
     pub fn is_wiim(&self) -> bool {
         self.model_name.to_ascii_lowercase().contains("wiim")
     }
-
-    pub fn supports_format(&self, fmt: &str) -> bool {
-        self.formats.iter().any(|f| f == fmt)
-    }
 }
 
 /// Mutable per-player state.
@@ -240,7 +237,6 @@ pub struct PlayerState {
     pub temp_volume: Option<i32>,
     /// Absolute server time at which the player should go to sleep (0 = none).
     pub sleep_time: f64,
-    pub sleep_at_end_of_song: bool,
 
     // Slimproto status tracking
     pub last_stat: Option<Stat>,
@@ -261,7 +257,6 @@ pub struct PlayerState {
 
     /// Name query (`setd 0`) outstanding.
     pub name_query_pending: bool,
-    pub needs_upgrade: bool,
     pub is_upgrading: bool,
 
     /// Remote stream start time (for elapsed estimation on live streams).
@@ -289,6 +284,9 @@ pub struct Player {
     pub controller: RwLock<Arc<Mutex<Controller>>>,
     /// Cancelled whenever the player's current HTTP stream must stop.
     stream_cancel: Mutex<CancellationToken>,
+    /// Streams of earlier tracks still being served (bridged players read a track's
+    /// stream while the next one starts); closed with the current one.
+    earlier_streams: Mutex<Vec<CancellationToken>>,
     /// Incremented for every `strm s`; the `/stream.mp3` handler refuses stale generations.
     pub stream_generation: AtomicU64,
     /// Stream the player will fetch from `/stream.mp3` for the current generation.
@@ -338,7 +336,6 @@ impl Player {
             balance: prefs.get_i64("balance") as i32,
             temp_volume: None,
             sleep_time: 0.0,
-            sleep_at_end_of_song: false,
             last_stat: None,
             last_stat_at: 0.0,
             last_heard: now,
@@ -355,7 +352,6 @@ impl Player {
             signal_strength: 0,
             sequence_number: 0,
             name_query_pending: false,
-            needs_upgrade: false,
             is_upgrading: false,
             remote_stream_start: None,
             show_briefly: None,
@@ -372,6 +368,7 @@ impl Player {
             frames: RwLock::new(None),
             controller: RwLock::new(Arc::new(Mutex::new(Controller::placeholder(id)))),
             stream_cancel: Mutex::new(CancellationToken::new()),
+            earlier_streams: Mutex::new(Vec::new()),
             stream_generation: AtomicU64::new(0),
             pending_stream: Mutex::new(None),
             stream_password: Mutex::new(None),
@@ -400,18 +397,6 @@ impl Player {
 
     pub fn power(&self) -> bool {
         self.state.lock().power
-    }
-
-    pub fn model(&self) -> String {
-        self.state.lock().caps.model.clone()
-    }
-
-    pub fn ip(&self) -> String {
-        self.state
-            .lock()
-            .addr
-            .map(|a| a.to_string())
-            .unwrap_or_default()
     }
 
     pub fn set_frame_sender(&self, tx: Option<mpsc::UnboundedSender<ServerFrame>>) {
@@ -444,7 +429,28 @@ impl Player {
     pub fn new_stream_generation(&self) -> u64 {
         let old = std::mem::replace(&mut *self.stream_cancel.lock(), CancellationToken::new());
         old.cancel();
+        for t in self.earlier_streams.lock().drain(..) {
+            t.cancel();
+        }
         self.stream_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Start the stream of the next track while the current one may still be read: a
+    /// bridged device asks for the next track before it has fetched all of the current one.
+    pub fn next_stream_generation(&self) -> u64 {
+        let old = std::mem::replace(&mut *self.stream_cancel.lock(), CancellationToken::new());
+        let mut earlier = self.earlier_streams.lock();
+        earlier.retain(|t| !t.is_cancelled());
+        earlier.push(old);
+        self.stream_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// A player bridged by RMS itself (a browser, a UPnP, Cast or AirPlay device).
+    pub fn is_bridged(&self) -> bool {
+        matches!(
+            self.state.lock().caps.model.as_str(),
+            "browser" | "upnp" | "chromecast" | "airplay"
+        )
     }
 
     pub fn stream_cancel_token(&self) -> CancellationToken {
@@ -773,9 +779,5 @@ impl PlayerState {
 
     pub fn jiffies_to_timestamp(&self, jiffies: u32) -> Option<f64> {
         self.jiffies_epoch.map(|e| e + jiffies as f64 / 1000.0)
-    }
-
-    pub fn is_synced_capable(&self) -> bool {
-        true
     }
 }

@@ -181,11 +181,7 @@ pub fn rescanprogress(server: &Arc<Server>, r: &mut Request) {
     if p.running || server.library.is_scanning() {
         r.add_result("rescan", 1);
         if !p.step.is_empty() {
-            let pct = if p.total > 0 {
-                (p.done * 100 / p.total) as i64
-            } else {
-                -1
-            };
+            let pct = (p.done * 100).checked_div(p.total).map_or(-1, |v| v as i64);
             r.add_result(&p.step, pct);
             r.add_result("steps", p.step.clone());
         }
@@ -330,14 +326,14 @@ pub fn readdirectory(_: &Arc<Server>, r: &mut Request) {
                 "filesonly" => !is_dir,
                 "musicfiles" => {
                     is_dir
-                        || crate::server::content_type_for_ext(&crate::util::extension(&e.path()))
-                            != ""
+                        || !crate::server::content_type_for_ext(&crate::util::extension(&e.path()))
+                            .is_empty()
                 }
                 f if f.starts_with("filetype:") => {
                     is_dir
                         || name
                             .to_lowercase()
-                            .ends_with(&format!(".{}", &f[9..].to_lowercase()))
+                            .ends_with(&format!(".{}", f[9..].to_lowercase()))
                 }
                 "" => true,
                 f => regex::RegexBuilder::new(f)

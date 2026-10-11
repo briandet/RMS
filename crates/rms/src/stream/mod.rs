@@ -620,10 +620,17 @@ pub fn send_stream_start(
     let track = &song.track;
     match song.stream_format.as_str() {
         "pcm" | "wav" | "aif" => {
-            let transcoded = matches!(
-                song.spec.as_ref().map(|s| &s.source),
-                Some(SourceKind::Ffmpeg { .. })
-            );
+            let ffmpeg = match song.spec.as_ref().map(|s| &s.source) {
+                Some(SourceKind::Ffmpeg { args }) => Some(args),
+                _ => None,
+            };
+            let transcoded = ffmpeg.is_some();
+            // resampled for a player that can't take the track's rate
+            let rate = ffmpeg
+                .and_then(|a| a.windows(2).find(|w| w[0] == "-ar"))
+                .and_then(|w| w[1].parse().ok())
+                .or(track.samplerate)
+                .unwrap_or(44100);
             let bits = if transcoded {
                 if track.samplesize.unwrap_or(16) > 16 {
                     24
@@ -639,7 +646,7 @@ pub fn send_stream_start(
             } else {
                 track.channels.unwrap_or(2)
             };
-            h = h.with_pcm(bits, track.samplerate.unwrap_or(44100), chans, little);
+            h = h.with_pcm(bits, rate, chans, little);
         }
         "flc" => {
             if track.samplerate.unwrap_or(0) >= 88200 {
@@ -745,7 +752,11 @@ pub fn send_stream_start(
         s.ready_to_stream = false;
         s.buffer_ready = false;
     }
-    let gen = player.new_stream_generation();
+    let gen = if player.is_bridged() {
+        player.next_stream_generation()
+    } else {
+        player.new_stream_generation()
+    };
     if let Some(spec) = &song.spec {
         let mut spec = spec.clone();
         spec.shared = p.shared.clone();

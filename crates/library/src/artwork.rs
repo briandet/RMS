@@ -145,10 +145,8 @@ pub fn resize_image(src: &[u8], spec: &str) -> Option<(Vec<u8>, String)> {
         .map(|c| (c[1].to_string(), c[2].to_string()));
     let mut width = s.width.filter(|w| *w > 0);
     let mut height = s.height.filter(|h| *h > 0);
-    if width.is_none() && height.is_none() {
-        if explicit.is_none() || explicit == Some(in_fmt) {
-            return Some((src.to_vec(), ct_of(in_fmt)));
-        }
+    if width.is_none() && height.is_none() && (explicit.is_none() || explicit == Some(in_fmt)) {
+        return Some((src.to_vec(), ct_of(in_fmt)));
     }
     if let Some((w, h)) = &wh_raw {
         let bad = |v: &str| v != "X" && v.parse::<u32>().is_err();

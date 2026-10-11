@@ -86,14 +86,9 @@ impl ServerInfo {
     /// 17-byte legacy name field: at most 16 ISO-8859-1 bytes then NUL padding.
     pub fn legacy_name(&self) -> [u8; 17] {
         let mut out = [0u8; 17];
-        let mut n = 0;
-        for ch in self.name.chars() {
-            if n >= 16 {
-                break;
-            }
+        for (n, ch) in self.name.chars().take(16).enumerate() {
             let c = ch as u32;
             out[n] = if c <= 0xff { c as u8 } else { b'?' };
-            n += 1;
         }
         out
     }

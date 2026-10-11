@@ -43,8 +43,73 @@ pub fn va_id_cfg(c: &Connection, cfg: &LibraryConfig) -> Option<i64> {
     .flatten()
 }
 
+/// The FTS5 query for a search: every word, as a prefix (`"bea"* "abb"*`), or `None`
+/// when no word has a letter or digit.
+pub fn fts_query(rules: &TextRules, search: &str) -> Option<String> {
+    let words: Vec<String> = rules
+        .normalize_search(search)
+        .split_whitespace()
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .map(|w| format!("\"{}\"*", w.replace('"', "\"\"")))
+        .collect();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// The full-text index over a search column, if it has one: (table, index).
+fn fts_index(col: &str) -> Option<(&'static str, &'static str)> {
+    match col {
+        "tracks.search_text" => Some(("tracks", "tracks_fts")),
+        "albums.search_text" => Some(("albums", "albums_fts")),
+        "artists.name_search" => Some(("artists", "artists_fts")),
+        _ => None,
+    }
+}
+
 /// Multi-word search (each word must match at a word start). Returns (where clause, params, order expr).
 pub fn search_clause(
+    rules: &TextRules,
+    cfg: &LibraryConfig,
+    search: &str,
+    col: &str,
+    title_col: &str,
+) -> (String, Vec<String>, String) {
+    match fts_index(col) {
+        Some((table, index)) => fts_clause(rules, cfg, search, table, index, col, title_col),
+        None => like_clause(rules, cfg, search, col, title_col),
+    }
+}
+
+/// [`search_clause`] through the full-text index `index` of the rows `alias.id`.  The index
+/// finds word starts; substring search (`searchSubString`) falls back to LIKE on `col`.
+pub(crate) fn fts_clause(
+    rules: &TextRules,
+    cfg: &LibraryConfig,
+    search: &str,
+    alias: &str,
+    index: &str,
+    col: &str,
+    title_col: &str,
+) -> (String, Vec<String>, String) {
+    if cfg.search_substring {
+        return like_clause(rules, cfg, search, col, title_col);
+    }
+    let order = title_order(rules, cfg, search, title_col);
+    match fts_query(rules, search) {
+        Some(q) => (
+            format!("{alias}.id IN (SELECT rowid FROM {index} WHERE {index} MATCH ?)"),
+            vec![q],
+            order,
+        ),
+        None => ("1".into(), Vec::new(), order),
+    }
+}
+
+/// Title matches first: the order expression of [`search_clause`].
+fn title_order(rules: &TextRules, cfg: &LibraryConfig, search: &str, title_col: &str) -> String {
+    like_clause(rules, cfg, search, title_col, title_col).2
+}
+
+fn like_clause(
     rules: &TextRules,
     cfg: &LibraryConfig,
     search: &str,
@@ -2273,7 +2338,16 @@ fn search(
         let from = format!("FROM {} me ", table);
         let mut w: Vec<String> = Vec::new();
         let mut p: Vec<SqlValue> = Vec::new();
-        let (clause, params, order) = search_clause(&rules, cfg, &term, col, title_col);
+        let index = match *table {
+            "tracks" => Some("tracks_fts"),
+            "albums" => Some("albums_fts"),
+            "artists" => Some("artists_fts"),
+            _ => None,
+        };
+        let (clause, params, order) = match index {
+            Some(index) => fts_clause(&rules, cfg, &term, "me", index, col, title_col),
+            None => search_clause(&rules, cfg, &term, col, title_col),
+        };
         w.push(clause);
         p.extend(params.into_iter().map(SqlValue::Text));
         let mut sql = format!("SELECT {} {}WHERE {} ", cols, from, w.join(" AND "));

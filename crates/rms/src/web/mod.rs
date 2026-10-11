@@ -65,24 +65,27 @@ async fn stream_handler(
         return (StatusCode::NOT_FOUND, "unknown player").into_response();
     };
     if server.prefs.server.get_bool("authorize") {
-        let ok = headers
+        let authorization = headers
             .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Basic "))
-            .and_then(|b| {
-                use base64::Engine;
-                base64::engine::general_purpose::STANDARD
-                    .decode(b.trim())
-                    .ok()
-            })
-            .map(|d| String::from_utf8_lossy(&d).to_string())
-            .map(|cred| {
-                Some(cred)
-                    == player
-                        .stream_password()
-                        .map(|p| format!("squeezeboxXXX:{}", p))
-            })
-            .unwrap_or(false);
+            .and_then(|v| v.to_str().ok());
+        // the player's own stream password, or the web UI's sign-in (a browser player)
+        let ok = auth::authorized(&server, authorization)
+            || authorization
+                .and_then(|v| v.strip_prefix("Basic "))
+                .and_then(|b| {
+                    use base64::Engine;
+                    base64::engine::general_purpose::STANDARD
+                        .decode(b.trim())
+                        .ok()
+                })
+                .map(|d| String::from_utf8_lossy(&d).to_string())
+                .map(|cred| {
+                    Some(cred)
+                        == player
+                            .stream_password()
+                            .map(|p| format!("squeezeboxXXX:{}", p))
+                })
+                .unwrap_or(false);
         if !ok {
             return (StatusCode::UNAUTHORIZED, "").into_response();
         }

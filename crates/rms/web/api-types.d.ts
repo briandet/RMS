@@ -229,6 +229,18 @@ export type ServerSettings = { library_name: string, media_dirs: Array<string>,
  */
 watch_folders: boolean, 
 /**
+ * UPnP / DLNA renderers on the network play as players.
+ */
+upnp_players: boolean, 
+/**
+ * Chromecasts on the network play as players.
+ */
+chromecast_players: boolean, 
+/**
+ * AirPlay speakers on the network play as players.
+ */
+airplay_players: boolean, 
+/**
  * Folder with pictures named after artists; empty for none.
  */
 art_folder: string, online_artist_images: boolean, 
@@ -241,7 +253,7 @@ spotify_client_id: string,
  */
 spotify_bitrate: number, spotify_normalisation: boolean, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 
@@ -286,3 +298,13 @@ export type DisplaySettings = {
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
 export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, };
+
+export type ToRenderer = { "type": "load", url: string, format: string, 
+/**
+ * For `pcm`.
+ */
+pcm?: Pcm, autostart: boolean, } | { "type": "preload", url: string, format: string, pcm?: Pcm, } | { "type": "pause" } | { "type": "resume", at?: number, } | { "type": "stop" } | { "type": "volume", volume: number, muted: boolean, } | { "type": "hold", ms: number, } | { "type": "skip", ms: number, };
+
+export type FromRenderer = { "type": "ready" } | { "type": "started" } | { "type": "progress", elapsed: number, duration?: number, jiffies?: number, } | { "type": "clock", jiffies: number, } | { "type": "fetched" } | { "type": "paused" } | { "type": "resumed" } | { "type": "ended" } | { "type": "error", message: string, };
+
+export type Pcm = { bits: number, rate: number, channels: number, little_endian: boolean, };

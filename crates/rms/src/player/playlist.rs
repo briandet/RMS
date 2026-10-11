@@ -13,9 +13,10 @@ pub const SHUFFLE_OFF: u8 = 0;
 pub const SHUFFLE_SONGS: u8 = 1;
 pub const SHUFFLE_ALBUMS: u8 = 2;
 
-pub const REPEAT_OFF: u8 = 0;
-pub const REPEAT_ONE: u8 = 1;
-pub const REPEAT_ALL: u8 = 2;
+#[cfg(test)]
+const REPEAT_ONE: u8 = 1;
+#[cfg(test)]
+const REPEAT_ALL: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
@@ -70,11 +71,7 @@ impl Playlist {
         self.order.get(pos).and_then(|&i| self.entries.get(i))
     }
 
-    pub fn song_mut(&mut self, pos: usize) -> Option<&mut Entry> {
-        let i = *self.order.get(pos)?;
-        self.entries.get_mut(i)
-    }
-
+    #[cfg(test)]
     pub fn current_song(&self) -> Option<&Entry> {
         self.song(self.current)
     }
@@ -156,6 +153,7 @@ impl Playlist {
         self.touch();
     }
 
+    #[cfg(test)]
     /// Replace the whole list (`playlist play`/`loadtracks`).
     pub fn load(&mut self, new: Vec<Entry>, start_index: Option<usize>) {
         self.entries = new;
@@ -299,6 +297,7 @@ impl Playlist {
         groups.into_iter().flatten().collect()
     }
 
+    #[cfg(test)]
     /// Index of the track that follows `pos` according to repeat mode (`nextsong`).
     /// Returns `None` at the end of the playlist when repeat is off.
     pub fn next_index(&self, pos: usize) -> Option<usize> {
@@ -318,18 +317,6 @@ impl Playlist {
         } else {
             Some(next)
         }
-    }
-
-    /// Index of the previous track (wrapping).
-    pub fn prev_index(&self, pos: usize) -> Option<usize> {
-        if self.order.is_empty() {
-            return None;
-        }
-        Some(if pos == 0 {
-            self.order.len() - 1
-        } else {
-            pos - 1
-        })
     }
 }
 

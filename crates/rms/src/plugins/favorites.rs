@@ -20,12 +20,6 @@ pub struct Fav {
     pub children: Vec<Fav>,
 }
 
-impl Fav {
-    pub fn is_folder(&self) -> bool {
-        self.url.is_none()
-    }
-}
-
 pub struct Favorites {
     path: PathBuf,
     root: RwLock<Vec<Fav>>,
@@ -466,18 +460,10 @@ fn exists(server: &Arc<Server>, r: &mut Request) {
 }
 
 /// `favorites playlist play|add|insert|load item_id:x`.
-async fn playlist(server: Arc<Server>, mut r: Request) -> Request {
-    let Some(p) = crate::control::commands::player(&server, &r) else {
-        r.bad_dispatch();
-        return r;
-    };
-    let Some(id) = r.param("item_id").map(str::to_string) else {
-        r.bad_params();
-        return r;
-    };
-    let Some(fav) = server.favorites.get(&id) else {
-        r.bad_params();
-        return r;
+/// What a favorite (or each favorite of a folder) plays, as queue entries.
+pub async fn entries(server: &Arc<Server>, id: &str) -> Vec<crate::player::playlist::Entry> {
+    let Some(fav) = server.favorites.get(id) else {
+        return Vec::new();
     };
     let mut urls: Vec<(String, String)> = Vec::new();
     match &fav.url {
@@ -495,15 +481,35 @@ async fn playlist(server: Arc<Server>, mut r: Request) -> Request {
         if crate::util::is_remote_url(&u) {
             server.remote_titles.insert(u.clone(), title);
         }
-        entries.extend(crate::control::commands::expand_item(&server, &u).await);
+        entries.extend(crate::control::commands::expand_item(server, &u).await);
     }
-    let method = r.param("_method").unwrap_or("play").to_string();
-    let cmd = match method.as_str() {
-        "add" => "add",
-        "insert" => "insert",
-        _ => "load",
+    entries
+}
+
+async fn playlist(server: Arc<Server>, mut r: Request) -> Request {
+    use crate::player::command::{run, Enqueue, PlayerCommand};
+    let Some(p) = crate::control::commands::player(&server, &r) else {
+        r.bad_dispatch();
+        return r;
     };
-    crate::control::commands::apply_tracks(&server, &p, cmd, entries, None, None);
+    let Some(id) = r.param("item_id").map(str::to_string) else {
+        r.bad_params();
+        return r;
+    };
+    if server.favorites.get(&id).is_none() {
+        r.bad_params();
+        return r;
+    }
+    let entries = entries(&server, &id).await;
+    let how = match r.param("_method").unwrap_or("play") {
+        "add" => Enqueue::Add,
+        "insert" => Enqueue::Next,
+        _ => Enqueue::Play {
+            start: None,
+            fade: None,
+        },
+    };
+    let _ = run(&server, &p, PlayerCommand::Enqueue { entries, how });
     r.set_done();
     r
 }

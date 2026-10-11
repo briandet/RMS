@@ -45,6 +45,13 @@ pub fn server_defaults() -> PrefMap {
         ("maxRedirects", json!(7)),
         ("maxPlaylistLength", json!(2500)),
         ("precacheArtwork", json!(1)),
+        // network devices as players (bridge::devices), and ones given by hand
+        ("bridgeUpnp", json!(0)),
+        ("bridgeChromecast", json!(0)),
+        ("bridgeAirplay", json!(0)),
+        ("upnpRenderers", json!([])),
+        ("chromecastHosts", json!([])),
+        ("airplayHosts", json!([])),
         // watch the music folders (Lyrion's default is off)
         ("autorescan", json!(1)),
         ("disableStatistics", json!(0)),
@@ -307,12 +314,6 @@ impl PrefStore {
         self.save();
     }
 
-    pub fn all(&self) -> PrefMap {
-        let mut m = self.defaults.clone();
-        m.extend(self.values.read().clone());
-        m
-    }
-
     pub fn save(&self) {
         let values = self.values.read().clone();
         if let Some(parent) = self.path.parent() {
@@ -363,10 +364,6 @@ impl Prefs {
         }
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
     /// Per-player prefs, created on first use.
     pub fn player(&self, id: &str) -> Arc<PrefStore> {
         if let Some(p) = self.players.read().get(id) {
@@ -384,6 +381,7 @@ impl Prefs {
         store
     }
 
+    #[cfg(test)]
     /// Ids of players that have a prefs file on disk (used to list "known" players).
     pub fn known_players(&self) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();

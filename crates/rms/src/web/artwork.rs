@@ -242,7 +242,6 @@ pub(crate) async fn download(server: &Arc<Server>, id: &str, headers: &HeaderMap
             };
             (s <= e && e < len).then_some((s, e))
         })
-        .map(|(s, e)| (s, e))
         .unwrap_or((0, len.saturating_sub(1)));
     let partial = headers.contains_key(header::RANGE);
     let spec = crate::stream::StreamSpec {

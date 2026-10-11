@@ -5,7 +5,7 @@
 //! (playing state × streaming state) whose transition table is reproduced verbatim from the
 //! reference server in [`action_for`].
 
-use super::playlist::{Entry, Playlist};
+use super::playlist::Playlist;
 use super::song::{RetryData, Song, SongStatus, TrackInfo};
 use super::Player;
 use crate::server::Server;
@@ -263,7 +263,6 @@ pub struct EvParams {
     /// New time for JumpToTime: absolute, or relative when prefixed with `+`/`-`.
     pub newtime: Option<String>,
     pub restart_if_no_seek: bool,
-    pub bytes_received: Option<u64>,
     pub error_disconnect: bool,
     pub error_index: Option<usize>,
 }
@@ -1121,7 +1120,7 @@ impl Controller {
             }
             let delta = (t - ref_time).abs();
             let min_adj = p.prefs.get_i64("minSyncAdjust") as f64 / 1000.0;
-            if delta > MAX_DEVIATION_ADJUST || delta < MIN_DEVIATION_ADJUST || delta < min_adj {
+            if !(MIN_DEVIATION_ADJUST..=MAX_DEVIATION_ADJUST).contains(&delta) || delta < min_adj {
                 continue;
             }
             if i < reference {
@@ -1829,26 +1828,13 @@ impl Controller {
         self.event(Event::LocalEndOfStream, EvParams::default());
     }
 
-    pub fn player_reconnect(&mut self, bytes_received: Option<u64>) {
+    pub fn player_reconnect(&mut self) {
         if self.streaming_song().is_some() {
-            self.event(
-                Event::ContinuePlay,
-                EvParams {
-                    bytes_received,
-                    ..Default::default()
-                },
-            );
+            self.event(Event::ContinuePlay, EvParams::default());
         }
     }
 
     // ---- sync group membership ------------------------------------------------------
-
-    pub fn contains(&self, id: MacAddress) -> bool {
-        self.all_players
-            .iter()
-            .filter_map(Weak::upgrade)
-            .any(|p| p.id == id)
-    }
 
     pub fn is_active(&self, id: MacAddress) -> bool {
         self.players
@@ -2100,12 +2086,6 @@ fn replay_gain_for(
         }
     }
     Some(g)
-}
-
-impl Entry {
-    pub fn is_remote(&self) -> bool {
-        crate::util::is_remote_url(&self.url)
-    }
 }
 
 #[allow(unused)]

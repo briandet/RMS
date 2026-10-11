@@ -169,20 +169,29 @@ fn query<T>(
     }
 }
 
-/// `col LIKE` clauses that each search word must match (at a word start), with params.
-fn word_clauses(rules: &TextRules, search: &str, col: &str) -> (String, Vec<SqlValue>) {
-    let norm = rules.normalize_search(search);
-    let mut clauses = Vec::new();
-    let mut params = Vec::new();
-    for w in norm.split_whitespace() {
-        clauses.push(format!("({col} LIKE ? OR {col} LIKE ?)"));
-        params.push(SqlValue::Text(format!("{w}%")));
-        params.push(SqlValue::Text(format!("% {w}%")));
-    }
-    if clauses.is_empty() {
-        ("1".into(), params)
-    } else {
-        (clauses.join(" AND "), params)
+/// Rows of a full-text index matching every word of `search`, best first: a `WITH m`
+/// (id, rank) prefix and the join onto it, with their params; everything (rank 0) when
+/// `search` has no words.  Materialized, so that `bm25` stays in its own query.
+fn ranked(
+    rules: &TextRules,
+    search: &str,
+    index: &str,
+    alias: &str,
+) -> (String, String, Vec<SqlValue>) {
+    match crate::queries::fts_query(rules, search) {
+        Some(q) => (
+            format!(
+                "WITH m AS MATERIALIZED (SELECT rowid AS id, bm25({index}) AS rank FROM {index}
+                   WHERE {index} MATCH ?)"
+            ),
+            format!("JOIN m ON m.id = {alias}.id"),
+            vec![SqlValue::Text(q)],
+        ),
+        None => (
+            "WITH m AS (SELECT 0 AS rank)".into(),
+            "CROSS JOIN m".into(),
+            Vec::new(),
+        ),
     }
 }
 
@@ -416,37 +425,30 @@ impl Library {
         };
         let rules = self.rules();
         let mut found = Found::default();
+        // best matches first, then by name
         if artists.count > 0 {
-            let (w, p) = word_clauses(&rules, search, "artists.name_search");
+            let (with, m, p) = ranked(&rules, search, "artists_fts", "artists");
             let sql = format!(
-                "{ARTIST_SELECT} WHERE {w} GROUP BY artists.id
-                 ORDER BY artists.name_sort COLLATE NOCASE, artists.id{}",
+                "{with} {ARTIST_SELECT} {m} GROUP BY artists.id
+                 ORDER BY m.rank, artists.name_sort COLLATE NOCASE, artists.id{}",
                 artists.sql()
             );
             found.artists = query(&c, &sql, &p, artist_row);
         }
         if albums.count > 0 {
-            let (w, p) = word_clauses(
-                &rules,
-                search,
-                "COALESCE(albums.search_text, albums.title_search)",
-            );
+            let (with, m, p) = ranked(&rules, search, "albums_fts", "albums");
             let sql = format!(
-                "{ALBUM_SELECT} WHERE {w} GROUP BY albums.id
-                 ORDER BY albums.title_sort COLLATE NOCASE, albums.id{}",
+                "{with} {ALBUM_SELECT} {m} GROUP BY albums.id
+                 ORDER BY m.rank, albums.title_sort COLLATE NOCASE, albums.id{}",
                 albums.sql()
             );
             found.albums = query(&c, &sql, &p, album_row);
         }
         if tracks.count > 0 {
-            let (w, p) = word_clauses(
-                &rules,
-                search,
-                "COALESCE(tracks.search_text, tracks.title_search)",
-            );
+            let (with, m, p) = ranked(&rules, search, "tracks_fts", "tracks");
             let sql = format!(
-                "SELECT tracks.id FROM tracks WHERE {w}
-                 ORDER BY tracks.title_sort COLLATE NOCASE, tracks.id{}",
+                "{with} SELECT tracks.id FROM tracks {m}
+                 ORDER BY m.rank, tracks.title_sort COLLATE NOCASE, tracks.id{}",
                 tracks.sql()
             );
             let ids = query(&c, &sql, &p, |r| r.get(0));

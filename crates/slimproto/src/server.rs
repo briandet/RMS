@@ -30,6 +30,23 @@ pub enum Format {
 }
 
 impl Format {
+    pub fn from_byte(b: u8) -> Option<Format> {
+        Some(match b {
+            b'p' => Format::Pcm,
+            b'm' => Format::Mp3,
+            b'f' => Format::Flac,
+            b'w' => Format::Wma,
+            b'o' => Format::Ogg,
+            b'u' => Format::Opus,
+            b'l' => Format::Alac,
+            b'a' => Format::Aac,
+            b'd' => Format::Dsd,
+            b's' => Format::SqueezePlayDirect,
+            b'n' => Format::Test,
+            _ => return None,
+        })
+    }
+
     pub fn byte(self) -> u8 {
         match self {
             Format::Pcm => b'p',
@@ -71,6 +88,17 @@ pub struct PcmSampleSize(pub u8);
 
 impl PcmSampleSize {
     pub const UNKNOWN: PcmSampleSize = PcmSampleSize(b'?');
+    /// Bits per sample of a `strm` sample-size byte (`?`: unknown).
+    pub fn bits(byte: u8) -> Option<u32> {
+        Some(match byte {
+            b'0' => 8,
+            b'1' => 16,
+            b'2' => 24,
+            b'3' => 32,
+            _ => return None,
+        })
+    }
+
     pub fn from_bits(bits: u32) -> PcmSampleSize {
         PcmSampleSize(match bits {
             8 => b'0',
@@ -88,6 +116,28 @@ pub struct PcmSampleRate(pub u8);
 
 impl PcmSampleRate {
     pub const UNKNOWN: PcmSampleRate = PcmSampleRate(b'?');
+    /// Hz of a `strm` sample-rate byte (`?`: unknown).
+    pub fn hz(byte: u8) -> Option<u32> {
+        Some(match byte {
+            b'0' => 11025,
+            b'1' => 22050,
+            b'2' => 32000,
+            b'3' => 44100,
+            b'4' => 48000,
+            b'5' => 8000,
+            b'6' => 12000,
+            b'7' => 16000,
+            b'8' => 24000,
+            b'9' => 96000,
+            b':' => 88200,
+            b';' => 176400,
+            b'<' => 192000,
+            b'=' => 352800,
+            b'>' => 384000,
+            _ => return None,
+        })
+    }
+
     pub fn from_hz(hz: u32) -> PcmSampleRate {
         PcmSampleRate(match hz {
             11025 => b'0',
@@ -176,7 +226,21 @@ pub enum StrmCommand {
 }
 
 impl StrmCommand {
-    fn byte(self) -> u8 {
+    pub fn from_byte(b: u8) -> Option<StrmCommand> {
+        Some(match b {
+            b's' => StrmCommand::Start,
+            b'p' => StrmCommand::Pause,
+            b'u' => StrmCommand::Unpause,
+            b'q' => StrmCommand::Stop,
+            b't' => StrmCommand::Status,
+            b'f' => StrmCommand::Flush,
+            b'a' => StrmCommand::SkipAhead,
+            b'i' => StrmCommand::Reserved,
+            _ => return None,
+        })
+    }
+
+    pub fn byte(self) -> u8 {
         match self {
             StrmCommand::Start => b's',
             StrmCommand::Pause => b'p',
@@ -304,6 +368,35 @@ impl StrmHeader {
             PcmEndian::Big.byte()
         };
         self
+    }
+
+    /// The header of a `strm` payload and what follows it (the HTTP request of `s`), as a
+    /// player reads it.
+    pub fn parse(p: &[u8]) -> Option<(StrmHeader, &[u8])> {
+        if p.len() < 24 {
+            return None;
+        }
+        let u32_at = |i: usize| u32::from_be_bytes([p[i], p[i + 1], p[i + 2], p[i + 3]]);
+        let header = StrmHeader {
+            command: StrmCommand::from_byte(p[0])?,
+            autostart: p[1],
+            format: Format::from_byte(p[2]).unwrap_or(Format::Mp3),
+            pcm_sample_size: p[3],
+            pcm_sample_rate: p[4],
+            pcm_channels: p[5],
+            pcm_endian: p[6],
+            buffer_threshold: p[7],
+            spdif_auto: p[8],
+            transition_duration: p[9],
+            transition_type: TransitionType::from_pref((p[10].wrapping_sub(b'0')) as i64),
+            flags: p[11],
+            output_threshold: p[12],
+            slave_streams: p[13],
+            replay_gain: u32_at(14),
+            server_port: u16::from_be_bytes([p[18], p[19]]),
+            server_ip: u32_at(20),
+        };
+        Some((header, &p[24..]))
     }
 
     pub fn encode(&self, out: &mut BytesMut) {
@@ -678,6 +771,25 @@ impl ServerFrame {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn strm_round_trip() {
+        let mut h = StrmHeader::start(Format::Flac, true);
+        h.server_port = 9123;
+        h.server_ip = 0x7f000001;
+        h.transition_type = TransitionType::Crossfade;
+        let mut b = BytesMut::new();
+        h.encode(&mut b);
+        b.extend_from_slice(b"GET /stream.mp3?player=x HTTP/1.0\r\n\r\n");
+        let (p, rest) = StrmHeader::parse(&b).unwrap();
+        assert_eq!(p.command, StrmCommand::Start);
+        assert_eq!(p.format, Format::Flac);
+        assert_eq!(p.autostart, b'1');
+        assert_eq!(p.server_port, 9123);
+        assert_eq!(p.server_ip, 0x7f000001);
+        assert_eq!(p.transition_type, TransitionType::Crossfade);
+        assert!(rest.starts_with(b"GET /stream.mp3"));
+    }
     use super::*;
 
     #[test]

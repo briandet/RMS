@@ -21,6 +21,9 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
         watch_folders: prefs.get_bool("autorescan"),
+        upnp_players: prefs.get_bool("bridgeUpnp"),
+        chromecast_players: prefs.get_bool("bridgeChromecast"),
+        airplay_players: prefs.get_bool("bridgeAirplay"),
         art_folder: prefs.get_str("artfolder"),
         online_artist_images: prefs.get_bool("onlineArtistImages"),
         spotify_client_id: prefs.get_str("spotifyClientId"),
@@ -77,6 +80,15 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.watch_folders {
         changes.push(("autorescan", flag(v)));
+    }
+    for (v, pref) in [
+        (patch.upnp_players, "bridgeUpnp"),
+        (patch.chromecast_players, "bridgeChromecast"),
+        (patch.airplay_players, "bridgeAirplay"),
+    ] {
+        if let Some(v) = v {
+            changes.push((pref, flag(v)));
+        }
     }
     if let Some(v) = patch.art_folder {
         changes.push(("artfolder", v.trim().to_string()));

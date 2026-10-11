@@ -380,10 +380,12 @@ mod tests {
 
     #[test]
     fn repeat_count_accelerates() {
-        let mut ir = IrState::default();
-        ir.start_ir_hold = 1.0;
-        ir.last_ir_time = 1.0 + 3.0;
-        ir.ir_time_diff = 0.108;
+        let mut ir = IrState {
+            start_ir_hold: 1.0,
+            last_ir_time: 1.0 + 3.0,
+            ir_time_diff: 0.108,
+            ..Default::default()
+        };
         let late = ir.repeat_count(50.0, 8.0);
         ir.last_ir_time = 1.0 + 0.5;
         let early = ir.repeat_count(50.0, 8.0);

@@ -10,8 +10,9 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Squeezebox 2/3/Classic, Boom, Receiver, Transporter, Touch, Radio | slimproto | ✔ playback, Now Playing screens, on-screen menus with the IR remote |
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
-| Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
+| Browser | built-in web UI at `http://<server>:9000/`, installable as an app | ✔ new responsive UI; the browser can be a player too (*Play in this browser*), in sync with Squeezeboxes |
 | New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, library, favorites, settings ([docs/api.md](docs/api.md)) |
+| UPnP/DLNA renderers, Chromecast, AirPlay speakers | bridged as players (Settings → Other players) | ✔ tested against simulated devices |
 | **Subsonic apps** (DSub, Symfonium, Ultrasonic, play:Sub, Amperfy, Feishin, …) | Subsonic / OpenSubsonic API (`/rest/*`) | ✔ browsing, streaming to the app, playlists, stars, jukebox ([docs/subsonic.md](docs/subsonic.md)) |
 
 ## Quick start
@@ -122,6 +123,22 @@ The script builds a release binary (the web UI is built in), installs it as
   an earlier release is converted on first start: it is backed up to
   `library.sqlite.lms-backup` first, history and analysis are kept, and the library is
   rescanned (going back: [docs/library-schema.md](docs/library-schema.md#converting-a-database-from-earlier-releases)).
+* **Bridged players** (`crates/rms/src/bridge`): devices that aren't Squeezeboxes join as
+  players through an in-process slimproto client per device, so the queue, sync groups,
+  alarms and every remote control work on them.  The first is the web browser: *Play in
+  this browser* (Settings) plays through Web Audio (an AudioWorklet fed raw samples),
+  gaplessly and in sync with the Squeezeboxes it is synced with: it reports exact play
+  points on its own clock, starts at the moment the server names and skips or waits when
+  told, as squeezelite does.  Turned off, or where the browser lacks Web Audio, it plays
+  through an `<audio>` element (only roughly in sync).  Lock-screen and media-key controls
+  come from Media Session.  Under *Other players*
+  the server can also find **UPnP/DLNA renderers** (SSDP), **Chromecasts** (mDNS) and
+  **AirPlay 1 speakers** (mDNS, ALAC over RAOP) on its network and add them as players (off
+  by default).  The devices fetch the audio from the server themselves, so they must reach
+  it on the network; where multicast discovery can't see them (other subnets, Docker without
+  host networking), list them in the prefs `upnpRenderers` (description URLs),
+  `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
+  pairing) are not supported; sync with these players is loose (they buffer by themselves).
 * **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
   copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
   folders that changed are scanned.  It uses the operating system's file notifications
@@ -262,6 +279,8 @@ Layout:
 crates/slimproto   wire protocol codec + discovery packets
 crates/library     SQLite schema, scanner, artwork, library queries
 crates/rms         the server: players, controller, streaming, control API, web UI
+crates/rms/src/player/command.rs  typed player commands: the one implementation behind
+                   the LMS commands, the native API and the Subsonic jukebox
 crates/rms/src/api the native API (/api/v1) and its event stream
 crates/rms/src/subsonic  the Subsonic API (/rest)
 crates/rms/web     the web UI (plain HTML/JS/CSS, embedded into the binary)
