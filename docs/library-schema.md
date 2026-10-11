@@ -22,10 +22,21 @@ are `STRICT`, and foreign keys are enforced.
 | `track_stats` | Listening history: play count, last played, rating, date added. |
 | `track_analysis` | Sonic analysis (bliss features) and loudness per audio content. |
 | `meta` | Key/value settings of the library (`last_scan`). |
+| `tracks_fts`, `albums_fts`, `artists_fts` | Full-text (FTS5) indexes over the search keys (`search_text`, `name_search`), kept in step by triggers. |
 
 Ids are only stable within one library: a wipe-and-rescan assigns new ones. Players and
 controllers keep URLs, and RMS resolves a saved queue entry by URL when its stored track id
 no longer matches.
+
+## Search
+
+Every search (players, SqueezePlay/Squeezer, the web UI, Subsonic apps) finds the items
+where each word of the query starts a word of the title, the album or the artists, in any
+order; case, accents and ignored articles don't matter.  The search keys are normalized
+when the scanner stores them, and the FTS5 indexes make finding them a lookup (about 1 ms
+for 100,000 tracks, where scanning the column took 25 ms).  Subsonic search lists the best
+matches (BM25) first.  Lyrion's *substring search* (`searchSubString`), which also matches
+inside words, still scans the columns.
 
 ## What survives what
 

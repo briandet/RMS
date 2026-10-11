@@ -980,6 +980,120 @@ fn a_folder_rescan_sees_what_changed_below_it() {
     assert_eq!(still.map(|t| t.id), other.map(|t| t.id));
 }
 
+fn titles_found(lib: &Library, search: &str) -> Vec<String> {
+    let r = run(lib, LibQueryName::Titles, 0, 100, &[("search", search)]);
+    let mut v: Vec<String> = lp(&r, "titles_loop")
+        .iter()
+        .map(|t| t["title"].as_str().unwrap().to_string())
+        .collect();
+    v.sort();
+    v
+}
+
+/// Search goes through the full-text index: every word must start a word of the title,
+/// album or artists, in any order, without regard to case or accents.
+#[test]
+fn full_text_search() {
+    need_ffmpeg!();
+    let f = common::build();
+    common::make_audio(
+        &f.media.join("Björk/Début/01 Human Behaviour.flac"),
+        1.0,
+        &[
+            ("title", "Human Behaviour"),
+            ("artist", "Björk"),
+            ("album", "Début"),
+        ],
+        None,
+    );
+    f.lib.scan(ScanMode::Full).unwrap();
+    assert_eq!(
+        titles_found(&f.lib, "song"),
+        ["Song One", "Song Two", "The Mp3 Song"]
+    );
+    // words in any order, across title, album and artist
+    assert_eq!(
+        titles_found(&f.lib, "two artist"),
+        ["Live Two", "Song Two", "The Mp3 Song"]
+    );
+    assert_eq!(titles_found(&f.lib, "song mp3"), ["The Mp3 Song"]);
+    assert_eq!(titles_found(&f.lib, "album two mp3"), ["The Mp3 Song"]);
+    // word starts, not the middle of words
+    assert_eq!(
+        titles_found(&f.lib, "so"),
+        ["Song One", "Song Two", "The Mp3 Song"]
+    );
+    assert!(titles_found(&f.lib, "ong").is_empty());
+    // case and accents
+    assert_eq!(titles_found(&f.lib, "BJORK debut"), ["Human Behaviour"]);
+    assert_eq!(titles_found(&f.lib, "björk"), ["Human Behaviour"]);
+    // punctuation alone matches everything, quotes are just characters
+    assert_eq!(titles_found(&f.lib, "\"human\""), ["Human Behaviour"]);
+    // albums and artists have their own indexes
+    let r = run(
+        &f.lib,
+        LibQueryName::Albums,
+        0,
+        10,
+        &[("search", "deb"), ("tags", "l")],
+    );
+    assert_eq!(lp(&r, "albums_loop")[0]["album"], "Début");
+    let r = run(&f.lib, LibQueryName::Artists, 0, 10, &[("search", "bjo")]);
+    assert_eq!(lp(&r, "artists_loop")[0]["artist"], "Björk");
+    let found = f.lib.search_all(
+        "human",
+        rms_library::catalog::Window::new(0, 10),
+        rms_library::catalog::Window::new(0, 10),
+        rms_library::catalog::Window::new(0, 10),
+    );
+    assert_eq!(found.tracks.len(), 1);
+
+    // the index follows changes: a retag, a removed file, a wipe
+    common::make_audio(
+        &f.media.join("Björk/Début/01 Human Behaviour.flac"),
+        1.5,
+        &[
+            ("title", "Venus as a Boy"),
+            ("artist", "Björk"),
+            ("album", "Début"),
+        ],
+        None,
+    );
+    f.lib.scan(ScanMode::Full).unwrap();
+    assert!(titles_found(&f.lib, "human").is_empty());
+    assert_eq!(titles_found(&f.lib, "venus boy"), ["Venus as a Boy"]);
+    std::fs::remove_dir_all(f.media.join("Björk")).unwrap();
+    f.lib.scan(ScanMode::Full).unwrap();
+    assert!(titles_found(&f.lib, "venus").is_empty());
+    f.lib.scan(ScanMode::Wipe).unwrap();
+    assert_eq!(titles_found(&f.lib, "mp3 song"), ["The Mp3 Song"]);
+}
+
+/// A database from before the search index gets it, filled, when it is opened.
+#[test]
+fn the_search_index_is_built_for_an_older_database() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let db = f.dir.path().join("library.db");
+    {
+        // back to schema version 1
+        let c = rusqlite::Connection::open(&db).unwrap();
+        c.execute_batch(
+            "DROP TABLE tracks_fts; DROP TABLE albums_fts; DROP TABLE artists_fts;
+             DROP TRIGGER tracks_fts_insert; DROP TRIGGER tracks_fts_delete;
+             DROP TRIGGER tracks_fts_update; DROP TRIGGER albums_fts_insert;
+             DROP TRIGGER albums_fts_delete; DROP TRIGGER albums_fts_update;
+             DROP TRIGGER artists_fts_insert; DROP TRIGGER artists_fts_delete;
+             DROP TRIGGER artists_fts_update;
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+    let lib = Library::open(&db, &f.dir.path().join("cache")).unwrap();
+    assert_eq!(titles_found(&lib, "mp3"), ["The Mp3 Song"]);
+}
+
 #[test]
 fn contributor_portraits() {
     need_ffmpeg!();
@@ -1169,7 +1283,7 @@ fn converts_a_lyrion_schema_database() {
         let v: i64 = c
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, rms_library::db::SCHEMA_VERSION);
         let old: i64 = c
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_schema WHERE name IN ('metainformation', 'tracks_persistent', 'contributors')",

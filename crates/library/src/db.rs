@@ -24,7 +24,7 @@ pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 /// `MIGRATIONS[n]` takes a database from version `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2_SEARCH];
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE meta (
@@ -241,6 +241,62 @@ CREATE TABLE track_analysis (
   peak        REAL,
   analyzed_at INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
+"#;
+
+/// Full-text indexes over the search keys (`search_text`: title, album and artists of a
+/// track or album; `name_search` of an artist), so multi-word search is an index lookup
+/// instead of a scan of every row.  They hold no text of their own (`content=`) and
+/// triggers keep them in step with their tables.
+const SCHEMA_V2_SEARCH: &str = r#"
+CREATE VIRTUAL TABLE tracks_fts USING fts5 (
+  search_text, content = 'tracks', content_rowid = 'id',
+  tokenize = 'unicode61 remove_diacritics 2', prefix = '1 2 3'
+);
+CREATE VIRTUAL TABLE albums_fts USING fts5 (
+  search_text, content = 'albums', content_rowid = 'id',
+  tokenize = 'unicode61 remove_diacritics 2', prefix = '1 2 3'
+);
+CREATE VIRTUAL TABLE artists_fts USING fts5 (
+  name_search, content = 'artists', content_rowid = 'id',
+  tokenize = 'unicode61 remove_diacritics 2', prefix = '1 2 3'
+);
+
+CREATE TRIGGER tracks_fts_insert AFTER INSERT ON tracks BEGIN
+  INSERT INTO tracks_fts (rowid, search_text) VALUES (new.id, new.search_text);
+END;
+CREATE TRIGGER tracks_fts_delete AFTER DELETE ON tracks BEGIN
+  INSERT INTO tracks_fts (tracks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+END;
+CREATE TRIGGER tracks_fts_update AFTER UPDATE OF search_text ON tracks BEGIN
+  INSERT INTO tracks_fts (tracks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+  INSERT INTO tracks_fts (rowid, search_text) VALUES (new.id, new.search_text);
+END;
+
+CREATE TRIGGER albums_fts_insert AFTER INSERT ON albums BEGIN
+  INSERT INTO albums_fts (rowid, search_text) VALUES (new.id, new.search_text);
+END;
+CREATE TRIGGER albums_fts_delete AFTER DELETE ON albums BEGIN
+  INSERT INTO albums_fts (albums_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+END;
+CREATE TRIGGER albums_fts_update AFTER UPDATE OF search_text ON albums BEGIN
+  INSERT INTO albums_fts (albums_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+  INSERT INTO albums_fts (rowid, search_text) VALUES (new.id, new.search_text);
+END;
+
+CREATE TRIGGER artists_fts_insert AFTER INSERT ON artists BEGIN
+  INSERT INTO artists_fts (rowid, name_search) VALUES (new.id, new.name_search);
+END;
+CREATE TRIGGER artists_fts_delete AFTER DELETE ON artists BEGIN
+  INSERT INTO artists_fts (artists_fts, rowid, name_search) VALUES ('delete', old.id, old.name_search);
+END;
+CREATE TRIGGER artists_fts_update AFTER UPDATE OF name_search ON artists BEGIN
+  INSERT INTO artists_fts (artists_fts, rowid, name_search) VALUES ('delete', old.id, old.name_search);
+  INSERT INTO artists_fts (rowid, name_search) VALUES (new.id, new.name_search);
+END;
+
+INSERT INTO tracks_fts (tracks_fts) VALUES ('rebuild');
+INSERT INTO albums_fts (albums_fts) VALUES ('rebuild');
+INSERT INTO artists_fts (artists_fts) VALUES ('rebuild');
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).
