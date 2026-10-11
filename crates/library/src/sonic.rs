@@ -6,11 +6,13 @@
 //! * [`Library::analyze_pending`] runs in the background after a scan: it decodes each local
 //!   track that has no current analysis (in-process with symphonia, or with ffmpeg for formats
 //!   symphonia lacks and for cue-sheet tracks) and stores the features in `track_analysis`,
-//!   keyed by `urlmd5` with the file's mtime and size so changed files are redone.
+//!   keyed by `urlmd5` with the file's mtime and size so changed files are redone.  The same
+//!   pass measures loudness for ReplayGain ([`crate::loudness`]).
 //! * [`Index`] holds every analysed track's features in memory for nearest-neighbour search
 //!   with bliss's weighted distance; the mixer uses it to rank candidates and to leave out
 //!   [near duplicates](Index::near_duplicate).
 
+use crate::loudness::{self, Loudness};
 use crate::url::{fragment, path_from_file_url};
 use crate::Library;
 use bliss_audio::decoder::symphonia::SymphoniaDecoder;
@@ -62,12 +64,14 @@ pub struct AnalysisTotals {
     pub analyzed: i64,
     /// tracks that could not be analysed (until the file changes)
     pub failed: i64,
+    /// tracks with a loudness measurement
+    pub measured: i64,
 }
 
 impl Library {
-    /// Analyse every local track lacking a current analysis, on `threads` threads.  Stops early
-    /// when `stop` is set or a scan starts.  `ffmpeg` decodes what symphonia cannot.
-    /// Returns the number of tracks analysed.
+    /// Analyse every local track lacking a current analysis, on `threads` threads, then fill in
+    /// missing ReplayGain from the measurements.  Stops early when `stop` is set or a scan
+    /// starts.  `ffmpeg` decodes what symphonia cannot.  Returns the number of tracks analysed.
     pub fn analyze_pending(
         &self,
         threads: usize,
@@ -78,6 +82,8 @@ impl Library {
             Ok(c) => pending(&c),
             Err(_) => return 0,
         };
+        // a scan resets the gains of the tracks it (re)stored from their tags
+        self.apply_loudness();
         if jobs.is_empty() {
             return 0;
         }
@@ -105,18 +111,25 @@ impl Library {
                         if let Err(e) = &features {
                             debug!("sonic analysis of {}: {}", job.url, e);
                         }
+                        let loudness = measure_loudness(job, ffmpeg);
+                        if let Err(e) = &loudness {
+                            debug!("loudness of {}: {}", job.url, e);
+                        }
                         let blob = features.ok().map(|f| to_blob(&f));
-                        let ok = blob.is_some();
+                        let loudness = loudness.ok();
+                        let ok = blob.is_some() || loudness.is_some();
                         let _ = c.execute(
                             "INSERT OR REPLACE INTO track_analysis \
-                               (urlmd5, version, timestamp, filesize, features, analyzed) \
-                             VALUES (?, ?, ?, ?, ?, ?)",
+                               (urlmd5, version, timestamp, filesize, features, loudness, peak, analyzed) \
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             params![
                                 job.urlmd5,
                                 version(),
                                 job.timestamp,
                                 job.filesize,
                                 blob,
+                                loudness.map(|l| l.lufs),
+                                loudness.map(|l| l.peak),
                                 crate::scanner::now()
                             ],
                         );
@@ -137,6 +150,7 @@ impl Library {
             started.elapsed().as_secs_f64(),
             if halt() { " (interrupted)" } else { "" }
         );
+        self.apply_loudness();
         n
     }
 
@@ -147,7 +161,8 @@ impl Library {
         };
         c.query_row(
             &format!(
-                "SELECT COUNT(*), COUNT(a.features), COUNT(a.urlmd5) - COUNT(a.features) \
+                "SELECT COUNT(*), COUNT(a.features), COUNT(a.urlmd5) - COUNT(a.features), \
+                   COUNT(a.loudness) \
                  FROM tracks t LEFT JOIN track_analysis a ON {CURRENT} WHERE {LOCAL}"
             ),
             [version()],
@@ -156,6 +171,7 @@ impl Library {
                     tracks: r.get(0)?,
                     analyzed: r.get(1)?,
                     failed: r.get(2)?,
+                    measured: r.get(3)?,
                 })
             },
         )
@@ -231,6 +247,20 @@ fn analyze(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
     Song::analyze(&samples)
         .map(|a| a.as_vec())
         .map_err(|e| e.to_string())
+}
+
+/// Loudness for any length of track: streamed through symphonia, or measured by ffmpeg.
+fn measure_loudness(job: &Job, ffmpeg: Option<&str>) -> Result<Loudness, String> {
+    match fragment(&job.url) {
+        Some((start, end)) => {
+            let ff = ffmpeg.ok_or("cue-sheet track needs ffmpeg")?;
+            loudness::measure_ffmpeg(ff, &job.path, Some((start, end - start)))
+        }
+        None => loudness::measure(&job.path).or_else(|e| match ffmpeg {
+            Some(ff) => loudness::measure_ffmpeg(ff, &job.path, None),
+            None => Err(e),
+        }),
+    }
 }
 
 fn decode_symphonia(path: &Path) -> Result<Vec<f32>, String> {

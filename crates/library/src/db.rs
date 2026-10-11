@@ -241,14 +241,17 @@ CREATE INDEX IF NOT EXISTS trackPlayCountIndex ON tracks_persistent (playCount);
 CREATE INDEX IF NOT EXISTS trackLastPlayedIndex ON tracks_persistent (lastPlayed);
 CREATE INDEX IF NOT EXISTS persistentUrlmd5Index ON tracks_persistent (urlmd5);
 
--- RMS: bliss sonic analysis, kept across wipes like tracks_persistent. `features` is NULL
--- when the file could not be analysed; either way it is redone when the file changes.
+-- RMS: bliss sonic analysis and loudness, kept across wipes like tracks_persistent.
+-- `features` / `loudness` are NULL when they could not be measured; either way they are
+-- redone when the file changes.  `loudness` is in LUFS, `peak` the linear true peak.
 CREATE TABLE IF NOT EXISTS track_analysis (
   urlmd5 char(32) PRIMARY KEY,
   version int(10),
   timestamp int(10),
   filesize int(10),
   features blob,
+  loudness float,
+  peak float,
   analyzed int(10)
 );
 
@@ -361,6 +364,17 @@ pub fn open_pool(path: &Path) -> anyhow::Result<DbPool> {
 pub fn create_schema(c: &Connection) -> rusqlite::Result<()> {
     // detect an incompatible/old LMS DB without metainformation: rebuild
     c.execute_batch(SCHEMA)?;
+    // track_analysis from before loudness was measured: start it over
+    let has_loudness = c
+        .prepare("SELECT loudness FROM track_analysis LIMIT 0")
+        .is_ok();
+    if !has_loudness {
+        c.execute_batch(
+            "ALTER TABLE track_analysis ADD COLUMN loudness float;
+             ALTER TABLE track_analysis ADD COLUMN peak float;
+             DELETE FROM track_analysis;",
+        )?;
+    }
     c.execute(
         "INSERT OR REPLACE INTO dbix_migration (name, value) VALUES ('version', ?)",
         [SCHEMA_VERSION.to_string()],

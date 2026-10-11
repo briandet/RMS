@@ -1,6 +1,7 @@
 //! Sonic analysis (pref `sonicAnalysis`, on by default; not part of LMS): after a scan, local
 //! tracks are analysed with bliss in the background so "Don't Stop The Music" and "Create Mix"
-//! can pick songs that sound like the seeds.  See `rms_library::sonic`.
+//! can pick songs that sound like the seeds, and their loudness measured to fill in missing
+//! ReplayGain.  See `rms_library::sonic` and `rms_library::loudness`.
 
 use crate::server::Server;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -165,6 +165,13 @@ CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
 and are redone when a file changes.  Lyrion itself has no audio analysis: it relied on the
 long-gone MusicIP server, and now on third-party plugins.
 
+**Loudness**: the same pass measures each track's loudness (EBU R128, as ReplayGain 2.0
+does, at any length) and fills in the ReplayGain that your tags leave out — track gain and
+peak, and album gain once every track of the album is measured — so `replayGainMode` evens
+out untagged music too.  Tags always win and files are never written; a mono file counts as
+playing on both speakers.  The album gain is a length-weighted average of its tracks', within
+a few tenths of a dB of a full album measurement.
+
 
 ### Spotify
 
