@@ -161,6 +161,22 @@ export function render(node, { ctx }) {
 
   // ---------------------------------------------------------------- spotify
   let spotifyPoll = null;
+  // The user's own Spotify app: the shared default client id is rate-limited by Spotify.
+  async function spotifyClientIdField() {
+    const cur = await rpc(['pref', 'spotifyClientId', '?']).catch(() => null);
+    const id = fieldId();
+    const input = h('input', { id, type: 'text', value: cur?._p2 ?? '', placeholder: '32 hex digits', spellcheck: 'false', autocomplete: 'off' });
+    return h('form', { class: 'field', onsubmit: async (e) => {
+      e.preventDefault();
+      const v = input.value.trim();
+      if (v && !/^[0-9a-fA-F]{32}$/.test(v)) { toast('A client ID is 32 hexadecimal digits', 'error'); return; }
+      if (await ctx.serverCmd('pref', 'spotifyClientId', v)) toast('Saved: sign out and sign in again to use it');
+    } },
+    h('label', { for: id }, 'Client ID of your own Spotify app (recommended)'),
+    h('p', { class: 'muted small' }, 'Spotify limits the shared client ID RMS uses by default, so browsing and track names may not load. Create an app at developer.spotify.com/dashboard with the redirect URI http://127.0.0.1:5588/login and the Web API, paste its client ID here, then sign in again.'),
+    h('div', { class: 'inline-row' }, input, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+  }
+
   async function renderSpotify() {
     const head = h('h2', { id: 'set-spotify' }, 'Spotify');
     const st = await rpc(['spotify', 'status']).catch(() => null);
@@ -183,6 +199,8 @@ export function render(node, { ctx }) {
             onchange: async (e) => { if (await ctx.serverCmd('pref', 'spotifyNormalisation', e.target.checked ? 1 : 0)) toast('Setting saved'); } }),
           h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
         h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
+        await spotifyClientIdField(),
+        ...spotifySignIn('Sign in again (keeps playback working)', false),
         h('div', { class: 'button-row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!confirm('Sign out of Spotify on this server?')) return;
           await ctx.serverCmd('spotify', 'logout');
@@ -190,36 +208,48 @@ export function render(node, { ctx }) {
         } }, 'Sign out')));
       return;
     }
+    spotifySection.replaceChildren(head,
+      h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
+      ...spotifySignIn('Sign in with Spotify', true),
+      await spotifyClientIdField());
+  }
+
+  // Sign-in button plus the "paste the redirected address" form.  `poll`: also finish by
+  // itself when the browser runs on the server (only meaningful while signed out).
+  function spotifySignIn(label, poll) {
     const pasteId = fieldId();
     const paste = h('input', { id: pasteId, type: 'url', placeholder: 'http://127.0.0.1:5588/login?code=…', spellcheck: 'false' });
     const msg = h('p', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
     const finish = h('form', { class: 'field', hidden: true, onsubmit: async (e) => {
       e.preventDefault();
-      if (!paste.value.trim()) return;
+      const v = paste.value.trim();
+      if (!v) return;
+      if (/^https?:\/\/accounts\.spotify\.com\//.test(v)) {
+        msg.textContent = 'That is Spotify’s own sign-in page. Agree there first, then paste the address you end up on (it starts with http://127.0.0.1:5588/login).';
+        return;
+      }
       msg.textContent = 'Signing in…';
-      const r = await rpc(['spotify', 'login', `code:${paste.value.trim()}`]).catch((err) => ({ error: err.message }));
+      const r = await rpc(['spotify', 'login', `code:${v}`], '', { timeout: 60000 }).catch((err) => ({ error: err.message }));
       if (r.user) { toast(`Signed in to Spotify as ${r.user}`); renderSpotify(); } else msg.textContent = r.error || 'Sign-in failed.';
     } },
     h('label', { for: pasteId }, 'Address of the page Spotify sent you to'),
     h('p', { class: 'muted small' }, 'After you agree, Spotify sends your browser to an address starting with http://127.0.0.1:5588/login. If this server runs on another computer that page won’t load — copy its full address from the address bar and paste it here.'),
     h('div', { class: 'inline-row' }, paste, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Finish')),
     msg);
-    spotifySection.replaceChildren(head,
-      h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
-      h('div', { class: 'button-row' }, h('button', { class: 'btn btn-primary', type: 'button', onclick: async () => {
-        const r = await rpc(['spotify', 'login']).catch(() => null);
-        if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
-        window.open(r.url, '_blank', 'noopener');
-        finish.hidden = false;
-        paste.focus();
-        // signed in by the redirect itself when the browser runs on the server
-        clearInterval(spotifyPoll);
-        spotifyPoll = setInterval(async () => {
-          const s2 = await rpc(['spotify', 'status']).catch(() => null);
-          if (s2 && +s2.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
-        }, 3000);
-      } }, 'Sign in with Spotify')),
-      finish);
+    const button = h('div', { class: 'button-row' }, h('button', { class: poll ? 'btn btn-primary' : 'btn', type: 'button', onclick: async () => {
+      const r = await rpc(['spotify', 'login']).catch(() => null);
+      if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
+      window.open(r.url, '_blank', 'noopener');
+      finish.hidden = false;
+      paste.focus();
+      if (!poll) return;
+      clearInterval(spotifyPoll);
+      spotifyPoll = setInterval(async () => {
+        const s2 = await rpc(['spotify', 'status']).catch(() => null);
+        if (s2 && +s2.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
+      }, 3000);
+    } }, label));
+    return [button, finish];
   }
 
   // ---------------------------------------------------------------- sync

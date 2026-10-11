@@ -360,14 +360,15 @@ async fn items_query(server: Arc<Server>, mut r: Request) -> Request {
 }
 
 /// `spotify login` → `url` to open; `spotify login code:<redirected address>` → `user`.
-async fn login(_server: Arc<Server>, mut r: Request) -> Request {
+async fn login(server: Arc<Server>, mut r: Request) -> Request {
     let Some(sp) = super::get() else {
         r.bad_dispatch();
         return r;
     };
     match r.param("code").map(str::to_string) {
         None => {
-            let url = sp.start_login();
+            let id = super::client_id_or_default(&server.prefs.server.get_str("spotifyClientId"));
+            let url = sp.start_login(&id);
             r.add_result("url", url);
             r.add_result("redirect_uri", super::redirect_uri());
         }
