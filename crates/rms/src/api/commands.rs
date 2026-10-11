@@ -1,9 +1,11 @@
-//! Player commands.  Each one runs through the regular command engine, so players, Jive
-//! clients and subscribers see exactly what they would for the equivalent LMS command.
+//! Player commands of the native API, run by the typed command core
+//! ([`crate::player::command`]) like the LMS commands that do the same.  Listeners of the
+//! LMS interfaces are notified with that LMS command, so they see what they always saw.
 
-use super::model::{Command, CommandResult, EnqueueMode, Item, PlayMode};
+use super::model::{Command, CommandResult, EnqueueMode, Item};
 use crate::control::dispatch::execute_tokens;
 use crate::control::request::{Request, Source, Status};
+use crate::player::command::{self as core, Change, Enqueue, PlayerCommand, Position};
 use crate::player::Player;
 use crate::server::Server;
 use std::sync::Arc;
@@ -12,8 +14,16 @@ use std::sync::Arc;
 pub enum CommandError {
     /// The request can't be carried out as given (400).
     Invalid(String),
-    /// The command engine refused it (422).
+    /// The server could not carry it out (422).
     Failed(String),
+}
+
+impl From<core::CommandError> for CommandError {
+    fn from(e: core::CommandError) -> Self {
+        match e {
+            core::CommandError::Invalid(m) => CommandError::Invalid(m),
+        }
+    }
 }
 
 pub async fn run(
@@ -21,170 +31,146 @@ pub async fn run(
     p: &Arc<Player>,
     cmd: Command,
 ) -> Result<CommandResult, CommandError> {
-    let mut result = CommandResult::default();
-    match cmd {
-        Command::Play => {
-            power_on(server, p).await?;
-            let paused = p.controller().lock().mode() == "pause";
-            exec(server, p, if paused { &["pause", "0"] } else { &["play"] }).await?;
-        }
-        Command::Pause => drop(exec(server, p, &["pause", "1"]).await?),
-        Command::TogglePause => {
-            let mode = super::state::player(server, p).mode;
-            if mode == PlayMode::Play {
-                exec(server, p, &["pause", "1"]).await?;
-            } else {
-                Box::pin(run(server, p, Command::Play)).await?;
-            }
-        }
-        Command::Stop => drop(exec(server, p, &["stop"]).await?),
-        Command::Next => drop(exec(server, p, &["playlist", "index", "+1"]).await?),
-        Command::Previous => drop(exec(server, p, &["playlist", "index", "-1"]).await?),
+    if !p.is_connected() && !matches!(cmd, Command::Rename { .. }) {
+        return Err(CommandError::Failed("player is not connected".into()));
+    }
+    let jump = |to| PlayerCommand::Jump {
+        to,
+        fade: None,
+        noplay: false,
+        seek: None,
+    };
+    let typed = match cmd {
+        Command::Play => PlayerCommand::Play { fade: None },
+        Command::Pause => PlayerCommand::Pause,
+        Command::TogglePause => PlayerCommand::TogglePause { fade: None },
+        Command::Stop => PlayerCommand::Stop,
+        Command::Next => jump(Position::By(1)),
+        Command::Previous => jump(Position::By(-1)),
         Command::Seek { position } => {
             if !position.is_finite() || position < 0.0 {
                 return Err(CommandError::Invalid("position must be >= 0".into()));
             }
-            exec(server, p, &["time", &position.to_string()]).await?;
+            PlayerCommand::Seek(Change::To(position))
         }
-        Command::Volume { value } => {
-            let v = value.clamp(0, 100).to_string();
-            exec(server, p, &["mixer", "volume", &v]).await?;
-        }
-        Command::Mute { muted } => {
-            let arg = match muted {
-                None => "toggle",
-                Some(true) => "1",
-                Some(false) => "0",
-            };
-            exec(server, p, &["mixer", "muting", arg]).await?;
-        }
-        Command::Power { on } => {
-            exec(server, p, &["power", if on { "1" } else { "0" }]).await?;
-        }
-        Command::Shuffle { mode } => {
-            let m = mode.to_lms().to_string();
-            exec(server, p, &["playlist", "shuffle", &m]).await?;
-        }
-        Command::Repeat { mode } => {
-            let m = mode.to_lms().to_string();
-            exec(server, p, &["playlist", "repeat", &m]).await?;
-        }
+        Command::Volume { value } => PlayerCommand::Volume(Change::To(value.clamp(0, 100))),
+        Command::Mute { muted } => PlayerCommand::Mute(muted),
+        Command::Power { on } => PlayerCommand::Power {
+            on: Some(on),
+            noplay: false,
+        },
+        Command::Shuffle { mode } => PlayerCommand::Shuffle(Some(mode)),
+        Command::Repeat { mode } => PlayerCommand::Repeat(Some(mode)),
         Command::Jump { index } => {
             check_index(p, index)?;
-            exec(server, p, &["playlist", "index", &index.to_string()]).await?;
+            jump(Position::Index(index))
         }
-        Command::Move { from, to } => {
-            check_index(p, from)?;
-            check_index(p, to)?;
-            let (f, t) = (from.to_string(), to.to_string());
-            exec(server, p, &["playlist", "move", &f, &t]).await?;
-        }
-        Command::Remove { index } => {
-            check_index(p, index)?;
-            exec(server, p, &["playlist", "delete", &index.to_string()]).await?;
-        }
-        Command::Clear => drop(exec(server, p, &["playlist", "clear"]).await?),
-        Command::Enqueue { item, mode, start } => {
-            if mode == EnqueueMode::Play {
-                power_on(server, p).await?;
-            }
-            let r = match &item {
-                Item::Favorite { id } | Item::Spotify { id } => {
-                    let service = if matches!(item, Item::Favorite { .. }) {
-                        "favorites"
-                    } else {
-                        "spotify"
-                    };
-                    let verb = match mode {
-                        EnqueueMode::Play => "play",
-                        EnqueueMode::Add => "add",
-                        EnqueueMode::Next => "insert",
-                    };
-                    let args = vec![
-                        service.to_string(),
-                        "playlist".into(),
-                        verb.into(),
-                        format!("item_id:{}", id),
-                    ];
-                    exec_owned(server, p, args).await?
-                }
-                Item::Url { url } => {
-                    let verb = match mode {
-                        EnqueueMode::Play => "play",
-                        EnqueueMode::Add => "add",
-                        EnqueueMode::Next => "insert",
-                    };
-                    exec(server, p, &["playlist", verb, url]).await?
-                }
-                _ => {
-                    let verb = match mode {
-                        EnqueueMode::Play => "cmd:load",
-                        EnqueueMode::Add => "cmd:add",
-                        EnqueueMode::Next => "cmd:insert",
-                    };
-                    let mut args = vec!["playlistcontrol".to_string(), verb.into(), param(&item)];
-                    if let (EnqueueMode::Play, Some(i)) = (mode, start) {
-                        args.push(format!("play_index:{}", i));
-                    }
-                    exec_owned(server, p, args).await?
-                }
-            };
-            result.count = count(&r);
-        }
-        Command::Mix { seed } => {
-            if matches!(
-                seed,
-                Item::Playlist { .. }
-                    | Item::Folder { .. }
-                    | Item::Url { .. }
-                    | Item::Favorite { .. }
-                    | Item::Spotify { .. }
-            ) {
-                return Err(CommandError::Invalid(
-                    "mixes start from a track, album, artist, genre or year".into(),
-                ));
-            }
-            power_on(server, p).await?;
-            let args = vec!["createmix".into(), "play".into(), param(&seed)];
-            let r = exec_owned(server, p, args).await?;
-            result.count = Some(count(&r).unwrap_or(0));
-        }
+        Command::Move { from, to } => PlayerCommand::Move { from, to },
+        Command::Remove { index } => PlayerCommand::Remove { index },
+        Command::Clear => PlayerCommand::Clear,
+        Command::Rename { name } => PlayerCommand::Rename(name.trim().to_string()),
         Command::Sync { with } => {
-            let Some(other) = server.resolve_client(&with) else {
+            let Some(with) = server.resolve_client(&with) else {
                 return Err(CommandError::Invalid(format!("unknown player {}", with)));
             };
-            if other.id == p.id {
-                return Err(CommandError::Invalid(
-                    "a player can't sync with itself".into(),
-                ));
+            PlayerCommand::Sync {
+                with,
+                no_restart: false,
             }
-            exec(server, p, &["sync", &other.id.to_string()]).await?;
         }
-        Command::Unsync => drop(exec(server, p, &["sync", "-"]).await?),
-        Command::Rename { name } => {
-            let name = name.trim();
-            if name.is_empty() {
-                return Err(CommandError::Invalid("name must not be empty".into()));
-            }
-            exec(server, p, &["name", name]).await?;
+        Command::Unsync => PlayerCommand::Unsync,
+        Command::Enqueue { item, mode, start } => {
+            let how = match mode {
+                EnqueueMode::Play => Enqueue::Play { start, fade: None },
+                EnqueueMode::Add => Enqueue::Add,
+                EnqueueMode::Next => Enqueue::Next,
+            };
+            let entries = match item {
+                // a Spotify menu item plays as its menu says
+                Item::Spotify { id } => return spotify(server, p, &id, mode).await,
+                other => core::entries_for(server, &core_item(other)).await,
+            };
+            PlayerCommand::Enqueue { entries, how }
         }
-    }
-    Ok(result)
+        Command::Mix { seed } => {
+            use rms_library::mix::Seed;
+            let seed = match seed {
+                Item::Track { id } => Seed::Track(id),
+                Item::Album { id } => Seed::Album(id),
+                Item::Artist { id } => Seed::Artist(id),
+                Item::Genre { id } => Seed::Genre(id),
+                Item::Year { year } => Seed::Year(year),
+                _ => {
+                    return Err(CommandError::Invalid(
+                        "mixes start from a track, album, artist, genre or year".into(),
+                    ))
+                }
+            };
+            let ids = crate::plugins::dstm::mix_tracks(server, seed).await;
+            let entries = core::entries_for(server, &core::Item::Tracks(ids)).await;
+            let how = Enqueue::Play {
+                start: None,
+                fade: None,
+            };
+            let out = execute(server, p, PlayerCommand::Enqueue { entries, how })?;
+            return Ok(CommandResult {
+                count: Some(out.count.unwrap_or(0) as u64),
+            });
+        }
+    };
+    let out = execute(server, p, typed)?;
+    Ok(CommandResult {
+        count: out.count.map(|n| n as u64),
+    })
 }
 
-/// `playlistcontrol` / `createmix` parameter for an item.
-fn param(item: &Item) -> String {
-    match item {
-        Item::Track { id } => format!("track_id:{}", id),
-        Item::Album { id } => format!("album_id:{}", id),
-        Item::Artist { id } => format!("artist_id:{}", id),
-        Item::Genre { id } => format!("genre_id:{}", id),
-        Item::Year { year } => format!("year:{}", year),
-        Item::Playlist { id } => format!("playlist_id:{}", id),
-        Item::Folder { id } => format!("folder_id:{}", id),
-        Item::Url { url } => format!("url:{}", url),
-        Item::Favorite { id } | Item::Spotify { id } => format!("item_id:{}", id),
+/// Run a typed command and notify LMS listeners of it.
+fn execute(
+    server: &Arc<Server>,
+    p: &Arc<Player>,
+    cmd: PlayerCommand,
+) -> Result<core::Outcome, CommandError> {
+    let words = cmd.lms_words();
+    let out = core::run(server, p, cmd)?;
+    if out.changed {
+        server.notifier.notify_owned(Some(p.id), words);
     }
+    Ok(out)
+}
+
+fn core_item(item: Item) -> core::Item {
+    match item {
+        Item::Track { id } => core::Item::Track(id),
+        Item::Album { id } => core::Item::Album(id),
+        Item::Artist { id } => core::Item::Artist(id),
+        Item::Genre { id } => core::Item::Genre(id),
+        Item::Year { year } => core::Item::Year(year),
+        Item::Playlist { id } => core::Item::Playlist(id),
+        Item::Folder { id } => core::Item::Folder(id),
+        Item::Url { url } => core::Item::Url(url),
+        Item::Favorite { id } => core::Item::Favorite(id),
+        Item::Spotify { id } => core::Item::Url(id),
+    }
+}
+
+/// A Spotify menu item, queued as the Spotify menus queue it.
+async fn spotify(
+    server: &Arc<Server>,
+    p: &Arc<Player>,
+    id: &str,
+    mode: EnqueueMode,
+) -> Result<CommandResult, CommandError> {
+    let verb = match mode {
+        EnqueueMode::Play => "play",
+        EnqueueMode::Add => "add",
+        EnqueueMode::Next => "insert",
+    };
+    let words = ["spotify", "playlist", verb, &format!("item_id:{id}")]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let r = exec_for(server, Some(p), words).await?;
+    Ok(CommandResult { count: count(&r) })
 }
 
 fn count(r: &Request) -> Option<u64> {
@@ -204,31 +190,8 @@ fn check_index(p: &Arc<Player>, index: usize) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Turn the player on before something new plays, without resuming what it played before.
-async fn power_on(server: &Arc<Server>, p: &Arc<Player>) -> Result<(), CommandError> {
-    if !p.power() {
-        exec(server, p, &["power", "1", "1"]).await?;
-    }
-    Ok(())
-}
-
-async fn exec(
-    server: &Arc<Server>,
-    p: &Arc<Player>,
-    words: &[&str],
-) -> Result<Request, CommandError> {
-    exec_owned(server, p, words.iter().map(|s| s.to_string()).collect()).await
-}
-
-async fn exec_owned(
-    server: &Arc<Server>,
-    p: &Arc<Player>,
-    words: Vec<String>,
-) -> Result<Request, CommandError> {
-    exec_for(server, Some(p), words).await
-}
-
-/// Run an LMS command for a player, or for the server without one.
+/// Run an LMS command for a player, or for the server without one (service menus and
+/// settings, which live in the LMS command set).
 pub async fn exec_for(
     server: &Arc<Server>,
     p: Option<&Arc<Player>>,

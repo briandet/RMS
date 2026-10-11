@@ -848,7 +848,9 @@
   },
   "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (queue a favorite)": {
     "status": 200,
-    "body": {}
+    "body": {
+      "count": 2
+    }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/queue (queue)": {
     "status": 200,

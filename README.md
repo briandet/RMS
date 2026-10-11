@@ -262,6 +262,8 @@ Layout:
 crates/slimproto   wire protocol codec + discovery packets
 crates/library     SQLite schema, scanner, artwork, library queries
 crates/rms         the server: players, controller, streaming, control API, web UI
+crates/rms/src/player/command.rs  typed player commands: the one implementation behind
+                   the LMS commands, the native API and the Subsonic jukebox
 crates/rms/src/api the native API (/api/v1) and its event stream
 crates/rms/src/subsonic  the Subsonic API (/rest)
 crates/rms/web     the web UI (plain HTML/JS/CSS, embedded into the binary)

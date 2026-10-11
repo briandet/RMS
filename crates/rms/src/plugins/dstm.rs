@@ -393,10 +393,14 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
         r.bad_dispatch();
         return r;
     };
-    let cmd = match r.param("_cmd").unwrap_or("play") {
-        "add" => "addtracks",
-        "insert" => "inserttracks",
-        _ => "loadtracks",
+    use crate::player::command::Enqueue;
+    let how = match r.param("_cmd").unwrap_or("play") {
+        "add" => Enqueue::Add,
+        "insert" => Enqueue::Next,
+        _ => Enqueue::Play {
+            start: None,
+            fade: None,
+        },
     };
     let id = |k: &str| r.param(k).and_then(|v| v.parse::<i64>().ok());
     let seed = if let Some(i) = id("track_id") {
@@ -413,8 +417,22 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
         r.bad_params();
         return r;
     };
+    let tracks = mix_tracks(&server, seed).await;
+    let count = tracks.len();
+    if count > 0 {
+        use crate::player::command::{entries_for, run, Item, PlayerCommand};
+        let entries = entries_for(&server, &Item::Tracks(tracks)).await;
+        let _ = run(&server, &p, PlayerCommand::Enqueue { entries, how });
+    }
+    r.add_result("count", count);
+    r.set_done();
+    r
+}
+
+/// Create Mix: songs similar to `seed` (a track's mix starts with the track itself).
+pub async fn mix_tracks(server: &Arc<Server>, seed: Seed) -> Vec<i64> {
     let lib = server.library.clone();
-    let tracks = tokio::task::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         let mut seeds = lib.seed_tracks(seed);
         if seeds.is_empty() {
             return Vec::new();
@@ -434,15 +452,7 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
         mix
     })
     .await
-    .unwrap_or_default();
-    if !tracks.is_empty() {
-        let ids: Vec<String> = tracks.iter().map(|id| id.to_string()).collect();
-        let what = format!("track.id={}", ids.join(","));
-        exec(&server, &p, &["playlist", cmd, &what]).await;
-    }
-    r.add_result("count", tracks.len());
-    r.set_done();
-    r
+    .unwrap_or_default()
 }
 
 #[cfg(test)]

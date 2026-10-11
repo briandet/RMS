@@ -48,59 +48,8 @@ pub enum PlayMode {
     Stop,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(optional_fields)]
-#[serde(rename_all = "lowercase")]
-pub enum Shuffle {
-    Off,
-    Songs,
-    Albums,
-}
-
-impl Shuffle {
-    pub fn from_lms(v: u8) -> Shuffle {
-        match v {
-            1 => Shuffle::Songs,
-            2 => Shuffle::Albums,
-            _ => Shuffle::Off,
-        }
-    }
-
-    pub fn to_lms(self) -> u8 {
-        match self {
-            Shuffle::Off => 0,
-            Shuffle::Songs => 1,
-            Shuffle::Albums => 2,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(optional_fields)]
-#[serde(rename_all = "lowercase")]
-pub enum Repeat {
-    Off,
-    One,
-    All,
-}
-
-impl Repeat {
-    pub fn from_lms(v: u8) -> Repeat {
-        match v {
-            1 => Repeat::One,
-            2 => Repeat::All,
-            _ => Repeat::Off,
-        }
-    }
-
-    pub fn to_lms(self) -> u8 {
-        match self {
-            Repeat::Off => 0,
-            Repeat::One => 1,
-            Repeat::All => 2,
-        }
-    }
-}
+/// The player's shuffle and repeat modes are the command core's.
+pub use crate::player::command::{Repeat, Shuffle};
 
 /// A player and everything a remote control shows about it.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
