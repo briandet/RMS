@@ -3177,6 +3177,7 @@ dependencies = [
  "rand 0.9.5",
  "regex",
  "rusqlite",
+ "rustfft",
  "serde",
  "serde_json",
  "symphonia 0.6.1",

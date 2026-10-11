@@ -30,6 +30,7 @@ pub mod mix;
 pub mod playlist_files;
 pub mod portraits;
 pub mod queries;
+pub mod rhythm;
 pub mod scanner;
 pub mod songdata;
 pub mod sonic;
