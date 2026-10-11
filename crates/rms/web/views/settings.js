@@ -55,7 +55,10 @@ export function render(node, { ctx }) {
     renderedName = p.name;
     playerSection.replaceChildren(h('h2', { id: 'set-player' }, `Player: ${p.name}`), h('div', { class: 'loading' }, h('span', { class: 'spinner' })));
     const names = ['transitionType', 'transitionDuration', 'replayGainMode', 'maxBitrate', 'digitalVolumeControl'];
-    const vals = await Promise.allSettled(names.map((n) => rpc(['playerpref', n, '?'], pid)));
+    const [vals, dstm] = await Promise.all([
+      Promise.allSettled(names.map((n) => rpc(['playerpref', n, '?'], pid))),
+      rpc(['dontstopthemusicsetting', 0, 200], pid).catch(() => null),
+    ]);
     if (!alive || pid !== store.playerId) return;
     const pref = {};
     names.forEach((n, i) => { pref[n] = vals[i].status === 'fulfilled' ? vals[i].value._p2 : undefined; });
@@ -86,6 +89,19 @@ export function render(node, { ctx }) {
       oninput: (e) => { durOut.textContent = `${e.target.value} s`; },
       onchange: (e) => setPref('transitionDuration', +e.target.value) });
 
+    // Don't Stop The Music: the provider tokens are the last word of each item's command
+    const dstmField = (() => {
+      const items = (dstm && dstm.item_loop) || [];
+      if (!items.length) return null;
+      const id = fieldId();
+      const token = (it) => String(it.actions?.do?.cmd?.slice(-1)[0] ?? '0');
+      return h('div', { class: 'field' },
+        h('label', { for: id }, 'Don’t Stop The Music'),
+        h('select', { id, onchange: (e) => setPref('plugin.dontstopthemusic:provider', e.target.value) },
+          items.map((it) => h('option', { value: token(it), selected: +it.radio === 1 }, it.text))),
+        h('p', { class: 'muted small' }, 'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.'));
+    })();
+
     const digitalId = fieldId();
     playerSection.replaceChildren(
       h('h2', { id: 'set-player' }, `Player: ${p.name}`),
@@ -93,6 +109,7 @@ export function render(node, { ctx }) {
       nameForm,
       selectField('Transition', TRANSITIONS, pref.transitionType, (v) => setPref('transitionType', v)),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
+      dstmField,
       selectField('Replay gain', REPLAY_GAIN, pref.replayGainMode, (v) => setPref('replayGainMode', v)),
       selectField('Maximum bitrate', BITRATES, pref.maxBitrate, (v) => setPref('maxBitrate', v), 'Higher bitrates are transcoded down when the player or network needs it.'),
       h('div', { class: 'field check' },

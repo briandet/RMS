@@ -124,16 +124,21 @@ export function connectHelp() {
 
 // ---------------------------------------------------------------- actions
 
-/** Play / Play next / Add buttons for something playlistcontrol understands. */
+/** Library items a mix can start from (`createmix`). */
+const MIXABLE = new Set(['track_id', 'album_id', 'artist_id', 'genre_id', 'year']);
+
+/** Play / Play next / Add buttons for something playlistcontrol understands (+ Mix). */
 export function actionButtons(ctx, key, value, label, { run, compact = false } = {}) {
   const go = (action) => (e) => {
     e.preventDefault(); e.stopPropagation();
     if (run) run(action); else ctx.playItem(action, key, value, label);
   };
+  const mix = (e) => { e.preventDefault(); e.stopPropagation(); ctx.createMix(key, value, label); };
   return h('div', { class: `actions${compact ? ' compact' : ''}` },
     h('button', { class: 'icon-btn act-play', type: 'button', 'aria-label': `Play ${label}`, title: 'Play now', onclick: go('load') }, icon('play')),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Play ${label} next`, title: 'Play next', onclick: go('insert') }, icon('playnext')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Add ${label} to queue`, title: 'Add to queue', onclick: go('add') }, icon('add')));
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Add ${label} to queue`, title: 'Add to queue', onclick: go('add') }, icon('add')),
+    !run && MIXABLE.has(key) && h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Play a mix of songs like ${label}`, title: 'Create mix', onclick: mix }, icon('mix')));
 }
 
 // ---------------------------------------------------------------- rows & cards
@@ -211,5 +216,6 @@ export function bigActions(ctx, key, value, label, { run } = {}) {
     h('button', { class: 'btn btn-primary', type: 'button', onclick: go('load'), 'aria-label': `Play ${label}` }, icon('play'), 'Play'),
     h('button', { class: 'btn', type: 'button', onclick: go('insert'), 'aria-label': `Play ${label} next` }, icon('playnext'), 'Play next'),
     h('button', { class: 'btn', type: 'button', onclick: go('add'), 'aria-label': `Add ${label} to queue` }, icon('add'), 'Add'),
-  ];
+    !run && MIXABLE.has(key) && h('button', { class: 'btn', type: 'button', onclick: () => ctx.createMix(key, value, label), 'aria-label': `Play a mix of songs like ${label}` }, icon('mix'), 'Mix'),
+  ].filter(Boolean);
 }

@@ -1240,6 +1240,8 @@ RESTART_NOW	Restart now
 RETRYING	Connection lost, retrying...
 RETRY_LIMIT_EXCEEDED	Connection retries failed
 REW	Rewind
+RMS_CREATEMIX	Create Mix
+RMS_DSTM_SIMILAR	Similar Songs
 ROLLOFFSLOW_DISABLED	Sharp Roll-off Filter
 ROLLOFFSLOW_ENABLED	Slow Roll-off Filter
 RUNNING	Running

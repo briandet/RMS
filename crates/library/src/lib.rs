@@ -21,6 +21,7 @@ pub mod artwork;
 pub mod config;
 pub mod cue;
 pub mod db;
+pub mod mix;
 pub mod playlist_files;
 pub mod portraits;
 pub mod queries;

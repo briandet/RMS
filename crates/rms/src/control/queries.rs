@@ -269,6 +269,7 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
         };
         match pname.as_str() {
             "playername" => Some(json!(p.name())),
+            _ if ns != "server" => p.prefs.get(&format!("{ns}:{pname}")),
             _ => p.prefs.get(&pname),
         }
     } else if ns == "server" {

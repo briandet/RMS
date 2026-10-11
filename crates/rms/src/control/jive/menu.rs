@@ -190,6 +190,7 @@ pub fn player_settings_menu(_server: &Arc<Server>, p: Option<&Arc<Player>>) -> V
     let kind = p.map(player_kind);
     if p.is_some() {
         m.push(json!({ "text": s("ALARM"), "id": "settingsAlarm", "node": "settings", "weight": 29, "actions": go(&["alarmsettings"]) }));
+        m.push(json!({ "text": s("PLUGIN_DSTM"), "id": "settingsDontStopTheMusic", "node": "settings", "weight": 1, "actions": go(&["dontstopthemusicsetting"]) }));
     }
     if let Some(k) = &kind {
         if k.is_boom {

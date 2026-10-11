@@ -83,6 +83,18 @@ pub async fn info_query(server: Arc<Server>, mut r: Request) -> Request {
 
 // ---- item builders --------------------------------------------------------------------------
 
+/// "Create Mix" (`plugins::dstm`): play songs similar to this track / album / artist / genre /
+/// year.
+fn mix_item(key: &str, value: Value) -> Item {
+    let go = json!({ "player": 0, "cmd": ["createmix", "play"], "params": { key: value }, "nextWindow": "nowPlaying" });
+    jive_item(
+        s("RMS_CREATEMIX"),
+        None,
+        None,
+        json!({ "go": go, "play": go }),
+    )
+}
+
 /// A menu-mode text item with explicit Jive actions (`addtrack`, `playitem`, …).
 fn jive_item(name: String, playcontrol: Option<&str>, style: Option<&str>, actions: Value) -> Item {
     let mut jive = obj(json!({ "actions": actions }));
@@ -482,6 +494,10 @@ pub fn track_items(
     if menu_mode {
         items.push(favorites_item(fav, &title, url));
     }
+    // after the favorites item, where Lyrion's mixers go
+    if menu_mode && tc.has_player && !remote && track_id.as_i64().unwrap_or(0) > 0 {
+        items.push(mix_item("track_id", track_id.clone()));
+    }
     // contributors
     if !remote {
         for (role, name, id) in contributors(row) {
@@ -831,6 +847,9 @@ pub fn album_items(
         if let Some(url) = get(album, "favorites_url") {
             items.push(favorites_item(fav, &title, &url));
         }
+        if has_player {
+            items.push(mix_item("album_id", json!(album_id)));
+        }
     }
     // contributors (unique per role, over the album's tracks)
     let mut seen: Vec<(String, String)> = Vec::new();
@@ -943,6 +962,7 @@ async fn artist_menu(server: &Arc<Server>, r: &Request, menu_mode: bool) -> Opti
             &obj(json!({ "artist_id": id })),
             Some("itemplay"),
         ));
+        items.push(mix_item("artist_id", json!(id)));
         let url = get(&row, "favorites_url")
             .unwrap_or_else(|| format!("db:contributor.name={}", xmlbrowser::escape_search(&name)));
         items.push(favorites_item(
@@ -974,7 +994,9 @@ async fn genre_menu(server: &Arc<Server>, r: &Request, menu_mode: bool) -> Optio
     )
     .await;
     let items = if menu_mode {
-        playlistcontrol_trio(&obj(json!({ "genre_id": id })), Some("itemplay"))
+        let mut v = playlistcontrol_trio(&obj(json!({ "genre_id": id })), Some("itemplay"));
+        v.push(mix_item("genre_id", json!(id)));
+        v
     } else {
         vec![]
     };
@@ -989,7 +1011,9 @@ async fn genre_menu(server: &Arc<Server>, r: &Request, menu_mode: bool) -> Optio
 fn year_menu(r: &Request, menu_mode: bool) -> Option<Feed> {
     let year = r.param_nonempty("year")?.to_string();
     let items = if menu_mode {
-        playlistcontrol_trio(&obj(json!({ "year": year })), Some("itemplay"))
+        let mut v = playlistcontrol_trio(&obj(json!({ "year": year })), Some("itemplay"));
+        v.push(mix_item("year", json!(year)));
+        v
     } else {
         vec![]
     };
@@ -1229,8 +1253,14 @@ mod tests {
         let items = results_loop(&r, "item_loop");
         let t = texts(&r);
         assert_eq!(
-            &t[..4],
-            &["Add to End", "Play Next", "Play", "Save to Favorites"]
+            &t[..5],
+            &[
+                "Add to End",
+                "Play Next",
+                "Play",
+                "Save to Favorites",
+                "Create Mix"
+            ]
         );
         assert_eq!(items[0]["style"], "item_add");
         assert_eq!(
@@ -1397,6 +1427,12 @@ mod tests {
         assert_eq!(items[2]["actions"]["go"]["nextWindow"], "nowPlaying");
         assert_eq!(items[3]["text"], "Delete Favorite");
         assert_eq!(items[3]["actions"]["go"]["params"]["item_id"], "4");
+        assert_eq!(items[4]["text"], "Create Mix");
+        assert_eq!(
+            items[4]["actions"]["go"]["cmd"],
+            json!(["createmix", "play"])
+        );
+        assert_eq!(items[4]["actions"]["go"]["params"]["album_id"], "7");
         let t = texts(&r);
         assert_eq!(t.iter().filter(|x| *x == "Artist: The Beatles").count(), 1);
         assert!(t.contains(&"Year: 1969".to_string()));

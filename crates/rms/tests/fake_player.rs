@@ -776,3 +776,146 @@ fn authorize_gates_http() {
     let (code, _) = http_post_status(server.http, "/cometd", "[]", None);
     assert_eq!(code, 401);
 }
+
+/// Track ids by file name, once the startup scan has found all `n` files.
+fn scanned_tracks(server: &Server, n: usize) -> Vec<(String, String)> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let r = cli(server.cli, "titles 0 100 tags:u");
+        let ids: Vec<String> = r
+            .iter()
+            .filter_map(|t| t.strip_prefix("id:").map(str::to_string))
+            .collect();
+        let urls: Vec<String> = r
+            .iter()
+            .filter_map(|t| t.strip_prefix("url:").map(str::to_string))
+            .collect();
+        if ids.len() == n && urls.len() == n {
+            return ids.into_iter().zip(urls).collect();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "scan did not find {n} tracks: {r:?}"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+fn playlist_count(server: &Server) -> usize {
+    field(
+        &cli(server.cli, &format!("{MAC_S} playlist tracks ?")),
+        "_tracks",
+    )
+    .or_else(|| {
+        cli(server.cli, &format!("{MAC_S} playlist tracks ?"))
+            .last()
+            .cloned()
+    })
+    .and_then(|v| v.parse().ok())
+    .unwrap_or(0)
+}
+
+/// Three short tagged MP3s (ffmpeg), so the library scan finds them.
+fn make_tagged_music() -> Option<(tempfile::TempDir, Vec<PathBuf>)> {
+    Command::new("ffmpeg").arg("-version").output().ok()?;
+    let dir = tempfile::tempdir().unwrap();
+    let mut files = Vec::new();
+    for (i, (artist, genre)) in [("Ann", "Rock"), ("Ann", "Rock"), ("Bob", "Jazz")]
+        .iter()
+        .enumerate()
+    {
+        let p = dir.path().join(format!("{:02} song.mp3", i + 1));
+        let ok = Command::new("ffmpeg")
+            .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+            .args([
+                "-i",
+                &format!("sine=frequency={}:duration=2", 300 + 100 * i),
+            ])
+            .args(["-metadata", &format!("title=Song {}", i + 1)])
+            .args([
+                "-metadata",
+                &format!("artist={artist}"),
+                "-metadata",
+                &format!("genre={genre}"),
+            ])
+            .args(["-metadata", "album=Album", "-metadata", "date=2001"])
+            .arg(&p)
+            .status()
+            .ok()?;
+        assert!(ok.success());
+        files.push(p);
+    }
+    Some((dir, files))
+}
+
+#[test]
+fn dont_stop_the_music_adds_songs_and_create_mix_plays_a_mix() {
+    let Some((music, files)) = make_tagged_music() else {
+        eprintln!("skipped: no ffmpeg");
+        return;
+    };
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"audg", Duration::from_secs(5));
+    let tracks = scanned_tracks(&server, 3);
+
+    // the setting, as Squeezer and the Touch show it
+    cli(
+        server.cli,
+        &format!("{MAC_S} playerpref plugin.dontstopthemusic:provider PLUGIN_RANDOM_TRACK"),
+    );
+    assert_eq!(
+        cli(
+            server.cli,
+            &format!("{MAC_S} playerpref plugin.dontstopthemusic:provider ?")
+        )
+        .last()
+        .map(String::as_str),
+        Some("PLUGIN_RANDOM_TRACK")
+    );
+    let menu = cli(
+        server.cli,
+        &format!("{MAC_S} dontstopthemusicsetting 0 100"),
+    );
+    let joined = menu.join(" ");
+    assert!(joined.contains("text:Song Mix radio:1"), "{joined}");
+    assert!(joined.contains("text:Disabled radio:0"), "{joined}");
+    assert!(joined.contains("text:Similar Songs radio:0"), "{joined}");
+
+    // play only the last song: when it starts, DSTM adds the other two (all there is)
+    let last = files[2].to_str().unwrap().replace(' ', "%20");
+    cli(server.cli, &format!("{MAC_S} playlist play {last}"));
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while playlist_count(&server) < 3 {
+        assert!(Instant::now() < deadline, "DSTM added nothing");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(playlist_count(&server), 3, "no duplicates were added");
+
+    // Jive: the player settings entry, and Create Mix in a track's menu
+    let home = cli(server.cli, &format!("{MAC_S} menu 0 500 direct:1")).join(" ");
+    assert!(home.contains("id:settingsDontStopTheMusic"), "{home}");
+    let info = cli(
+        server.cli,
+        &format!(
+            "{MAC_S} trackinfo items 0 100 track_id:{} menu:track",
+            tracks[0].0
+        ),
+    )
+    .join(" ");
+    assert!(info.contains("text:Create Mix"), "{info}");
+
+    // Create Mix from a track: the track first, then the others
+    let (seed, seed_url) = &tracks[1];
+    let r = cli(
+        server.cli,
+        &format!("{MAC_S} createmix play track_id:{seed}"),
+    );
+    assert_eq!(field(&r, "count").as_deref(), Some("3"), "{r:?}");
+    let first = cli(server.cli, &format!("{MAC_S} playlist path 0 ?"));
+    assert_eq!(first.last(), Some(seed_url), "{first:?}");
+}
