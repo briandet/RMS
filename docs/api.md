@@ -48,6 +48,10 @@ own conventions:
 | `POST /api/v1/favorites` | add a favorite: `{"url": …, "title": …}` |
 | `DELETE /api/v1/favorites/{id}` | remove a favorite or a folder of them |
 | `GET /api/v1/radio?id=` | page of [BrowseItem](#browseitem): [internet radio](#internet-radio) |
+| `GET /api/v1/listenbrainz?id=` | page of [BrowseItem](#browseitem): [ListenBrainz](#listenbrainz) recommendations and playlists |
+| `POST /api/v1/listenbrainz/accounts` | `{"token": …}` → `{"user", "default"}`: add a [ListenBrainz](#listenbrainz) account |
+| `PATCH /api/v1/listenbrainz/accounts/{user}` | `{"default": bool}` |
+| `DELETE /api/v1/listenbrainz/accounts/{user}` | remove it (and its unsent listens) |
 | `GET /api/v1/spotify` | [Spotify status](#spotify) |
 | `GET /api/v1/spotify/items?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/spotify/login`, `/logout` | [sign in and out](#spotify) |
@@ -301,7 +305,26 @@ All are menus of [BrowseItem](#browseitem)s, the same the player menus show.
   information only.
 * `playable` items are queued with the `enqueue` command as `{"type": "favorite", "id": …}`
   or `{"type": "spotify", "id": …}` (a Spotify playlist or album as a whole), or a radio
-  station as `{"type": "radio", "id": …}`.
+  station as `{"type": "radio", "id": …}`, a ListenBrainz item as
+  `{"type": "listenbrainz", "id": …}`.
+
+### ListenBrainz
+
+Accounts are added with a user token from <https://listenbrainz.org/settings/>
+(`POST /api/v1/listenbrainz/accounts`, which checks it with ListenBrainz; 422 when refused).
+What plays is scrobbled to them: *now playing* when a song starts, a listen once it has played
+for half its length or 4 minutes (if longer than 30 seconds), with the MusicBrainz ids and
+ISRC the library knows.  A player scrobbles to its settings' `scrobble_to` accounts, which
+are the `default` ones unless set; Subsonic apps' `scrobble` calls go to the default
+accounts.  Listens wait in a queue while ListenBrainz can't take them (`scrobble_pending`,
+`scrobble_error` in the server settings).
+
+`GET /api/v1/listenbrainz` lists, for each account, `recs:<user>` (what ListenBrainz
+recommends for the user) and the playlists it made for them (`pl:<id>`: Daily Jams, Weekly
+Jams, Weekly Exploration, …) as folders; under them, recordings (`rec:<mbid>`).  Each is
+playable: its recordings play from the library when it has them (by MusicBrainz id, else
+artist and title), else from Spotify when signed in; what can't be found is left out (422
+when nothing can).
 
 ### Internet radio
 
@@ -335,7 +358,9 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
  "musicbrainz_identified": 0, "musicbrainz_pending": 0, "listenbrainz": false,
- "discovered": 0, "discovered_played": 0, "discovered_rejected": 0}
+ "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
+ "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
+ "scrobble_pending": 0, "scrobble_error": "…"}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
@@ -354,7 +379,7 @@ events.
   "transition_type": 1, "transition_duration": 5, "replay_gain_mode": 0, "max_bitrate": 0,
   "digital_volume_control": true,
   "dont_stop_the_music": {"value": "0", "options": [{"value": "0", "label": "Disabled"}, "…"]},
-  "adventurous": 15,
+  "adventurous": 15, "scrobble_to": ["alice"],
   "display": {
     "playing_mode": {"value": "5", "options": [{"value": "0", "label": "Nothing"}, "…"]},
     "text_size": Choice, "text_size_off": Choice,
@@ -371,6 +396,8 @@ events.
   a whole album).  `max_bitrate` in kbps, 0 for no limit.
 * `adventurous`: percent (0–40) of Similar Songs and Create Mix discovered with ListenBrainz
   (when the server setting `listenbrainz` is on).
+* `scrobble_to`: the [ListenBrainz](#listenbrainz) accounts (user names) the player scrobbles
+  to; set it to choose for the player (`[]`: none).
 * A choice (`dont_stop_the_music` and the display settings) is set to one of its options'
   `value`s.
 * `display` is there for players with a screen (Squeezebox 2/3, Transporter, Boom); the

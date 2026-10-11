@@ -8,6 +8,7 @@ pub mod favorites;
 pub mod listenbrainz;
 pub mod musicbrainz;
 pub mod radiobrowser;
+pub mod scrobble;
 pub mod sonic;
 pub mod spotify;
 

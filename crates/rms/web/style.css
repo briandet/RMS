@@ -555,3 +555,8 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* a list of rows without bullets (ListenBrainz accounts) */
+.plain-list { list-style: none; padding: 0; margin: 0 0 0.75rem; display: grid; gap: 0.5rem; }
+.plain-list > li { align-items: center; flex-wrap: wrap; }
+.plain-list .check { display: inline-flex; align-items: center; gap: 0.35rem; }

@@ -129,7 +129,7 @@ async fn mix(
     let discovered = if token == SIMILAR {
         let seeds: Vec<i64> = ids.iter().rev().take(SEEDS).copied().collect();
         let n = crate::plugins::listenbrainz::share(server, master, NEW_TRACKS);
-        crate::plugins::listenbrainz::explore(server, &seeds, n, &snap.urls).await
+        crate::plugins::listenbrainz::explore(server, Some(master), &seeds, n, &snap.urls).await
     } else {
         Vec::new()
     };
@@ -494,7 +494,7 @@ pub async fn mix_tracks(server: &Arc<Server>, p: &Arc<Player>, seed: Seed) -> Ve
         Vec::new()
     } else {
         let sample: Vec<i64> = seeds.iter().take(10).copied().collect();
-        crate::plugins::listenbrainz::explore(server, &sample, n, &HashSet::new()).await
+        crate::plugins::listenbrainz::explore(server, Some(p), &sample, n, &HashSet::new()).await
     };
     tokio::task::spawn_blocking(move || {
         let mut seeds = lib.seed_tracks(seed);

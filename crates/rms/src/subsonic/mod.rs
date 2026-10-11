@@ -214,7 +214,7 @@ async fn call(
         "star" => user::star(server, p, true).await,
         "unstar" => user::star(server, p, false).await,
         "setRating" => user::set_rating(server, p),
-        "scrobble" => user::scrobble(server, p),
+        "scrobble" => user::scrobble(server, p).await,
         "getScanStatus" => user::scan_status(server),
         "startScan" => user::start_scan(server).await,
         "getUser" => user::user(server, p),

@@ -135,6 +135,12 @@ export const getSpotify = () => api('spotify');
 export const getSpotifyItems = (id, p) => api(withQuery('spotify/items', { ...p, id }));
 /** Internet radio: the providers, then their menus (`id` from a BrowseItem). @returns {Promise<Page<BrowseItem>>} */
 export const getRadio = (id, p) => api(withQuery('radio', { ...p, id }));
+/** The ListenBrainz menu: recommendations and the playlists made for each account. */
+export const getListenBrainz = (id, p) => api(withQuery('listenbrainz', { ...p, id }));
+/** Add the ListenBrainz account a user token belongs to. @returns {Promise<import('./api-types').ListenBrainzAccount>} */
+export const addListenBrainzAccount = (token) => api('listenbrainz/accounts', { method: 'POST', body: { token } });
+export const patchListenBrainzAccount = (user, patch) => api(`listenbrainz/accounts/${encodeURIComponent(user)}`, { method: 'PATCH', body: patch });
+export const removeListenBrainzAccount = (user) => api(`listenbrainz/accounts/${encodeURIComponent(user)}`, { method: 'DELETE' });
 /** Without `code`: the sign-in page to open (`{url}`); with it: finish (`{user}`). @returns {Promise<SpotifyLoginResult>} */
 export const spotifyLogin = (code) => api('spotify/login', { method: 'POST', body: code ? { code } : {}, timeout: 60000 });
 export const spotifyLogout = () => api('spotify/logout', { method: 'POST', body: {} });
@@ -191,6 +197,7 @@ export function itemFor(key, value) {
   if (key === 'favorite_id') return { type: 'favorite', id: String(value) };
   if (key === 'spotify_id') return { type: 'spotify', id: String(value) };
   if (key === 'radio_id') return { type: 'radio', id: String(value) };
+  if (key === 'listenbrainz_id') return { type: 'listenbrainz', id: String(value) };
   const type = ITEM_TYPES[key];
   return type ? { type, id: +value } : null;
 }

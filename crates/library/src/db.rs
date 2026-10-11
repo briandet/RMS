@@ -29,6 +29,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V2_SEARCH,
     SCHEMA_V3_REMOTE,
     SCHEMA_V4_DISCOVER,
+    SCHEMA_V5_SCROBBLE,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -409,6 +410,19 @@ CREATE TABLE web_cache (
   body       TEXT NOT NULL,
   fetched_at INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
+"#;
+
+/// Listens waiting to be sent to a scrobbling service ([`crate::scrobble`]).
+const SCHEMA_V5_SCROBBLE: &str = r#"
+CREATE TABLE scrobble_queue (
+  id          INTEGER PRIMARY KEY,
+  account     TEXT NOT NULL,     -- `listenbrainz:<user name>`
+  listened_at INTEGER NOT NULL,  -- when it started playing (Unix time)
+  payload     TEXT NOT NULL,     -- the listen as the service takes it (JSON)
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT
+) STRICT;
+CREATE INDEX scrobble_queue_account ON scrobble_queue (account, id);
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

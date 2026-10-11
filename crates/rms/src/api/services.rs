@@ -4,8 +4,8 @@
 use super::commands::{exec_for, CommandError};
 use super::library::{LIMIT, MAX_LIMIT};
 use super::model::{
-    BrowseItem, BrowseItemType, NewFavorite, Page, SpotifyLogin, SpotifyLoginResult, SpotifyPatch,
-    SpotifyStatus,
+    BrowseItem, BrowseItemType, ListenBrainzAccount, ListenBrainzAccountPatch, NewFavorite,
+    NewListenBrainzAccount, Page, SpotifyLogin, SpotifyLoginResult, SpotifyPatch, SpotifyStatus,
 };
 use super::state::{artwork_path, int, string};
 use crate::server::Server;
@@ -249,5 +249,76 @@ pub async fn spotify_login(
 
 pub async fn spotify_logout(server: &Arc<Server>) -> Result<(), CommandError> {
     run(server, vec!["spotify".into(), "logout".into()]).await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------- ListenBrainz
+
+/// The ListenBrainz menu (recommendations and the playlists made for each account's user)
+/// as a page of `BrowseItem`s.
+pub async fn listenbrainz(
+    server: &Arc<Server>,
+    p: MenuParams,
+) -> Result<Page<BrowseItem>, CommandError> {
+    let items = crate::plugins::listenbrainz::menu(server, p.id.as_deref())
+        .await
+        .map_err(CommandError::Invalid)?;
+    let total = items.len();
+    let items = items
+        .into_iter()
+        .skip(p.offset)
+        .take(p.limit.unwrap_or(LIMIT).min(MAX_LIMIT))
+        .map(|m| BrowseItem {
+            id: m.id,
+            name: m.name,
+            kind: if m.folder {
+                BrowseItemType::Folder
+            } else {
+                BrowseItemType::Audio
+            },
+            playable: true,
+            url: None,
+            artwork: None,
+        })
+        .collect();
+    Ok(Page {
+        total,
+        offset: p.offset,
+        items,
+    })
+}
+
+pub async fn add_listenbrainz_account(
+    server: &Arc<Server>,
+    a: NewListenBrainzAccount,
+) -> Result<ListenBrainzAccount, CommandError> {
+    let a = crate::plugins::scrobble::add_account(server, &a.token)
+        .await
+        .map_err(CommandError::Failed)?;
+    Ok(ListenBrainzAccount {
+        user: a.user,
+        default: a.default,
+    })
+}
+
+pub fn patch_listenbrainz_account(
+    server: &Server,
+    user: &str,
+    patch: ListenBrainzAccountPatch,
+) -> Result<(), CommandError> {
+    if !crate::plugins::scrobble::set_default(server, user, patch.default) {
+        return Err(CommandError::Invalid(format!(
+            "no ListenBrainz account {user}"
+        )));
+    }
+    Ok(())
+}
+
+pub fn remove_listenbrainz_account(server: &Server, user: &str) -> Result<(), CommandError> {
+    if !crate::plugins::scrobble::remove_account(server, user) {
+        return Err(CommandError::Invalid(format!(
+            "no ListenBrainz account {user}"
+        )));
+    }
     Ok(())
 }

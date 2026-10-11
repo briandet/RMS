@@ -252,18 +252,27 @@ pub fn set_rating(server: &Server, p: &Params) -> Result<Reply> {
     Ok(Reply::empty())
 }
 
-/// A finished play (`submission`, the default) counts it; "now playing" notices are ignored,
-/// `getNowPlaying` shows the players.
-pub fn scrobble(server: &Server, p: &Params) -> Result<Reply> {
+/// A finished play (`submission`, the default) counts it and is scrobbled to the default
+/// ListenBrainz accounts; a "now playing" notice is passed on to them (`getNowPlaying` shows
+/// the players).
+pub async fn scrobble(server: &Arc<Server>, p: &Params) -> Result<Reply> {
     let ids = p.all("id");
     if ids.is_empty() {
         return Err(Error::new(10, "Required parameter is missing: id"));
     }
-    if !p.flag("submission", true) {
-        return Ok(Reply::empty());
-    }
-    for url in song_urls(server, &ids)? {
-        server.library.mark_played(&url);
+    let submission = p.flag("submission", true);
+    // when each was played (ms), for listens sent late
+    let times: Vec<Option<i64>> = p
+        .all("time")
+        .iter()
+        .map(|t| t.parse::<i64>().ok().map(|ms| ms / 1000))
+        .collect();
+    for (i, url) in song_urls(server, &ids)?.into_iter().enumerate() {
+        if submission {
+            server.library.mark_played(&url);
+        }
+        let at = times.get(i).copied().flatten();
+        crate::plugins::scrobble::subsonic(server, &url, at, submission).await;
     }
     Ok(Reply::empty())
 }

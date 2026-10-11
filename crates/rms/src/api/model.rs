@@ -198,6 +198,13 @@ pub enum Item {
     Spotify {
         id: String,
     },
+    /// Recommendations, a playlist ListenBrainz made, or one of their recordings
+    /// (`BrowseItem` id from `/listenbrainz`), from the library or else Spotify.
+    #[serde(rename = "listenbrainz")]
+    #[ts(rename = "listenbrainz")]
+    ListenBrainz {
+        id: String,
+    },
     /// An internet radio station (`BrowseItem` id from `/radio`).
     Radio {
         id: String,
@@ -558,6 +565,35 @@ pub struct ServerSettings {
     pub discovered: i64,
     pub discovered_played: i64,
     pub discovered_rejected: i64,
+    /// ListenBrainz accounts, for scrobbling and recommendations.
+    pub listenbrainz_accounts: Vec<ListenBrainzAccount>,
+    /// Scrobble what plays from Spotify too.
+    pub scrobble_spotify: bool,
+    /// Listens waiting to be sent, and the last error sending them.
+    pub scrobble_pending: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scrobble_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ListenBrainzAccount {
+    pub user: String,
+    /// Used by players without their own choice, and by Subsonic apps.
+    pub default: bool,
+}
+
+/// `POST /api/v1/listenbrainz/accounts` body: a user token from
+/// <https://listenbrainz.org/settings/>.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+pub struct NewListenBrainzAccount {
+    pub token: String,
+}
+
+/// `PATCH /api/v1/listenbrainz/accounts/{user}` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ListenBrainzAccountPatch {
+    pub default: bool,
 }
 
 /// `PATCH /api/v1/settings` body: the settings to change.
@@ -579,6 +615,7 @@ pub struct ServerSettingsPatch {
     pub musicbrainz: Option<bool>,
     pub acoustid_key: Option<String>,
     pub listenbrainz: Option<bool>,
+    pub scrobble_spotify: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -638,6 +675,8 @@ pub struct PlayerSettings {
     pub dont_stop_the_music: Option<Choice>,
     /// Percent of a mix discovered from outside what was played (0–40; with ListenBrainz on).
     pub adventurous: i64,
+    /// The ListenBrainz accounts (user names) it scrobbles to.
+    pub scrobble_to: Vec<String>,
     /// For players with a screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplaySettings>,
@@ -672,6 +711,7 @@ pub struct PlayerSettingsPatch {
     pub digital_volume_control: Option<bool>,
     pub dont_stop_the_music: Option<String>,
     pub adventurous: Option<i64>,
+    pub scrobble_to: Option<Vec<String>>,
     pub playing_mode: Option<String>,
     pub text_size: Option<String>,
     pub text_size_off: Option<String>,

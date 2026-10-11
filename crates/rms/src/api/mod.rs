@@ -62,6 +62,15 @@ pub fn router() -> Router<Arc<Server>> {
             axum::routing::delete(delete_favorite),
         )
         .route("/api/v1/radio", get(get_radio))
+        .route("/api/v1/listenbrainz", get(get_listenbrainz))
+        .route(
+            "/api/v1/listenbrainz/accounts",
+            post(post_listenbrainz_account),
+        )
+        .route(
+            "/api/v1/listenbrainz/accounts/{user}",
+            axum::routing::patch(patch_listenbrainz_account).delete(delete_listenbrainz_account),
+        )
         .route("/api/v1/spotify", get(get_spotify).patch(patch_spotify))
         .route(
             "/api/v1/spotify/learned",
@@ -280,6 +289,41 @@ async fn get_favorites(
 
 async fn get_radio(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<MenuParams>) -> Response {
     reply(services::radio(&s, p).await)
+}
+
+async fn get_listenbrainz(
+    State(s): State<Arc<Server>>,
+    ApiQuery(p): ApiQuery<MenuParams>,
+) -> Response {
+    reply(services::listenbrainz(&s, p).await)
+}
+
+async fn post_listenbrainz_account(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<model::NewListenBrainzAccount>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(a) => reply(services::add_listenbrainz_account(&s, a).await),
+        Err(r) => r,
+    }
+}
+
+async fn patch_listenbrainz_account(
+    State(s): State<Arc<Server>>,
+    Path(user): Path<String>,
+    b: Result<Json<model::ListenBrainzAccountPatch>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(p) => done(services::patch_listenbrainz_account(&s, &user, p)),
+        Err(r) => r,
+    }
+}
+
+async fn delete_listenbrainz_account(
+    State(s): State<Arc<Server>>,
+    Path(user): Path<String>,
+) -> Response {
+    done(services::remove_listenbrainz_account(&s, &user))
 }
 
 async fn post_favorite(

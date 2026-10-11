@@ -11,6 +11,8 @@
 //! The similarities come from ListenBrainz's public "labs" API (no account needed), cached
 //! for a month.
 
+use super::scrobble::Account;
+use crate::player::playlist::Entry;
 use crate::player::Player;
 use crate::server::Server;
 use rand::Rng;
@@ -33,6 +35,11 @@ const RECORDINGS_ALGORITHM: &str =
 const ARTISTS_ALGORITHM: &str =
     "session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30";
 const CACHE_SECS: i64 = 30 * 86400;
+/// Recommendations are renewed every few days, the playlists made for a user daily.
+const RECS_SECS: i64 = 86400;
+const LIST_SECS: i64 = 3600;
+/// Recordings listed under "Recommended for".
+const MENU_SIZE: usize = 50;
 /// Seeds asked about per mix.
 const SEED_RECORDINGS: usize = 5;
 const SEED_ARTISTS: usize = 3;
@@ -70,6 +77,7 @@ struct Candidate {
     title: String,
     artist: String,
     artist_mbid: Option<String>,
+    isrc: Option<String>,
     because: String,
 }
 
@@ -77,6 +85,7 @@ struct Candidate {
 /// library tracks (positive ids) and Spotify tracks (negative ids, `rms_library::remote`).
 pub async fn explore(
     server: &Arc<Server>,
+    player: Option<&Player>,
     seeds: &[i64],
     n: usize,
     exclude: &HashSet<String>,
@@ -90,7 +99,13 @@ pub async fn explore(
     let (recs, artists) = tokio::task::spawn_blocking(move || lib.seed_mbids(&ids))
         .await
         .unwrap_or_default();
-    if recs.is_empty() && artists.is_empty() {
+    // with a ListenBrainz account: what it recommends for its user, too
+    let user = player.and_then(|p| {
+        super::scrobble::player_accounts(server, p)
+            .into_iter()
+            .next()
+    });
+    if recs.is_empty() && artists.is_empty() && user.is_none() {
         debug!("discovery: no MusicBrainz ids for the seeds");
         return Vec::new();
     }
@@ -117,6 +132,7 @@ pub async fn explore(
                         title: title.to_string(),
                         artist: artist.to_string(),
                         artist_mbid: None,
+                        isrc: None,
                         because: r.clone(),
                     },
                 ));
@@ -136,14 +152,46 @@ pub async fn explore(
                         title: String::new(),
                         artist: name.to_string(),
                         artist_mbid: Some(mbid.to_string()),
+                        isrc: None,
                         because: a.clone(),
                     },
                 ));
             }
         }
     }
-    // the most similar first, with some chance for the others; similar recordings and
-    // similar artists in turn
+    let mut personal = Vec::new();
+    if let Some(a) = &user {
+        let recommended = recommendations(server, a).await;
+        // a sample, the most recommended likelier, looked up in one go
+        let mut sample: Vec<(f64, String)> = {
+            let mut rng = rand::rng();
+            recommended
+                .into_iter()
+                .map(|(score, m)| (score * rng.random_range(0.3..1.0), m))
+                .collect()
+        };
+        sample.sort_by(|a, b| b.0.total_cmp(&a.0));
+        sample.truncate(3 * n);
+        let ids: Vec<String> = sample.iter().map(|(_, m)| m.clone()).collect();
+        let meta = recording_metadata(server, &ids).await;
+        for (score, m) in sample {
+            if let Some(r) = meta.get(&m) {
+                personal.push((
+                    score,
+                    Candidate {
+                        recording: Some(m.clone()),
+                        title: r.title.clone(),
+                        artist: r.artist.clone(),
+                        artist_mbid: r.artist_mbid.clone(),
+                        isrc: r.isrc.clone(),
+                        because: format!("recommended for {}", a.user),
+                    },
+                ));
+            }
+        }
+    }
+    // the most similar first, with some chance for the others; similar recordings, similar
+    // artists and recommendations in turn
     let ranked = |mut v: Vec<(f64, Candidate)>| -> Vec<Candidate> {
         let mut rng = rand::rng();
         for c in v.iter_mut() {
@@ -152,14 +200,23 @@ pub async fn explore(
         v.sort_by(|a, b| b.0.total_cmp(&a.0));
         v.into_iter().map(|(_, c)| c).collect()
     };
-    let (recs, arts) = (ranked(by_recording), ranked(by_artist));
+    let mut streams = [
+        ranked(by_recording).into_iter(),
+        ranked(by_artist).into_iter(),
+        personal
+            .into_iter()
+            .map(|(_, c)| c)
+            .collect::<Vec<_>>()
+            .into_iter(),
+    ];
     let mut queue = Vec::new();
-    let mut ri = recs.into_iter();
-    let mut ai = arts.into_iter();
     loop {
-        match (ri.next(), ai.next()) {
-            (None, None) => break,
-            (r, a) => queue.extend(r.into_iter().chain(a)),
+        let before = queue.len();
+        for s in streams.iter_mut() {
+            queue.extend(s.next());
+        }
+        if queue.len() == before {
+            break;
         }
     }
 
@@ -231,7 +288,7 @@ async fn resolve(
         return None;
     }
     let tracks = match &c.recording {
-        Some(_) => find_track(sp, &c.title, &c.artist)
+        Some(_) => find_track(sp, &c.title, &c.artist, c.isrc.as_deref())
             .await
             .into_iter()
             .collect(),
@@ -275,43 +332,49 @@ async fn owned(server: &Arc<Server>, c: &Candidate) -> bool {
     .unwrap_or(false)
 }
 
-/// A ListenBrainz answer (a JSON array), from the cache when it is fresh.
+/// A ListenBrainz labs answer (a JSON array), from the cache when it is fresh.
 async fn fetch(server: &Arc<Server>, url: &str) -> Vec<Value> {
+    fetch_json(server, url, CACHE_SECS, None)
+        .await
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// A ListenBrainz answer, from the cache when no older than `max_age` seconds (`Null` when
+/// it can't be had).  With a token, as its user.
+async fn fetch_json(server: &Arc<Server>, url: &str, max_age: i64, token: Option<&str>) -> Value {
     let lib = server.library.clone();
     let key = url.to_string();
-    if let Ok(Some(body)) = tokio::task::spawn_blocking(move || lib.cached(&key, CACHE_SECS)).await
-    {
-        return serde_json::from_str::<Value>(&body)
-            .ok()
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default();
+    if let Ok(Some(body)) = tokio::task::spawn_blocking(move || lib.cached(&key, max_age)).await {
+        return serde_json::from_str(&body).unwrap_or_default();
     }
-    let resp = server
+    let mut req = server
         .http
         .get(url)
         .header("User-Agent", super::musicbrainz::user_agent())
-        .timeout(Duration::from_secs(10))
-        .send()
-        .await;
-    let body = match resp {
+        .timeout(Duration::from_secs(10));
+    if let Some(t) = token {
+        req = req.header("Authorization", format!("Token {t}"));
+    }
+    let body = match req.send().await {
         Ok(r) if r.status().is_success() => r.text().await.unwrap_or_default(),
         Ok(r) => {
             debug!("ListenBrainz: HTTP {} for {url}", r.status());
-            return Vec::new();
+            return Value::Null;
         }
         Err(e) => {
             debug!("ListenBrainz: {e}");
-            return Vec::new();
+            return Value::Null;
         }
     };
-    let list: Vec<Value> = serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default();
+    let Ok(v) = serde_json::from_str::<Value>(&body) else {
+        return Value::Null;
+    };
     let lib = server.library.clone();
     let key = url.to_string();
     let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
-    list
+    v
 }
 
 /// Spotify's track for a recording: the first search result by that artist with that title,
@@ -320,7 +383,19 @@ async fn find_track(
     sp: &crate::plugins::spotify::Spotify,
     title: &str,
     artist: &str,
+    isrc: Option<&str>,
 ) -> Option<Value> {
+    // the same recording by its ISRC, when known
+    if let Some(i) = isrc {
+        if let Ok(v) = sp
+            .api(&format!("/search?type=track&limit=1&q=isrc%3A{i}"))
+            .await
+        {
+            if let Some(t) = v["tracks"]["items"][0].as_object() {
+                return Some(Value::Object(t.clone()));
+            }
+        }
+    }
     let q = format!(
         "track:\"{}\" artist:\"{}\"",
         title.replace('"', ""),
@@ -430,6 +505,327 @@ pub fn blend(mut mix: Vec<i64>, discovered: Vec<i64>, keep_first: bool) -> Vec<i
         mix.insert(at, d);
     }
     mix
+}
+
+// ---------------------------------------------------------------- with an account
+
+/// What ListenBrainz recommends for an account's user: (score, recording) pairs.  (Its
+/// collaborative filtering, renewed every few days.)
+async fn recommendations(server: &Arc<Server>, a: &Account) -> Vec<(f64, String)> {
+    let url = format!(
+        "{}/1/cf/recommendation/user/{}/recording?count=200",
+        api(server),
+        super::musicbrainz::percent(&a.user)
+    );
+    let v = fetch_json(server, &url, RECS_SECS, Some(&a.token)).await;
+    v["payload"]["mbids"]
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .filter_map(|x| {
+                    Some((
+                        x["score"].as_f64().unwrap_or(0.0),
+                        x["recording_mbid"].as_str()?.to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What a recommendation or playlist names: a recording.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Recording {
+    pub mbid: String,
+    pub title: String,
+    pub artist: String,
+    pub artist_mbid: Option<String>,
+    pub isrc: Option<String>,
+    /// Seconds.
+    pub duration: Option<f64>,
+}
+
+/// Recordings' titles, artists and ISRCs, by MusicBrainz id (one request for those not
+/// cached).
+async fn recording_metadata(
+    server: &Arc<Server>,
+    mbids: &[String],
+) -> std::collections::HashMap<String, Recording> {
+    let mut out = std::collections::HashMap::new();
+    let mut missing = Vec::new();
+    for m in mbids {
+        let lib = server.library.clone();
+        let key = format!("lb-recording:{m}");
+        let cached = tokio::task::spawn_blocking(move || lib.cached(&key, CACHE_SECS))
+            .await
+            .ok()
+            .flatten();
+        match cached.and_then(|b| serde_json::from_str::<Value>(&b).ok()) {
+            Some(v) => {
+                if let Some(r) = recording_from(m, &v) {
+                    out.insert(m.clone(), r);
+                }
+            }
+            None => missing.push(m.clone()),
+        }
+    }
+    for chunk in missing.chunks(50) {
+        let url = format!(
+            "{}/1/metadata/recording/?recording_mbids={}&inc=artist",
+            api(server),
+            chunk.join(",")
+        );
+        let v = fetch_json(server, &url, 0, None).await;
+        for m in chunk {
+            let Some(x) = v.get(m) else { continue };
+            let lib = server.library.clone();
+            let (key, body) = (format!("lb-recording:{m}"), x.to_string());
+            let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
+            if let Some(r) = recording_from(m, x) {
+                out.insert(m.clone(), r);
+            }
+        }
+    }
+    out
+}
+
+fn recording_from(mbid: &str, v: &Value) -> Option<Recording> {
+    Some(Recording {
+        mbid: mbid.to_string(),
+        title: v["recording"]["name"].as_str()?.to_string(),
+        artist: v["artist"]["name"].as_str()?.to_string(),
+        artist_mbid: v["artist"]["artists"][0]["artist_mbid"]
+            .as_str()
+            .map(str::to_string),
+        isrc: v["recording"]["isrcs"][0].as_str().map(str::to_string),
+        duration: v["recording"]["length"].as_f64().map(|ms| ms / 1000.0),
+    })
+}
+
+fn api(server: &Server) -> String {
+    server
+        .config
+        .listenbrainz_api_url
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// An entry of the ListenBrainz menu.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuItem {
+    pub id: String,
+    pub name: String,
+    pub folder: bool,
+}
+
+/// The ListenBrainz menu: at the top, for each account, its recommendations and the
+/// playlists ListenBrainz made for its user (Daily Jams, Weekly Jams, Weekly Exploration, …);
+/// below, their recordings (`rec:<mbid>`).
+pub async fn menu(server: &Arc<Server>, id: Option<&str>) -> Result<Vec<MenuItem>, String> {
+    let accounts = super::scrobble::accounts(server);
+    let Some(id) = id.filter(|i| !i.is_empty()) else {
+        let mut items = Vec::new();
+        for a in &accounts {
+            items.push(MenuItem {
+                id: format!("recs:{}", a.user),
+                name: format!("Recommended for {}", a.user),
+                folder: true,
+            });
+            for (pid, title) in playlists(server, a).await {
+                items.push(MenuItem {
+                    id: format!("pl:{pid}"),
+                    name: title,
+                    folder: true,
+                });
+            }
+        }
+        return Ok(items);
+    };
+    let recordings = recordings_of(server, id).await?;
+    Ok(recordings
+        .into_iter()
+        .map(|r| MenuItem {
+            id: format!("rec:{}", r.mbid),
+            name: format!("{} — {}", r.title, r.artist),
+            folder: false,
+        })
+        .collect())
+}
+
+/// The playlists ListenBrainz made for an account's user, newest first: (id, title).
+async fn playlists(server: &Arc<Server>, a: &Account) -> Vec<(String, String)> {
+    let url = format!(
+        "{}/1/user/{}/playlists/createdfor?count=25",
+        api(server),
+        super::musicbrainz::percent(&a.user)
+    );
+    let v = fetch_json(server, &url, LIST_SECS, Some(&a.token)).await;
+    v["playlists"]
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .filter_map(|x| {
+                    let p = &x["playlist"];
+                    let id = p["identifier"].as_str()?.rsplit('/').next()?.to_string();
+                    Some((id, p["title"].as_str()?.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The recordings a menu id stands for.
+async fn recordings_of(server: &Arc<Server>, id: &str) -> Result<Vec<Recording>, String> {
+    let accounts = super::scrobble::accounts(server);
+    if let Some(user) = id.strip_prefix("recs:") {
+        let a = accounts
+            .iter()
+            .find(|a| a.user == user)
+            .ok_or("no such ListenBrainz account")?;
+        let ids: Vec<String> = recommendations(server, a)
+            .await
+            .into_iter()
+            .take(MENU_SIZE)
+            .map(|(_, m)| m)
+            .collect();
+        let meta = recording_metadata(server, &ids).await;
+        return Ok(ids.iter().filter_map(|m| meta.get(m).cloned()).collect());
+    }
+    if let Some(pid) = id.strip_prefix("pl:") {
+        if !is_mbid(pid) {
+            return Err("no such playlist".into());
+        }
+        let url = format!("{}/1/playlist/{pid}", api(server));
+        let token = accounts.first().map(|a| a.token.as_str());
+        let v = fetch_json(server, &url, LIST_SECS, token).await;
+        let tracks = v["playlist"]["track"]
+            .as_array()
+            .ok_or("ListenBrainz has no such playlist")?;
+        return Ok(tracks
+            .iter()
+            .filter_map(|t| {
+                let mbid = t["identifier"]
+                    .as_array()
+                    .and_then(|i| i.first())
+                    .or(Some(&t["identifier"]))?
+                    .as_str()?
+                    .rsplit('/')
+                    .next()?
+                    .to_string();
+                Some(Recording {
+                    title: t["title"].as_str()?.to_string(),
+                    artist: t["creator"].as_str()?.to_string(),
+                    duration: t["duration"].as_f64().map(|ms| ms / 1000.0),
+                    artist_mbid: t["extension"]["https://musicbrainz.org/doc/jspf#track"]
+                        ["additional_metadata"]["artists"][0]["artist_mbid"]
+                        .as_str()
+                        .map(str::to_string),
+                    isrc: None,
+                    mbid,
+                })
+            })
+            .collect());
+    }
+    if let Some(m) = id.strip_prefix("rec:") {
+        if !is_mbid(m) {
+            return Err("no such recording".into());
+        }
+        let meta = recording_metadata(server, &[m.to_string()]).await;
+        return meta
+            .get(m)
+            .cloned()
+            .map(|r| vec![r])
+            .ok_or_else(|| "ListenBrainz doesn't know this recording".into());
+    }
+    Err(format!("unknown ListenBrainz item {id}"))
+}
+
+/// What a menu id plays, as queue entries: each recording from the library when it has it,
+/// else from Spotify when signed in (in the menu's order; what can't be found is left out).
+pub async fn entries(server: &Arc<Server>, id: &str) -> Result<Vec<Entry>, String> {
+    use futures::StreamExt;
+    let mut recordings = recordings_of(server, id).await?;
+    // ISRCs make Spotify's copy certain
+    let need: Vec<String> = recordings
+        .iter()
+        .filter(|r| r.isrc.is_none())
+        .map(|r| r.mbid.clone())
+        .collect();
+    if !need.is_empty() && crate::plugins::spotify::get().is_some_and(|s| s.signed_in()) {
+        let meta = recording_metadata(server, &need).await;
+        for r in recordings.iter_mut() {
+            if let Some(m) = meta.get(&r.mbid) {
+                r.isrc = r.isrc.take().or(m.isrc.clone());
+            }
+        }
+    }
+    let found: Vec<Option<Item>> = futures::stream::iter(recordings)
+        .map(|r| {
+            let server = server.clone();
+            async move { playable(&server, &r).await }
+        })
+        .buffered(4)
+        .collect()
+        .await;
+    let mut out = Vec::new();
+    for item in found.into_iter().flatten() {
+        out.extend(match item {
+            Item::Local(id) => {
+                crate::player::command::entries_for(
+                    server,
+                    &crate::player::command::Item::Track(id),
+                )
+                .await
+            }
+            Item::Url(u) => crate::player::command::url_entries(server, &u).await,
+        });
+    }
+    if out.is_empty() {
+        return Err("none of it is in the library, or on Spotify".into());
+    }
+    Ok(out)
+}
+
+enum Item {
+    Local(i64),
+    Url(String),
+}
+
+/// Where a recording plays from (remembered for a week; a miss for a day).
+async fn playable(server: &Arc<Server>, r: &Recording) -> Option<Item> {
+    let lib = server.library.clone();
+    let rec = r.clone();
+    let local = tokio::task::spawn_blocking(move || {
+        lib.local_recording(Some(&rec.mbid), &rec.artist, &rec.title)
+    })
+    .await
+    .ok()
+    .flatten();
+    if let Some(id) = local {
+        return Some(Item::Local(id));
+    }
+    let key = format!("lb-spotify:{}", r.mbid);
+    let lib = server.library.clone();
+    let k = key.clone();
+    if let Ok(Some(hit)) = tokio::task::spawn_blocking(move || lib.cached(&k, 7 * 86400)).await {
+        return (!hit.is_empty()).then_some(Item::Url(hit));
+    }
+    let sp = crate::plugins::spotify::get().filter(|s| s.signed_in())?;
+    let url = match find_track(sp, &r.title, &r.artist, r.isrc.as_deref()).await {
+        Some(t) => {
+            sp.remember(&t);
+            remote_track(&t).map(|t| t.url)
+        }
+        None => None,
+    };
+    let lib = server.library.clone();
+    let body = url.clone().unwrap_or_default();
+    let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
+    url.map(Item::Url)
+}
+
+fn is_mbid(s: &str) -> bool {
+    s.len() == 36 && s.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
 }
 
 #[cfg(test)]
