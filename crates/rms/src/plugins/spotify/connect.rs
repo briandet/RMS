@@ -40,6 +40,11 @@ const WAIT_FOR_STREAM: Duration = Duration::from_secs(10);
 /// After (re)starting the player's stream, its state is in flux: don't read it as the
 /// user stopping or pausing.
 const RESTART_GRACE: Duration = Duration::from_secs(4);
+/// How far decoding may run ahead of what the player has actually played.  Without a
+/// limit it fills the player's buffers (a Squeezebox holds about 40s of FLAC and PCM), so
+/// the app's position, its "now playing" and the player's display would run that far ahead
+/// of what is heard.  Must exceed the stream's start threshold (255 KB, about 2.5s of FLAC).
+const LEAD: Duration = Duration::from_secs(5);
 /// A track that loads this soon after the previous one ended is the next track playing on
 /// (gapless), not one picked in the app.
 const NATURAL_NEXT: Duration = Duration::from_secs(3);
@@ -64,10 +69,34 @@ pub fn url(mac: &MacAddress) -> String {
 struct Pipe {
     /// The current stream's sender, with a generation number to tell streams apart.
     tx: Mutex<Option<(u64, SyncSender<Vec<i16>>)>>,
+    /// How far (ms) decoding is ahead of what the player has played, as last measured.
+    lead_ms: std::sync::atomic::AtomicU64,
+}
+
+impl Pipe {
+    fn lead(&self) -> Duration {
+        Duration::from_millis(self.lead_ms.load(Ordering::Relaxed))
+    }
 }
 
 struct PipeSink {
     pipe: Arc<Pipe>,
+    player: Weak<crate::player::Player>,
+    /// The stream being written: its generation, when it started, frames written to it.
+    stream: Option<(u64, Instant, u64)>,
+}
+
+impl PipeSink {
+    /// Seconds of the current stream the player has played.  Never more than the time since
+    /// the stream started: right after a restart the player still reports the old stream.
+    fn played(&self, started: Instant) -> f64 {
+        let reported = self
+            .player
+            .upgrade()
+            .and_then(|p| p.song_elapsed_seconds(true))
+            .unwrap_or(0.0);
+        reported.min(started.elapsed().as_secs_f64())
+    }
 }
 
 impl Sink for PipeSink {
@@ -76,22 +105,61 @@ impl Sink for PipeSink {
             return Ok(());
         };
         let mut samples = converter.f64_to_s16(&samples);
+        let frames = (samples.len() / super::stream::CHANNELS as usize) as u64;
         let deadline = std::time::Instant::now() + WAIT_FOR_STREAM;
+        // the player's position while we wait for it, and since when it has not moved
+        let mut stalled: Option<(f64, Instant)> = None;
         loop {
             let tx = self.pipe.tx.lock().clone();
             match tx {
-                Some((generation, tx)) => match tx.try_send(samples) {
-                    Ok(()) => return Ok(()),
-                    Err(TrySendError::Full(s)) => samples = s,
-                    Err(TrySendError::Disconnected(_)) => {
-                        // the player stopped reading: forget that stream
-                        let mut g = self.pipe.tx.lock();
-                        if g.as_ref().is_some_and(|(cur, _)| *cur == generation) {
-                            *g = None;
-                        }
-                        return Ok(());
+                Some((generation, tx)) => {
+                    if self.stream.is_none_or(|(g, _, _)| g != generation) {
+                        self.stream = Some((generation, Instant::now(), 0));
                     }
-                },
+                    let (_, started, written) = self.stream.expect("set above");
+                    let ahead =
+                        written as f64 / super::stream::SAMPLE_RATE as f64 - self.played(started);
+                    self.pipe
+                        .lead_ms
+                        .store((ahead.max(0.0) * 1000.0) as u64, Ordering::Relaxed);
+                    if ahead > LEAD.as_secs_f64() {
+                        let played = self.played(started);
+                        match stalled {
+                            Some((at, since)) if (played - at).abs() < 0.001 => {
+                                if since.elapsed() > Duration::from_secs(1) {
+                                    // the player is paused or stuck: drop this packet so the
+                                    // decoder thread can take commands (a pause from the app)
+                                    return Ok(());
+                                }
+                            }
+                            _ => stalled = Some((played, Instant::now())),
+                        }
+                        // gone? (nothing reads the stream any more)
+                        if let Err(TrySendError::Disconnected(_)) = tx.try_send(Vec::new()) {
+                            return Ok(());
+                        }
+                        // like a sound card: wait for the player to catch up
+                        std::thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
+                    match tx.try_send(samples) {
+                        Ok(()) => {
+                            if let Some(st) = &mut self.stream {
+                                st.2 += frames;
+                            }
+                            return Ok(());
+                        }
+                        Err(TrySendError::Full(s)) => samples = s,
+                        Err(TrySendError::Disconnected(_)) => {
+                            // the player stopped reading: forget that stream
+                            let mut g = self.pipe.tx.lock();
+                            if g.as_ref().is_some_and(|(cur, _)| *cur == generation) {
+                                *g = None;
+                            }
+                            return Ok(());
+                        }
+                    }
+                }
                 None if std::time::Instant::now() > deadline => return Ok(()),
                 None => {}
             }
@@ -316,8 +384,13 @@ async fn add_device(
     };
     let pipe = Arc::new(Pipe::default());
     let sink_pipe = pipe.clone();
+    let sink_player = Arc::downgrade(p);
     let player = Player::new(config, session.clone(), Box::new(NoOpVolume), move || {
-        Box::new(PipeSink { pipe: sink_pipe })
+        Box::new(PipeSink {
+            pipe: sink_pipe,
+            player: sink_player,
+            stream: None,
+        })
     });
     let initial = ((p.volume().clamp(0, 100) as u32 * 65535) / 100) as u16;
     let mixer = Arc::new(PlayerMixer {
@@ -480,7 +553,16 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
                 .iter()
                 .max_by_key(|c| c.width)
                 .map(|c| c.url.clone());
-            now_playing(server, mac, &audio_item.name, &artist, &album, cover);
+            // show it when it is heard: decoding runs ahead of the player by the lead
+            let lead = dev.pipe.lead();
+            let server = Arc::downgrade(server);
+            let title = audio_item.name.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(lead).await;
+                if let Some(server) = server.upgrade() {
+                    now_playing(&server, mac, &title, &artist, &album, cover);
+                }
+            });
         }
         _ => {}
     }
@@ -511,4 +593,72 @@ fn now_playing(
         Some(master),
         vec!["playlist".into(), "newsong".into(), title.to_string()],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugins::spotify::stream;
+
+    /// One second of silence as librespot hands it to a sink.
+    fn second() -> AudioPacket {
+        AudioPacket::Samples(vec![0.0; (stream::SAMPLE_RATE * stream::CHANNELS) as usize])
+    }
+
+    fn frames(rx: &std::sync::mpsc::Receiver<Vec<i16>>) -> usize {
+        rx.try_iter()
+            .map(|c| c.len() / stream::CHANNELS as usize)
+            .sum()
+    }
+
+    #[test]
+    fn decoding_stays_a_lead_ahead_of_a_player_that_does_not_play() {
+        let pipe = Arc::new(Pipe::default());
+        let (tx, rx) = sync_channel::<Vec<i16>>(64);
+        *pipe.tx.lock() = Some((0, tx));
+        // no player: nothing is ever played
+        let mut sink = PipeSink {
+            pipe: pipe.clone(),
+            player: Weak::new(),
+            stream: None,
+        };
+        let mut conv = Converter::new(None);
+        let t = Instant::now();
+        let mut delivered = 0;
+        for _ in 0..8 {
+            sink.write(second(), &mut conv).unwrap();
+            delivered += frames(&rx);
+        }
+        let lead_frames = (LEAD.as_secs() * stream::SAMPLE_RATE as u64) as usize;
+        let one = stream::SAMPLE_RATE as usize;
+        // up to the lead (plus the packet that crossed it), never all 8 seconds
+        assert!(
+            delivered <= lead_frames + one,
+            "delivered {delivered} frames"
+        );
+        assert!(
+            delivered >= lead_frames - one,
+            "delivered {delivered} frames"
+        );
+        // past the lead it waits ~1s for the stalled player, then drops instead of blocking
+        assert!(t.elapsed() < Duration::from_secs(8), "{:?}", t.elapsed());
+        assert!(pipe.lead() >= LEAD);
+    }
+
+    #[test]
+    fn a_closed_stream_does_not_block_the_decoder() {
+        let pipe = Arc::new(Pipe::default());
+        let (tx, rx) = sync_channel::<Vec<i16>>(1);
+        *pipe.tx.lock() = Some((0, tx));
+        drop(rx);
+        let mut sink = PipeSink {
+            pipe: pipe.clone(),
+            player: Weak::new(),
+            stream: None,
+        };
+        let t = Instant::now();
+        sink.write(second(), &mut Converter::new(None)).unwrap();
+        assert!(t.elapsed() < Duration::from_secs(1));
+        assert!(pipe.tx.lock().is_none(), "the closed stream is forgotten");
+    }
 }
