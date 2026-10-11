@@ -70,6 +70,10 @@ The script builds a release binary (the web UI is built in), installs it as
   both use the same ports.
 * Firewall: allow TCP+UDP 3483 (players) and TCP 9000 (web UI, Squeezer), plus TCP 9090 if
   you use the telnet CLI.  Keep them on the LAN: like Lyrion, there is no login by default.
+  To require one, set `username` and `password` and then `authorize` to 1 (e.g. `pref
+  username me`, `pref password <sha1_base64 or plain>`, `pref authorize 1` on the CLI):
+  the web UI, JSON-RPC and Cometd then need HTTP Basic auth and the CLI needs `login`.
+  Players are unaffected (they get a per-stream password).
 * Player discovery is a UDP broadcast, so players find the server on the same network
   segment; elsewhere give them its address.
 * Spotify sign-in on a headless server: paste the address Spotify sends you to into the

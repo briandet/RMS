@@ -723,3 +723,56 @@ fn synced_players_share_one_transcode() {
     assert_eq!(body_a.len(), 40 * 44100 * 4);
     assert!(body_a == body_b, "both players got the same audio");
 }
+
+fn http_post_status(port: u16, path: &str, body: &str, auth: Option<&str>) -> (u16, String) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let auth = auth
+        .map(|a| format!("Authorization: Basic {}\r\n", a))
+        .unwrap_or_default();
+    write!(
+        s,
+        "POST {} HTTP/1.0\r\nContent-Type: text/json\r\n{}Content-Length: {}\r\n\r\n{}",
+        path,
+        auth,
+        body.len(),
+        body
+    )
+    .unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    let status = resp
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (
+        status,
+        resp[resp.find("\r\n\r\n").unwrap() + 4..].to_string(),
+    )
+}
+
+#[test]
+fn authorize_gates_http() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let body = r#"{"id":1,"method":"slim.request","params":["",["version","?"]]}"#;
+    let (code, _) = http_post_status(server.http, "/jsonrpc.js", body, None);
+    assert_eq!(code, 200, "open by default");
+
+    cli(server.cli, "pref username alice");
+    // sha1_base64("secret"), the form LMS stores
+    cli(server.cli, "pref password 5en6G6MezRroT3XKqkdPOmY/BfQ");
+    cli(server.cli, "pref authorize 1");
+
+    let (code, _) = http_post_status(server.http, "/jsonrpc.js", body, None);
+    assert_eq!(code, 401);
+    // alice:wrong
+    let (code, _) = http_post_status(server.http, "/jsonrpc.js", body, Some("YWxpY2U6d3Jvbmc="));
+    assert_eq!(code, 401);
+    // alice:secret
+    let (code, resp) = http_post_status(server.http, "/jsonrpc.js", body, Some("YWxpY2U6c2VjcmV0"));
+    assert_eq!(code, 200);
+    assert!(resp.contains("_version"), "{resp}");
+    let (code, _) = http_post_status(server.http, "/cometd", "[]", None);
+    assert_eq!(code, 401);
+}

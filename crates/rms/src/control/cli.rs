@@ -199,7 +199,10 @@ async fn process_line(
             let pass = tokens.get(2).cloned().unwrap_or_default();
             if !*authed {
                 let ok = user == server.prefs.server.get_str("username")
-                    && check_password(&pass, &server.prefs.server.get_str("password"));
+                    && crate::web::auth::check_password(
+                        &pass,
+                        &server.prefs.server.get_str("password"),
+                    );
                 send(vec!["login".into(), user, "******".into()], None);
                 if !ok {
                     warn!("CLI login failed");
@@ -311,14 +314,6 @@ async fn process_line(
     };
     send(words, echo_client);
     LineResult::Continue
-}
-
-/// LMS stores `sha1_base64(password)`; accept that or a plain match.
-fn check_password(given: &str, stored: &str) -> bool {
-    if stored.is_empty() {
-        return given.is_empty();
-    }
-    given == stored
 }
 
 #[cfg(test)]
