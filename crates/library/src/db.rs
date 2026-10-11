@@ -1,347 +1,275 @@
-//! SQLite schema (LMS schema version 26, SQLite flavour) and connection pool.
+//! The library database: schema, migrations and the connection pool.
+//!
+//! The schema is RMS's own (documented in `docs/library-schema.md`); the LMS queries in
+//! [`crate::queries`] translate it into what Squeezebox clients expect.  `PRAGMA user_version`
+//! holds the schema version and [`MIGRATIONS`] brings an older database up to date.
+//!
+//! A database left by an earlier RMS release, which used Lyrion's schema, is converted on
+//! first open: the file is copied to `<name>.lms-backup` first, then play counts, ratings and
+//! "added" dates move to `track_stats`, and sonic analysis / loudness results are kept aside
+//! (`legacy_analysis`) until the next scan matches them to tracks again.  The rest of the
+//! old library is rebuilt by that scan.  The conversion runs in one transaction: if anything
+//! fails, the old database is left as it was.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 
-pub const SCHEMA_VERSION: i64 = 26;
+/// Schema version written to `PRAGMA user_version`.
+pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
-pub const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS dbix_migration (name VARCHAR(255) PRIMARY KEY, value VARCHAR(255));
-CREATE TABLE IF NOT EXISTS metainformation (
-  name  varchar(255) NOT NULL DEFAULT '',
-  value varchar(255) NOT NULL DEFAULT '',
-  PRIMARY KEY (name)
-);
-CREATE TABLE IF NOT EXISTS tracks (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  url text NOT NULL COLLATE NOCASE,
-  title blob,
-  titlesort text,
-  titlesearch text,
-  customsearch text,
-  album int(10),
-  tracknum int(10),
-  content_type varchar(255),
-  timestamp int(10),
-  filesize int(10),
-  audio_size int(10),
-  audio_offset int(10),
-  year smallint(5),
-  secs float,
-  cover blob,
-  vbr_scale varchar(255),
-  bitrate float,
-  samplerate int(10),
-  samplesize int(10),
-  channels tinyint(1),
-  block_alignment int(10),
-  endian bool,
-  bpm smallint(5),
-  tagversion varchar(255),
-  drm bool,
-  disc tinyint(1),
-  audio bool,
-  remote bool,
-  lossless bool,
-  lyrics text COLLATE NOCASE,
-  musicbrainz_id varchar(40),
-  musicmagic_mixable bool,
-  replay_gain float,
-  replay_peak float,
-  extid varchar(64),
-  primary_artist int(10),
-  urlmd5 char(32) NOT NULL default '0',
-  coverid char(8) default NULL,
-  cover_cached char(1) default NULL,
-  virtual char(1) default NULL,
-  added_time int(10) default NULL,
-  updated_time int(10) default NULL,
-  dlna_profile varchar(32),
-  hash char(8),
-  work integer,
-  subtitle blob,
-  grouping blob,
-  performance blob,
-  discsubtitle blob,
-  FOREIGN KEY (`album`) REFERENCES `albums` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS trackTitleIndex ON tracks (title);
-CREATE INDEX IF NOT EXISTS trackAlbumIndex ON tracks (album);
-CREATE INDEX IF NOT EXISTS ctSortIndex ON tracks (content_type);
-CREATE INDEX IF NOT EXISTS trackSortIndex ON tracks (titlesort);
-CREATE INDEX IF NOT EXISTS trackSearchIndex ON tracks (titlesearch);
-CREATE INDEX IF NOT EXISTS trackCustomSearchIndex ON tracks (customsearch);
-CREATE INDEX IF NOT EXISTS trackBitrateIndex ON tracks (bitrate);
-CREATE INDEX IF NOT EXISTS trackDiscIndex ON tracks (disc);
-CREATE INDEX IF NOT EXISTS trackFilesizeIndex ON tracks (filesize);
-CREATE INDEX IF NOT EXISTS trackTimestampIndex ON tracks (timestamp);
-CREATE INDEX IF NOT EXISTS trackTracknumIndex ON tracks (tracknum);
-CREATE INDEX IF NOT EXISTS trackAudioIndex ON tracks (audio);
-CREATE INDEX IF NOT EXISTS trackLyricsIndex ON tracks (lyrics);
-CREATE INDEX IF NOT EXISTS trackRemoteIndex ON tracks (remote);
-CREATE INDEX IF NOT EXISTS trackLosslessIndex ON tracks (lossless);
-CREATE INDEX IF NOT EXISTS urlIndex ON tracks (url);
-CREATE INDEX IF NOT EXISTS trackExtId ON tracks (extid);
-CREATE INDEX IF NOT EXISTS urlmd5Index ON tracks (urlmd5);
-CREATE INDEX IF NOT EXISTS coveridIndex ON tracks (coverid);
-CREATE INDEX IF NOT EXISTS tracksWorkIndex ON tracks (work);
-CREATE INDEX IF NOT EXISTS trackPrimaryArtistIndex ON tracks (primary_artist);
+/// `MIGRATIONS[n]` takes a database from version `n` to `n + 1`.
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1];
 
-CREATE TABLE IF NOT EXISTS playlist_track (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  position  int(10),
-  playlist  int(10),
-  track     text NOT NULL,
-  FOREIGN KEY (`playlist`) REFERENCES `tracks` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS positionIndex ON playlist_track (position);
-CREATE INDEX IF NOT EXISTS playlistIndex ON playlist_track (playlist);
+const SCHEMA_V1: &str = r#"
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
 
-CREATE TABLE IF NOT EXISTS albums (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title blob,
-  titlesort text,
-  titlesearch text,
-  customsearch text,
-  compilation bool,
-  year  smallint(5),
-  artwork char(8),
-  disc  tinyint(1),
-  discc  tinyint(1),
-  replay_gain float,
-  replay_peak float,
-  musicbrainz_id varchar(40),
-  musicmagic_mixable bool,
-  contributor int(10),
-  extid varchar(64),
-  release_type varchar(64),
-  subtitle blob,
-  label blob
-);
-CREATE INDEX IF NOT EXISTS albumsTitleIndex ON albums (title);
-CREATE INDEX IF NOT EXISTS albumsSortIndex ON albums (titlesort);
-CREATE INDEX IF NOT EXISTS albumsSearchIndex ON albums (titlesearch);
-CREATE INDEX IF NOT EXISTS albumsCustomSearchIndex ON albums (customsearch);
-CREATE INDEX IF NOT EXISTS compilationSortIndex ON albums (compilation);
-CREATE INDEX IF NOT EXISTS albumsYearIndex ON albums (year);
-CREATE INDEX IF NOT EXISTS albumsDiscIndex ON albums (disc);
-CREATE INDEX IF NOT EXISTS albumsDiscCountIndex ON albums (discc);
-CREATE INDEX IF NOT EXISTS albumsArtworkIndex ON albums (artwork);
-CREATE INDEX IF NOT EXISTS albumsReleaseTypeIndex ON albums (release_type);
+-- Everything the scanner found on disk: directories, audio files, cue sheets, playlist files.
+CREATE TABLE files (
+  id    INTEGER PRIMARY KEY,
+  url   TEXT NOT NULL UNIQUE,
+  kind  TEXT NOT NULL CHECK (kind IN ('dir', 'audio', 'cue', 'playlist')),
+  -- how an audio file is split into tracks: whole (NULL), by its own cue sheet
+  -- ('embedded') or by a separate .cue file ('external')
+  cue   TEXT CHECK (cue IN ('embedded', 'external')),
+  mtime INTEGER NOT NULL DEFAULT 0,
+  size  INTEGER NOT NULL DEFAULT 0
+) STRICT;
+CREATE INDEX files_kind ON files (kind);
 
-CREATE TABLE IF NOT EXISTS years ( id smallint(5), PRIMARY KEY (id) );
+CREATE TABLE artists (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  name_sort   TEXT NOT NULL,
+  name_search TEXT NOT NULL,
+  mbid        TEXT,
+  portrait    TEXT,  -- file URL of the artist's picture
+  portrait_id TEXT   -- served at /contributor/<portrait_id>/image
+) STRICT;
+CREATE INDEX artists_name ON artists (name);
+CREATE INDEX artists_name_sort ON artists (name_sort);
+CREATE INDEX artists_name_search ON artists (name_search);
+CREATE INDEX artists_mbid ON artists (mbid);
+CREATE INDEX artists_portrait_id ON artists (portrait_id);
 
-CREATE TABLE IF NOT EXISTS contributors (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name blob,
-  namesort text,
-  namesearch text,
-  customsearch text,
-  musicbrainz_id varchar(40),
-  musicmagic_mixable bool,
-  extid varchar(512),
-  portrait blob default NULL,
-  portraitid char(8) default NULL
-);
-CREATE INDEX IF NOT EXISTS contributorsNameIndex ON contributors (name);
-CREATE INDEX IF NOT EXISTS contributorsSortIndex ON contributors (namesort);
-CREATE INDEX IF NOT EXISTS contributorsSearchIndex ON contributors (namesearch);
-CREATE INDEX IF NOT EXISTS contributorsCustomSearchIndex ON contributors (customsearch);
-CREATE INDEX IF NOT EXISTS portraitidIndex ON contributors (portraitid);
-CREATE INDEX IF NOT EXISTS contributorsMbidIndex ON contributors (musicbrainz_id);
+CREATE TABLE albums (
+  id           INTEGER PRIMARY KEY,
+  title        TEXT NOT NULL,
+  title_sort   TEXT NOT NULL,
+  title_search TEXT NOT NULL,
+  -- title and artists' search keys, for multi-word search
+  search_text  TEXT,
+  -- album artist; Various Artists for a compilation
+  artist_id    INTEGER REFERENCES artists (id) ON DELETE SET NULL,
+  -- NULL while not yet decided by the scanner
+  compilation  INTEGER CHECK (compilation IN (0, 1)),
+  year         INTEGER NOT NULL DEFAULT 0,  -- 0: unknown
+  disc         INTEGER,
+  disc_count   INTEGER,
+  release_type TEXT NOT NULL DEFAULT 'ALBUM',
+  replay_gain  REAL,
+  replay_peak  REAL,
+  mbid         TEXT,
+  artwork      TEXT  -- cover id of the track whose picture stands for the album
+) STRICT;
+CREATE INDEX albums_title ON albums (title);
+CREATE INDEX albums_title_sort ON albums (title_sort);
+CREATE INDEX albums_title_search ON albums (title_search);
+CREATE INDEX albums_artist ON albums (artist_id);
+CREATE INDEX albums_year ON albums (year);
+CREATE INDEX albums_mbid ON albums (mbid);
 
-CREATE TABLE IF NOT EXISTS contributor_track (
-  role  int(10),
-  contributor  int(10),
-  track  int(10),
-  PRIMARY KEY (role,contributor,track),
-  FOREIGN KEY (`track`) REFERENCES `tracks` (`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`contributor`) REFERENCES `contributors` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS contributor_trackContribIndex ON contributor_track (contributor);
-CREATE INDEX IF NOT EXISTS contributor_trackTrackIndex ON contributor_track (track);
-CREATE INDEX IF NOT EXISTS contributor_trackRoleIndex ON contributor_track (role);
+CREATE TABLE works (
+  id           INTEGER PRIMARY KEY,
+  composer_id  INTEGER NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
+  title        TEXT NOT NULL,
+  title_sort   TEXT NOT NULL,
+  title_search TEXT NOT NULL,
+  UNIQUE (composer_id, title_search)
+) STRICT;
 
-CREATE TABLE IF NOT EXISTS contributor_album (
-  role  int(10),
-  contributor  int(10),
-  album  int(10),
-  PRIMARY KEY (role,contributor,album),
-  FOREIGN KEY (`album`) REFERENCES `albums` (`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`contributor`) REFERENCES `contributors` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS contributor_albumContribIndex ON contributor_album (contributor);
-CREATE INDEX IF NOT EXISTS contributor_albumAlbumIndex ON contributor_album (album);
-CREATE INDEX IF NOT EXISTS contributor_albumRoleIndex ON contributor_album (role);
+CREATE TABLE genres (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  name_sort   TEXT NOT NULL,
+  name_search TEXT NOT NULL UNIQUE
+) STRICT;
+CREATE INDEX genres_name_sort ON genres (name_sort);
 
-CREATE TABLE IF NOT EXISTS genres (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name blob,
-  namesort text,
-  namesearch text,
-  customsearch text,
-  musicmagic_mixable bool
-);
-CREATE INDEX IF NOT EXISTS genreNameIndex ON genres (name);
-CREATE INDEX IF NOT EXISTS genreSortIndex ON genres (namesort);
-CREATE INDEX IF NOT EXISTS genreSearchIndex ON genres (namesearch);
-CREATE INDEX IF NOT EXISTS genreCustomSearchIndex ON genres (customsearch);
+-- A playable track: a whole audio file, or a segment of one (cue sheets).
+CREATE TABLE tracks (
+  id            INTEGER PRIMARY KEY,
+  file_id       INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+  url           TEXT NOT NULL UNIQUE,  -- file URL, plus #start-end for a segment
+  cue_start     REAL,
+  cue_end       REAL,
+  -- identifies the audio across moves and renames (see scanner::fingerprint)
+  fingerprint   TEXT,
+  title         TEXT NOT NULL,
+  title_sort    TEXT NOT NULL,
+  title_search  TEXT NOT NULL,
+  -- title, album and artists' search keys, for multi-word search
+  search_text   TEXT,
+  album_id      INTEGER REFERENCES albums (id) ON DELETE SET NULL,
+  artist_id     INTEGER REFERENCES artists (id) ON DELETE SET NULL,  -- primary artist
+  work_id       INTEGER REFERENCES works (id) ON DELETE SET NULL,
+  track_number  INTEGER,
+  disc          INTEGER,
+  disc_subtitle TEXT,
+  year          INTEGER NOT NULL DEFAULT 0,  -- 0: unknown
+  duration      REAL,                        -- seconds
+  format        TEXT NOT NULL,               -- flc, mp3, mp4, alc, ogg, ops, wav, aif, …
+  bitrate       INTEGER,
+  vbr           INTEGER NOT NULL DEFAULT 0,
+  sample_rate   INTEGER,
+  sample_size   INTEGER,
+  channels      INTEGER,
+  lossless      INTEGER NOT NULL DEFAULT 0,
+  big_endian    INTEGER,
+  block_align   INTEGER,
+  audio_offset  INTEGER,
+  audio_size    INTEGER,
+  bpm           INTEGER,
+  tag_version   TEXT,
+  replay_gain   REAL,
+  replay_peak   REAL,
+  mbid          TEXT,
+  lyrics        TEXT,
+  subtitle      TEXT,
+  grouping      TEXT,
+  performance   TEXT,
+  -- embedded picture length, picture file path, or '0' for none
+  cover         TEXT,
+  cover_id      TEXT,
+  added_at      INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+) STRICT;
+CREATE INDEX tracks_file ON tracks (file_id);
+CREATE INDEX tracks_album ON tracks (album_id);
+CREATE INDEX tracks_artist ON tracks (artist_id);
+CREATE INDEX tracks_work ON tracks (work_id);
+CREATE INDEX tracks_title_sort ON tracks (title_sort);
+CREATE INDEX tracks_year ON tracks (year);
+CREATE INDEX tracks_cover_id ON tracks (cover_id);
+CREATE INDEX tracks_fingerprint ON tracks (fingerprint);
 
-CREATE TABLE IF NOT EXISTS genre_track (
-  genre  int(10),
-  track  int(10),
-  PRIMARY KEY (genre,track),
-  FOREIGN KEY (`track`) REFERENCES `tracks` (`id`) ON DELETE CASCADE,
-  FOREIGN KEY (`genre`) REFERENCES `genres` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS genre_trackGenreIndex ON genre_track (genre);
-CREATE INDEX IF NOT EXISTS genre_trackTrackIndex ON genre_track (track);
+-- `role`: 1 artist, 2 composer, 3 conductor, 4 band, 5 album artist, 6 track artist,
+-- 7 lyricist, … (config::CONTRIBUTOR_ROLES)
+CREATE TABLE track_artists (
+  track_id  INTEGER NOT NULL REFERENCES tracks (id) ON DELETE CASCADE,
+  artist_id INTEGER NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
+  role      INTEGER NOT NULL,
+  position  INTEGER NOT NULL,  -- order of appearance in the tags
+  PRIMARY KEY (track_id, role, artist_id)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX track_artists_artist ON track_artists (artist_id, role);
 
-CREATE TABLE IF NOT EXISTS comments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  track  int(10),
-  value text,
-  FOREIGN KEY (`track`) REFERENCES `tracks` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS comments_trackIndex ON comments (track);
+CREATE TABLE album_artists (
+  album_id  INTEGER NOT NULL REFERENCES albums (id) ON DELETE CASCADE,
+  artist_id INTEGER NOT NULL REFERENCES artists (id) ON DELETE CASCADE,
+  role      INTEGER NOT NULL,
+  PRIMARY KEY (album_id, role, artist_id)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX album_artists_artist ON album_artists (artist_id, role);
 
-CREATE TABLE IF NOT EXISTS progress (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  type varchar(255),
-  name varchar(255),
-  active bool,
-  total int(10),
-  done int(10),
-  start int(10),
-  finish int(10),
-  info varchar(255)
-);
+CREATE TABLE track_genres (
+  track_id INTEGER NOT NULL REFERENCES tracks (id) ON DELETE CASCADE,
+  genre_id INTEGER NOT NULL REFERENCES genres (id) ON DELETE CASCADE,
+  PRIMARY KEY (track_id, genre_id)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX track_genres_genre ON track_genres (genre_id);
 
-CREATE TABLE IF NOT EXISTS tracks_persistent (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  url text NOT NULL,
-  musicbrainz_id varchar(40),
-  added int(10),
-  rating tinyint(1),
-  playCount int(10),
-  lastPlayed int(10),
-  urlmd5 char(32) NOT NULL default '0'
-);
-CREATE INDEX IF NOT EXISTS trackMusicBrainzIndex ON tracks_persistent (musicbrainz_id);
-CREATE INDEX IF NOT EXISTS trackUrlIndex ON tracks_persistent (url);
-CREATE INDEX IF NOT EXISTS trackAddedIndex ON tracks_persistent (added);
-CREATE INDEX IF NOT EXISTS trackRatingIndex ON tracks_persistent (rating);
-CREATE INDEX IF NOT EXISTS trackPlayCountIndex ON tracks_persistent (playCount);
-CREATE INDEX IF NOT EXISTS trackLastPlayedIndex ON tracks_persistent (lastPlayed);
-CREATE INDEX IF NOT EXISTS persistentUrlmd5Index ON tracks_persistent (urlmd5);
+CREATE TABLE track_comments (
+  track_id INTEGER NOT NULL REFERENCES tracks (id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  text     TEXT NOT NULL,
+  PRIMARY KEY (track_id, position)
+) STRICT, WITHOUT ROWID;
 
--- RMS: bliss sonic analysis and loudness, kept across wipes like tracks_persistent.
--- `features` / `loudness` are NULL when they could not be measured; either way they are
--- redone when the file changes.  `loudness` is in LUFS, `peak` the linear true peak.
-CREATE TABLE IF NOT EXISTS track_analysis (
-  urlmd5 char(32) PRIMARY KEY,
-  version int(10),
-  timestamp int(10),
-  filesize int(10),
-  features blob,
-  loudness float,
-  peak float,
-  analyzed int(10)
-);
+-- 'saved': in the playlist folder (listed as playlists); 'file': a playlist file elsewhere
+-- (reached through folders); 'cue': a cue sheet.
+CREATE TABLE playlists (
+  id          INTEGER PRIMARY KEY,
+  file_id     INTEGER UNIQUE REFERENCES files (id) ON DELETE CASCADE,
+  url         TEXT NOT NULL UNIQUE,
+  kind        TEXT NOT NULL CHECK (kind IN ('saved', 'file', 'cue')),
+  name        TEXT NOT NULL,
+  name_sort   TEXT NOT NULL,
+  name_search TEXT NOT NULL
+) STRICT;
+CREATE INDEX playlists_kind ON playlists (kind, name_sort);
 
-CREATE TABLE IF NOT EXISTS scanned_files (
-  url text NOT NULL COLLATE NOCASE,
-  timestamp int(10),
-  filesize int(10)
-);
-CREATE INDEX IF NOT EXISTS scannedUrlIndex ON scanned_files (url);
+CREATE TABLE playlist_items (
+  playlist_id INTEGER NOT NULL REFERENCES playlists (id) ON DELETE CASCADE,
+  position    INTEGER NOT NULL,
+  url         TEXT NOT NULL,
+  PRIMARY KEY (playlist_id, position)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX playlist_items_url ON playlist_items (url);
 
-CREATE TABLE IF NOT EXISTS library_track (
-  track  int(10),
-  library char(8),
-  PRIMARY KEY (track,library),
-  FOREIGN KEY (`track`) REFERENCES `tracks` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS libraryTrackIndex ON library_track (library);
-CREATE TABLE IF NOT EXISTS library_album (
-  album int(10),
-  library char(8),
-  PRIMARY KEY (library,album),
-  FOREIGN KEY (`album`) REFERENCES `albums` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS libraryAlbumIndex ON library_album (album);
-CREATE TABLE IF NOT EXISTS library_contributor (
-  contributor int(10),
-  library char(8),
-  PRIMARY KEY (library,contributor),
-  FOREIGN KEY (`contributor`) REFERENCES `contributors` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS libraryContributorIndex ON library_contributor (contributor);
-CREATE TABLE IF NOT EXISTS library_genre (
-  genre int(10),
-  library char(8),
-  PRIMARY KEY (library,genre),
-  FOREIGN KEY (`genre`) REFERENCES `genres` (`id`) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS libraryGenreIndex ON library_genre (genre);
+-- What listeners did.  Kept when tracks are rescanned or the library is wiped, and found
+-- again for a moved file by MusicBrainz id or fingerprint.
+CREATE TABLE track_stats (
+  id          INTEGER PRIMARY KEY,
+  url         TEXT NOT NULL UNIQUE,
+  mbid        TEXT,
+  fingerprint TEXT,
+  added_at    INTEGER NOT NULL,
+  rating      INTEGER,
+  play_count  INTEGER NOT NULL DEFAULT 0,
+  last_played INTEGER
+) STRICT;
+CREATE INDEX track_stats_mbid ON track_stats (mbid);
+CREATE INDEX track_stats_fingerprint ON track_stats (fingerprint);
 
-CREATE TABLE IF NOT EXISTS works (
-  id  integer PRIMARY KEY AUTOINCREMENT,
-  composer integer,
-  title blob,
-  titlesort text,
-  titlesearch text,
-  FOREIGN KEY (`composer`) REFERENCES `contributors` (`id`) ON DELETE CASCADE
-);
+-- Sonic analysis (bliss features) and loudness per audio content.  Kept across wipes; a
+-- changed or moved file finds its analysis by fingerprint.  NULL features / loudness: could
+-- not be measured.  `loudness` in LUFS, `peak` linear true peak.
+CREATE TABLE track_analysis (
+  fingerprint TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL,
+  features    BLOB,
+  loudness    REAL,
+  peak        REAL,
+  analyzed_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
 "#;
 
-/// Tables wiped by `schema_clear.sql`.
+/// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).
 pub const CLEAR: &str = r#"
-DELETE FROM playlist_track;
-DELETE FROM contributor_track;
-DELETE FROM contributor_album;
-DELETE FROM genre_track;
-DELETE FROM comments;
-DELETE FROM library_track;
-DELETE FROM library_album;
-DELETE FROM library_contributor;
-DELETE FROM library_genre;
+DELETE FROM playlist_items;
+DELETE FROM playlists;
+DELETE FROM track_comments;
+DELETE FROM track_genres;
+DELETE FROM album_artists;
+DELETE FROM track_artists;
 DELETE FROM tracks;
-DELETE FROM albums;
-DELETE FROM years;
-DELETE FROM contributors;
-DELETE FROM genres;
-DELETE FROM scanned_files;
 DELETE FROM works;
-UPDATE metainformation SET value = 0 WHERE name = 'lastRescanTime';
+DELETE FROM albums;
+DELETE FROM genres;
+DELETE FROM artists;
+DELETE FROM files;
+DELETE FROM meta WHERE key = 'last_scan';
 "#;
 
 pub fn init_connection(c: &mut Connection) -> rusqlite::Result<()> {
     c.busy_timeout(std::time::Duration::from_secs(30))?;
     c.execute_batch(
-        "PRAGMA synchronous = OFF;
+        "PRAGMA synchronous = NORMAL;
          PRAGMA foreign_keys = ON;
          PRAGMA temp_store = MEMORY;
-         PRAGMA cache_size = 20000;",
+         PRAGMA cache_size = -20000;",
     )?;
     // journal_mode returns a row
     let _: String = c.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
-    use rusqlite::functions::FunctionFlags;
-    c.create_scalar_function(
-        "MD5",
-        1,
-        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-        |ctx| {
-            let s: String = ctx.get(0)?;
-            Ok(format!("{:x}", md5::compute(s.as_bytes())))
-        },
-    )?;
     c.create_collation("perllocale", crate::text::collate_cmp)?;
     Ok(())
 }
@@ -350,51 +278,126 @@ pub fn open_pool(path: &Path) -> anyhow::Result<DbPool> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    // create schema once with a plain connection
     {
         let mut c = Connection::open(path)?;
         init_connection(&mut c)?;
-        create_schema(&c)?;
+        if is_lms_schema(&c)? {
+            let backup = backup_path(path);
+            tracing::info!(
+                "converting the library database to the RMS schema (backup: {})",
+                backup.display()
+            );
+            // VACUUM INTO writes a consistent copy, WAL included
+            c.execute("VACUUM INTO ?", [backup.to_string_lossy().as_ref()])?;
+            convert_lms(&mut c)?;
+        }
+        migrate(&mut c)?;
     }
     let manager = SqliteConnectionManager::file(path).with_init(init_connection);
     let pool = Pool::builder().max_size(8).build(manager)?;
     Ok(pool)
 }
 
-pub fn create_schema(c: &Connection) -> rusqlite::Result<()> {
-    // detect an incompatible/old LMS DB without metainformation: rebuild
-    c.execute_batch(SCHEMA)?;
-    // track_analysis from before loudness was measured: start it over
-    let has_loudness = c
-        .prepare("SELECT loudness FROM track_analysis LIMIT 0")
-        .is_ok();
-    if !has_loudness {
-        c.execute_batch(
-            "ALTER TABLE track_analysis ADD COLUMN loudness float;
-             ALTER TABLE track_analysis ADD COLUMN peak float;
-             DELETE FROM track_analysis;",
-        )?;
+/// Bring the schema up to [`SCHEMA_VERSION`], one transaction per step.
+pub fn migrate(c: &mut Connection) -> rusqlite::Result<()> {
+    let mut version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    while (version as usize) < MIGRATIONS.len() {
+        let tx = c.transaction()?;
+        tx.execute_batch(MIGRATIONS[version as usize])?;
+        version += 1;
+        tx.pragma_update(None, "user_version", version)?;
+        tx.commit()?;
     }
-    c.execute(
-        "INSERT OR REPLACE INTO dbix_migration (name, value) VALUES ('version', ?)",
-        [SCHEMA_VERSION.to_string()],
-    )?;
     Ok(())
 }
 
-pub fn get_meta(c: &Connection, name: &str) -> Option<String> {
-    c.query_row(
-        "SELECT value FROM metainformation WHERE name = ?",
+/// A database written with Lyrion's schema (RMS before its own schema).
+fn is_lms_schema(c: &Connection) -> rusqlite::Result<bool> {
+    let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    Ok(version == 0 && table_exists(c, "metainformation")?)
+}
+
+pub fn table_exists(c: &Connection, name: &str) -> rusqlite::Result<bool> {
+    Ok(c.query_row(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?",
         [name],
-        |r| r.get::<_, String>(0),
+        |_| Ok(()),
     )
+    .optional()?
+    .is_some())
+}
+
+/// `<db>.lms-backup`, or `<db>.lms-backup.<n>` when that exists already.
+fn backup_path(db: &Path) -> PathBuf {
+    let base = format!("{}.lms-backup", db.display());
+    let mut p = PathBuf::from(&base);
+    let mut n = 1;
+    while p.exists() {
+        p = PathBuf::from(format!("{}.{}", base, n));
+        n += 1;
+    }
+    p
+}
+
+/// Turn a Lyrion-schema database into an empty RMS one that keeps the listening history and
+/// the analysis results.  All or nothing.
+fn convert_lms(c: &mut Connection) -> rusqlite::Result<()> {
+    // dropping tables in any order: no foreign key checks while converting
+    c.execute_batch("PRAGMA foreign_keys = OFF")?;
+    let res = (|| {
+        let tx = c.transaction()?;
+        let keep_stats = table_exists(&tx, "tracks_persistent")?;
+        if keep_stats {
+            tx.execute_batch("ALTER TABLE tracks_persistent RENAME TO legacy_stats")?;
+        }
+        let keep_analysis = table_exists(&tx, "track_analysis")?
+            && tx
+                .prepare("SELECT urlmd5, timestamp, filesize, loudness, peak FROM track_analysis LIMIT 0")
+                .is_ok();
+        if keep_analysis {
+            tx.execute_batch("ALTER TABLE track_analysis RENAME TO legacy_analysis")?;
+        }
+        let old: Vec<String> = {
+            let mut st = tx.prepare(
+                "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                   AND name NOT IN ('legacy_stats', 'legacy_analysis')",
+            )?;
+            let names = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            names
+        };
+        for t in old {
+            tx.execute_batch(&format!("DROP TABLE \"{}\"", t.replace('"', "\"\"")))?;
+        }
+        tx.execute_batch(SCHEMA_V1)?;
+        if keep_stats {
+            // one row per URL; the most played wins when LMS kept duplicates
+            tx.execute_batch(
+                "INSERT OR IGNORE INTO track_stats (url, mbid, added_at, rating, play_count, last_played)
+                 SELECT url, NULLIF(musicbrainz_id, ''), COALESCE(added, CAST(strftime('%s', 'now') AS INTEGER)),
+                        NULLIF(rating, 0), COALESCE(playCount, 0), lastPlayed
+                 FROM legacy_stats WHERE url IS NOT NULL AND url != ''
+                 ORDER BY COALESCE(playCount, 0) DESC, lastPlayed DESC;
+                 DROP TABLE legacy_stats;",
+            )?;
+        }
+        tx.pragma_update(None, "user_version", 1)?;
+        tx.commit()
+    })();
+    c.execute_batch("PRAGMA foreign_keys = ON")?;
+    res
+}
+
+pub fn get_meta(c: &Connection, key: &str) -> Option<String> {
+    c.query_row("SELECT value FROM meta WHERE key = ?", [key], |r| {
+        r.get::<_, String>(0)
+    })
     .ok()
 }
 
-pub fn set_meta(c: &Connection, name: &str, value: &str) -> rusqlite::Result<()> {
+pub fn set_meta(c: &Connection, key: &str, value: &str) -> rusqlite::Result<()> {
     c.execute(
-        "INSERT OR REPLACE INTO metainformation (name, value) VALUES (?, ?)",
-        [name, value],
+        "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+        [key, value],
     )?;
     Ok(())
 }

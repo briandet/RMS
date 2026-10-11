@@ -311,7 +311,7 @@ pub fn artwork(lib: &Library, id: &str, spec_elem: &str) -> Option<(Vec<u8>, Str
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
     if is_coverid {
         found = lookup(
-            "SELECT url, cover FROM tracks WHERE coverid = ? LIMIT 1",
+            "SELECT url, cover FROM tracks WHERE cover_id = ? LIMIT 1",
             id,
         );
     }

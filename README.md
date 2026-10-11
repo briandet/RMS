@@ -107,10 +107,15 @@ The script builds a release binary (the web UI is built in), installs it as
   library status as plain JSON, playback and queue commands as typed requests, and a
   Server-Sent Events stream that pushes each change as it happens (no polling).  The web UI
   runs on it; library browsing and settings still go through JSON-RPC.
-* **Library** (crate `rms-library`): SQLite database with Lyrion's schema, scanner using
+* **Library** (crate `rms-library`): SQLite database in RMS's own schema
+  ([docs/library-schema.md](docs/library-schema.md)), scanner using
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
   WavPack, DSF), cue sheets, compilations, multi-artist/genre splitting, artwork
-  extraction and resizing, saved playlists.
+  extraction and resizing, saved playlists.  Play counts, ratings and sonic analysis
+  survive rescans and wipes, and follow a file that is moved or renamed.  A database from
+  an earlier release is converted on first start: it is backed up to
+  `library.sqlite.lms-backup` first, history and analysis are kept, and the library is
+  rescanned (going back: [docs/library-schema.md](docs/library-schema.md#converting-a-database-from-earlier-releases)).
 * **Artist pictures** (Lyrion's contributor portraits): `artist.jpg` / `<Artist Name>.jpg`
   next to or above an artist's albums, or in the *artist pictures folder* (`artfolder`),
   served at `/contributor/<id>/image` and shown in Squeezer, Jive clients and the web UI.
@@ -167,7 +172,7 @@ sound like it, and how close they sound counts for more than tags do.  Tracks th
 the same recording as one in the queue or the mix (another encoding or edit of it) are left
 out; live versions sound too different to be caught this way.  Expect a second or two of
 CPU time per song; tracks over 20 minutes are skipped.  Results survive a wipe
-and are redone when a file changes.  Lyrion itself has no audio analysis: it relied on the
+and follow a moved file; they are redone when the audio changes.  Lyrion itself has no audio analysis: it relied on the
 long-gone MusicIP server, and now on third-party plugins.
 
 **Loudness**: the same pass measures each track's loudness (EBU R128, as ReplayGain 2.0

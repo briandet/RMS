@@ -1189,7 +1189,6 @@ pub async fn playlist_xtracks(server: Arc<Server>, mut r: Request) -> Request {
                     f.search = Some(v)
                 }
                 "sort" => f.sort = Some(v),
-                "library_id" => f.library_id = Some(v),
                 "contributorTracks.role" => f.role_id = Some(v),
                 _ => {}
             }
@@ -1375,7 +1374,6 @@ pub async fn playlistcontrol(server: Arc<Server>, mut r: Request) -> Request {
     f.genre_id = r.param("genre_id").map(str::to_string);
     f.year = r.param_i64("year").or(r.param_i64("year_id"));
     f.role_id = r.param("role_id").map(str::to_string);
-    f.library_id = r.param("library_id").map(str::to_string);
     f.sort = r.param("sort").map(str::to_string);
     let lib = server.library.clone();
     let tracks = tokio::task::spawn_blocking(move || lib.tracks_for(&f))

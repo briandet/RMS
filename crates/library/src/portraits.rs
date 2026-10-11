@@ -1,5 +1,5 @@
 //! Contributor portraits (`Slim::Music::ContributorPictureScan`): artist pictures found in the
-//! `artfolder` pref folder or next to the artist's albums, stored as `contributors.portrait`
+//! `artfolder` pref folder or next to the artist's albums, stored as `artists.portrait`
 //! (file URL) + `portraitid` and served as `/contributor/<portraitid>/image`.
 
 use std::collections::HashSet;
@@ -72,7 +72,7 @@ pub fn set_portrait(c: &Connection, id: i64, path: &Path) -> rusqlite::Result<Op
         return Ok(None);
     };
     c.execute(
-        "UPDATE contributors SET portrait = ?, portraitid = ? WHERE id = ?",
+        "UPDATE artists SET portrait = ?, portrait_id = ? WHERE id = ?",
         params![file_url_from_path(path), pid, id],
     )?;
     Ok(Some(pid))
@@ -91,11 +91,11 @@ pub fn candidates(c: &Connection, cfg: &LibraryConfig) -> rusqlite::Result<Vec<P
         .map(|r| r.to_string())
         .collect();
     let sql = format!(
-        "SELECT id, name, portrait, portraitid
-         FROM contributors
-           LEFT JOIN contributor_album ON contributor_album.contributor = contributors.id
-         WHERE contributor_album.role IS NULL OR contributor_album.role IN ({})
-         GROUP BY contributors.id",
+        "SELECT id, name, portrait, portrait_id
+         FROM artists
+           LEFT JOIN album_artists ON album_artists.artist_id = artists.id
+         WHERE album_artists.role IS NULL OR album_artists.role IN ({})
+         GROUP BY artists.id",
         roles.join(",")
     );
     let mut st = c.prepare(&sql)?;
@@ -114,11 +114,11 @@ pub fn candidates(c: &Connection, cfg: &LibraryConfig) -> rusqlite::Result<Vec<P
 /// artist's name, then by role (ALBUMARTIST, ARTIST, BAND, others), then by path.
 fn album_folders(c: &Connection, id: i64, names: &[String]) -> rusqlite::Result<Vec<PathBuf>> {
     let mut st = c.prepare_cached(
-        "SELECT url, contributor_track.role
+        "SELECT url, track_artists.role
          FROM tracks
-         JOIN contributor_track ON contributor_track.track = tracks.id
-         WHERE contributor_track.contributor = ? AND tracks.url LIKE 'file://%'
-         GROUP BY album, contributor_track.role",
+         JOIN track_artists ON track_artists.track_id = tracks.id
+         WHERE track_artists.artist_id = ? AND tracks.url LIKE 'file://%'
+         GROUP BY album_id, track_artists.role",
     )?;
     let rows = st.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
     let matcher = regex::Regex::new(&format!(
@@ -247,7 +247,7 @@ impl Scanner<'_> {
                     // the old picture vanished
                     if existing.is_some() && existing_id.is_none() {
                         self.conn.execute(
-                            "UPDATE contributors SET portrait = NULL, portraitid = NULL WHERE id = ?",
+                            "UPDATE artists SET portrait = NULL, portrait_id = NULL WHERE id = ?",
                             [id],
                         )?;
                         self.tick()?;
@@ -292,14 +292,14 @@ mod tests {
         conn: Connection,
     }
 
-    /// A database with contributors and tracks below `<tmp>/music` (no audio files needed).
+    /// A database with artists and tracks below `<tmp>/music` (no audio files needed).
     fn fixture() -> Fixture {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("music");
         std::fs::create_dir_all(&root).unwrap();
         let mut conn = Connection::open(tmp.path().join("db.sqlite")).unwrap();
         crate::db::init_connection(&mut conn).unwrap();
-        crate::db::create_schema(&conn).unwrap();
+        crate::db::migrate(&mut conn).unwrap();
         Fixture {
             _tmp: tmp,
             root,
@@ -309,7 +309,7 @@ mod tests {
 
     fn add_artist(c: &Connection, name: &str, tracks: &[(&Path, i64)]) -> i64 {
         c.execute(
-            "INSERT INTO contributors (name, namesort, namesearch) VALUES (?, ?, ?)",
+            "INSERT INTO artists (name, name_sort, name_search) VALUES (?, ?, ?)",
             params![name, name.to_uppercase(), name.to_uppercase()],
         )
         .unwrap();
@@ -324,24 +324,29 @@ mod tests {
                 .optional()
                 .unwrap();
             let album = album.unwrap_or_else(|| {
-                c.execute("INSERT INTO albums (title) VALUES (?)", [&dir])
-                    .unwrap();
+                c.execute(
+                    "INSERT INTO albums (title, title_sort, title_search) VALUES (?1, ?1, ?1)",
+                    [&dir],
+                )
+                .unwrap();
                 c.last_insert_rowid()
             });
             let u = file_url_from_path(path);
+            let file = crate::scanner::upsert_file(c, &u, "audio", None, 1, 1).unwrap();
             c.execute(
-                "INSERT INTO tracks (url, album, audio) VALUES (?, ?, 1)",
-                params![u, album],
+                "INSERT INTO tracks (file_id, url, title, title_sort, title_search, album_id, format, added_at, updated_at)
+                 VALUES (?1, ?2, ?2, ?2, ?2, ?3, 'mp3', 0, 0)",
+                params![file, u, album],
             )
             .unwrap();
             let t = c.last_insert_rowid();
             c.execute(
-                "INSERT INTO contributor_track (role, contributor, track) VALUES (?, ?, ?)",
+                "INSERT INTO track_artists (role, artist_id, track_id, position) VALUES (?, ?, ?, 0)",
                 params![role, id, t],
             )
             .unwrap();
             c.execute(
-                "INSERT OR IGNORE INTO contributor_album (role, contributor, album) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO album_artists (role, artist_id, album_id) VALUES (?, ?, ?)",
                 params![role, id, album],
             )
             .unwrap();
@@ -351,7 +356,7 @@ mod tests {
 
     fn portrait(c: &Connection, id: i64) -> (Option<String>, Option<String>) {
         c.query_row(
-            "SELECT portrait, portraitid FROM contributors WHERE id = ?",
+            "SELECT portrait, portrait_id FROM artists WHERE id = ?",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )

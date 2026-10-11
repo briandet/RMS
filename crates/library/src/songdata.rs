@@ -1,4 +1,4 @@
-//! Track tag-letter rendering: `_getTagDataForTracks` + `_songDataFromHash` (SQL path, used by
+//! Track tag-letter rendering for the LMS queries: `_getTagDataForTracks` + `_songDataFromHash` (SQL path, used by
 //! `titles` and `status`) and `_songData` (object path, used by `songinfo`, `playlists tracks`).
 
 use std::collections::HashMap;
@@ -96,7 +96,6 @@ pub struct TagDataArgs {
     pub track_id: Option<String>,
     pub work_id: Option<String>,
     pub performance: Option<String>,
-    pub library_id: Option<String>,
     pub year: Option<String>,
     pub only_album_years: bool,
     pub release_type: Option<String>,
@@ -182,7 +181,7 @@ pub fn tag_data(
         tags.clear();
         sort = None;
     }
-    let mut from = String::from("FROM tracks ");
+    let mut from = String::from("FROM tracks JOIN files ON files.id = tracks.file_id ");
     let mut w: Vec<String> = Vec::new();
     let mut p: Vec<SqlValue> = Vec::new();
     if let Some(wb) = &args.where_base {
@@ -196,26 +195,22 @@ pub fn tag_data(
         .filter(|s| crate::queries::specified(s))
     {
         if args.track_id.is_none() {
-            if let Some(raw) = search.strip_prefix("sql=") {
-                w.insert(0, raw.replace(';', ""));
-            } else {
-                let (clause, params, order) = crate::queries::search_clause(
-                    &rules,
-                    cfg,
-                    search,
-                    "tracks.customsearch",
-                    "tracks.titlesearch",
-                );
-                w.insert(0, clause);
-                for (i, v) in params.into_iter().enumerate() {
-                    p.insert(i, v.into());
-                }
-                if !count_only {
-                    sort = Some(match sort {
-                        Some(s) => format!("{}, {}", order, s),
-                        None => order,
-                    });
-                }
+            let (clause, params, order) = crate::queries::search_clause(
+                &rules,
+                cfg,
+                search,
+                "tracks.search_text",
+                "tracks.title_search",
+            );
+            w.insert(0, clause);
+            for (i, v) in params.into_iter().enumerate() {
+                p.insert(i, v.into());
+            }
+            if !count_only {
+                sort = Some(match sort {
+                    Some(s) => format!("{}, {}", order, s),
+                    None => order,
+                });
             }
         }
     }
@@ -223,7 +218,7 @@ pub fn tag_data(
         let ids = split_list(a);
         one_album = ids.len() == 1;
         w.push(format!(
-            "tracks.album IN ({})",
+            "tracks.album_id IN ({})",
             vec!["?"; ids.len()].join(",")
         ));
         p.extend(ids.into_iter().map(SqlValue::Text));
@@ -235,9 +230,9 @@ pub fn tag_data(
     }
     if let Some(wk) = args.work_id.as_ref().filter(|a| !a.is_empty()) {
         if wk == "-1" {
-            w.push("tracks.work IS NOT NULL".into());
+            w.push("tracks.work_id IS NOT NULL".into());
         } else {
-            w.push("tracks.work = ?".into());
+            w.push("tracks.work_id = ?".into());
             p.push(SqlValue::Text(wk.clone()));
             match &args.performance {
                 Some(perf) if !perf.is_empty() => {
@@ -250,24 +245,15 @@ pub fn tag_data(
             }
         }
     }
-    if let Some(l) = args.library_id.as_ref().filter(|a| !a.is_empty()) {
-        from.push_str("JOIN library_track ON library_track.track = tracks.id ");
-        w.push("library_track.library = ?".into());
-        p.push(SqlValue::Text(l.clone()));
-    }
     let join = |from: &mut String, what: &str| {
         let s = match what {
-            "genre_track" => "LEFT JOIN genre_track ON genre_track.track = tracks.id ",
-            "genres" => "LEFT JOIN genres ON genres.id = genre_track.genre ",
-            "works" => "LEFT JOIN works ON works.id = tracks.work ",
-            "contributor_track" => {
-                "LEFT JOIN contributor_track ON contributor_track.track = tracks.id "
-            }
-            "contributors" => "LEFT JOIN contributors ON contributors.id = tracks.primary_artist ",
-            "albums" => "LEFT JOIN albums ON albums.id = tracks.album ",
-            "tracks_persistent" => {
-                "LEFT JOIN tracks_persistent ON tracks_persistent.urlmd5 = tracks.urlmd5 "
-            }
+            "genre_track" => "LEFT JOIN track_genres ON track_genres.track_id = tracks.id ",
+            "genres" => "LEFT JOIN genres ON genres.id = track_genres.genre_id ",
+            "works" => "LEFT JOIN works ON works.id = tracks.work_id ",
+            "contributor_track" => "LEFT JOIN track_artists ON track_artists.track_id = tracks.id ",
+            "contributors" => "LEFT JOIN artists ON artists.id = tracks.artist_id ",
+            "albums" => "LEFT JOIN albums ON albums.id = tracks.album_id ",
+            "tracks_persistent" => "LEFT JOIN track_stats ON track_stats.url = tracks.url ",
             _ => "",
         };
         if !from.contains(s) {
@@ -301,7 +287,7 @@ pub fn tag_data(
         join(&mut from, "genre_track");
         let ids = split_list(g);
         w.push(format!(
-            "genre_track.genre IN ({})",
+            "track_genres.genre_id IN ({})",
             vec!["?"; ids.len()].join(", ")
         ));
         p.extend(ids.into_iter().map(SqlValue::Text));
@@ -313,7 +299,7 @@ pub fn tag_data(
             w.push("albums.compilation = 1".into());
         } else {
             join(&mut from, "contributor_track");
-            w.push("contributor_track.contributor = ?".into());
+            w.push("track_artists.artist_id = ?".into());
             p.push(SqlValue::Text(cid.clone()));
         }
     }
@@ -346,12 +332,10 @@ pub fn tag_data(
         join(&mut from, "contributors");
         let roles = ta_roles(cfg, args.role_id.as_deref());
         if args.track_ids.is_some() {
-            w.push(
-                "(contributors.id = tracks.primary_artist OR tracks.primary_artist IS NULL)".into(),
-            );
+            w.push("(artists.id = tracks.artist_id OR tracks.artist_id IS NULL)".into());
         }
         w.push(format!(
-            "contributor_track.role IN ({})",
+            "track_artists.role IN ({})",
             vec!["?"; roles.len()].join(", ")
         ));
         p.extend(roles.into_iter().map(SqlValue::Integer));
@@ -370,16 +354,16 @@ pub fn tag_data(
         if s.contains("albums.") {
             join(&mut from, "albums");
         }
-        if s.contains("contributors.") {
+        if s.contains("artists.") {
             join(&mut from, "contributor_track");
             join(&mut from, "contributors");
         }
-        if s.contains("tracks_persistent.") {
+        if s.contains("track_stats.") {
             join(&mut from, "tracks_persistent");
         }
     }
     for clause in &w {
-        if clause.contains("tracks_persistent.") {
+        if clause.contains("track_stats.") {
             join(&mut from, "tracks_persistent");
         }
         if clause.contains("albums.") {
@@ -390,38 +374,34 @@ pub fn tag_data(
     let cols: Vec<&str> = vec![
         "tracks.id",
         "tracks.title",
-        "tracks.album",
-        "tracks.extid",
-        "tracks.secs",
-        "tracks.tracknum",
+        "tracks.album_id",
+        "tracks.duration",
+        "tracks.track_number",
         "tracks.year",
         "tracks.bpm",
-        "tracks.musicmagic_mixable",
         "tracks.lossless",
-        "tracks.content_type",
-        "tracks.tagversion",
+        "tracks.format",
+        "tracks.tag_version",
         "tracks.bitrate",
-        "tracks.vbr_scale",
-        "tracks.filesize",
+        "tracks.vbr",
+        "files.size",
         "tracks.cover",
-        "tracks.timestamp",
-        "tracks.dlna_profile",
-        "tracks.added_time",
-        "tracks.updated_time",
-        "tracks.samplerate",
+        "files.mtime",
+        "tracks.added_at",
+        "tracks.updated_at",
+        "tracks.sample_rate",
         "tracks.channels",
-        "tracks.samplesize",
+        "tracks.sample_size",
         "tracks.url",
         "tracks.lyrics",
-        "tracks.remote",
-        "tracks.coverid",
+        "tracks.cover_id",
         "tracks.replay_gain",
         "tracks.disc",
-        "tracks.discsubtitle",
+        "tracks.disc_subtitle",
         "tracks.grouping",
         "tracks.performance",
         "tracks.subtitle",
-        "tracks.primary_artist",
+        "tracks.artist_id",
     ];
     let mut cols: Vec<String> = cols.into_iter().map(|s| s.to_string()).collect();
     if from.contains("JOIN works ") {
@@ -432,15 +412,15 @@ pub fn tag_data(
         cols.push("genres.name".into());
         cols.push("genres.id".into());
     }
-    if from.contains("JOIN contributors ") {
-        cols.push("contributors.name".into());
-        cols.push("contributors.id".into());
-        cols.push("contributors.portraitid".into());
+    if from.contains("JOIN artists ") {
+        cols.push("artists.name".into());
+        cols.push("artists.id".into());
+        cols.push("artists.portrait_id".into());
     }
     if from.contains("JOIN albums ") {
         for a in [
             "albums.title",
-            "albums.discc",
+            "albums.disc_count",
             "albums.artwork",
             "albums.compilation",
             "albums.release_type",
@@ -449,9 +429,9 @@ pub fn tag_data(
             cols.push(a.into());
         }
     }
-    if from.contains("JOIN tracks_persistent ") {
-        cols.push("tracks_persistent.rating".into());
-        cols.push("tracks_persistent.playcount".into());
+    if from.contains("JOIN track_stats ") {
+        cols.push("track_stats.rating".into());
+        cols.push("track_stats.play_count".into());
     }
 
     let mut sql = format!("SELECT {} {}", cols.join(", "), from);
@@ -460,7 +440,7 @@ pub fn tag_data(
         sql.push_str(&w.join(" AND "));
         sql.push(' ');
     }
-    if from.contains("JOIN ") {
+    if from.contains("LEFT JOIN ") {
         sql.push_str("GROUP BY tracks.id ");
     }
     if let Some(s) = &sort {
@@ -527,9 +507,9 @@ pub fn tag_data(
     let mut album_header = None;
     if (has('A') || has('S')) && !order.is_empty() {
         let sql = format!(
-            "SELECT contributors.id, contributors.name, contributor_track.track, contributor_track.role FROM contributor_track
-             JOIN contributors ON contributors.id = contributor_track.contributor WHERE contributor_track.track IN ({})
-             ORDER BY contributor_track.role DESC, contributor_track.rowid",
+            "SELECT artists.id, artists.name, track_artists.track_id, track_artists.role FROM track_artists
+             JOIN artists ON artists.id = track_artists.artist_id WHERE track_artists.track_id IN ({})
+             ORDER BY track_artists.role DESC, track_artists.position",
             id_list.join(",")
         );
         let mut st = c.prepare(&sql)?;
@@ -591,7 +571,7 @@ pub fn tag_data(
         } else if one_album {
             if let Some(aid) = &args.album_id {
                 if let Ok((id, name)) = c.query_row(
-                    "SELECT albums.contributor, contributors.name FROM albums JOIN contributors ON albums.contributor = contributors.id WHERE albums.id = ?",
+                    "SELECT albums.artist_id, artists.name FROM albums JOIN artists ON albums.artist_id = artists.id WHERE albums.id = ?",
                     [aid],
                     |r| Ok((r.get::<_, i64>(0)?, get_text(r, 1)?.unwrap_or_default())),
                 ) {
@@ -602,8 +582,8 @@ pub fn tag_data(
     }
     if (has('G') || has('P')) && !order.is_empty() {
         let sql = format!(
-            "SELECT genres.id, genres.name, genre_track.track FROM genre_track JOIN genres ON genres.id = genre_track.genre
-             WHERE genre_track.track IN ({}) ORDER BY genres.namesort COLLATE perllocale",
+            "SELECT genres.id, genres.name, track_genres.track_id FROM track_genres JOIN genres ON genres.id = track_genres.genre_id
+             WHERE track_genres.track_id IN ({}) ORDER BY genres.name_sort COLLATE perllocale",
             id_list.join(",")
         );
         let mut st = c.prepare(&sql)?;
@@ -633,7 +613,7 @@ pub fn tag_data(
     }
     if has('k') && !order.is_empty() {
         let sql = format!(
-            "SELECT track, value FROM comments WHERE track IN ({}) ORDER BY id",
+            "SELECT track_id, text FROM track_comments WHERE track_id IN ({}) ORDER BY track_id, position",
             id_list.join(",")
         );
         let mut st = c.prepare(&sql)?;
@@ -687,56 +667,57 @@ fn col_value(res: &IndexMap<String, Value>, tag: char, cfg: &LibraryConfig) -> O
         'G' => g("genres"),
         'p' => g("genres.id"),
         'P' => g("genre_ids"),
-        'a' => g("contributors.name"),
-        's' => g("contributors.id"),
-        '4' => g("contributors.portraitid"),
+        'a' => g("artists.name"),
+        's' => g("artists.id"),
+        '4' => g("artists.portrait_id"),
         'l' => g("albums.title"),
-        'e' => g("tracks.album"),
-        'd' => g("tracks.secs"),
+        'e' => g("tracks.album_id"),
+        'd' => g("tracks.duration"),
         'i' => g("tracks.disc"),
-        'q' => g("albums.discc"),
-        't' => g("tracks.tracknum"),
+        'q' => g("albums.disc_count"),
+        't' => g("tracks.track_number"),
         'y' => g("tracks.year"),
         'm' => g("tracks.bpm"),
-        'M' => json!(if truthy("tracks.musicmagic_mixable") {
-            1
-        } else {
-            0
-        }),
+        'M' => json!(0),
         'Q' => json!(if truthy("tracks.lossless") { 1 } else { 0 }),
         'k' => g("comment"),
-        'o' => g("tracks.content_type"),
-        'v' => g("tracks.tagversion"),
+        'o' => g("tracks.format"),
+        'v' => g("tracks.tag_version"),
         'r' => pretty_bitrate(
             res.get("tracks.bitrate").and_then(|v| v.as_f64()),
-            res.get("tracks.vbr_scale").and_then(|v| {
+            res.get("tracks.vbr").and_then(|v| {
                 v.as_i64()
                     .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
             }),
-            res.get("tracks.content_type").and_then(|v| v.as_str()),
+            res.get("tracks.format").and_then(|v| v.as_str()),
             &cfg.string_kbps,
         ),
-        'f' => g("tracks.filesize"),
+        'f' => g("files.size"),
         'j' => json!(if truthy("tracks.cover") { 1 } else { 0 }),
         'J' => g("albums.artwork"),
-        'n' => g("tracks.timestamp"),
-        'F' => g("tracks.dlna_profile"),
-        'D' => g("tracks.added_time"),
-        'U' => g("tracks.updated_time"),
+        'n' => g("files.mtime"),
+        'F' => Value::Null,
+        'D' => g("tracks.added_at"),
+        'U' => g("tracks.updated_at"),
         'C' => json!(if truthy("albums.compilation") { 1 } else { 0 }),
         'Y' => g("tracks.replay_gain"),
         'X' => g("albums.replay_gain"),
-        'R' => g("tracks_persistent.rating"),
-        'O' => g("tracks_persistent.playcount"),
-        'T' => g("tracks.samplerate"),
-        'I' => g("tracks.samplesize"),
+        'R' => g("track_stats.rating"),
+        // never played: no play count, as in LMS
+        'O' => g("track_stats.play_count")
+            .as_i64()
+            .filter(|n| *n > 0)
+            .map(|n| json!(n))
+            .unwrap_or(Value::Null),
+        'T' => g("tracks.sample_rate"),
+        'I' => g("tracks.sample_size"),
         'u' => g("tracks.url"),
         'w' => g("tracks.lyrics"),
         'W' => g("albums.release_type"),
-        'x' => json!(if truthy("tracks.remote") { 1 } else { 0 }),
-        'c' => g("tracks.coverid"),
+        'x' => json!(0),
+        'c' => g("tracks.cover_id"),
         'H' => g("tracks.channels"),
-        'E' => g("tracks.extid"),
+        'E' => Value::Null,
         'b' => g("works.title"),
         'h' => g("tracks.grouping"),
         '1' => g("tracks.performance"),
@@ -865,7 +846,7 @@ pub fn song_data_from_hash(
                 if let Some(v) = res.get("tracks.disc").filter(|v| truthy_json(v)) {
                     out.insert("disc".into(), v.clone());
                 }
-                if let Some(v) = res.get("tracks.discsubtitle").filter(|v| truthy_json(v)) {
+                if let Some(v) = res.get("tracks.disc_subtitle").filter(|v| truthy_json(v)) {
                     out.insert("discsubtitle".into(), v.clone());
                 }
             }
@@ -948,7 +929,7 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
     let opt_s = |v: &Option<String>| v.as_ref().map(|x| json!(x)).unwrap_or(Value::Null);
     let opt_f = |v: Option<f64>| v.map(num_json).unwrap_or(Value::Null);
     let album_row: Option<(Option<i64>, Option<String>, Option<i64>, Option<String>, Option<f64>)> = t.album_id.and_then(|a| {
-        c.query_row("SELECT discc, artwork, compilation, release_type, replay_gain FROM albums WHERE id = ?", [a], |r| {
+        c.query_row("SELECT disc_count, artwork, compilation, release_type, replay_gain FROM albums WHERE id = ?", [a], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
         .ok()
@@ -972,10 +953,10 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
                 let ids = tag == 'S';
                 for (role, rid) in CONTRIBUTOR_ROLES {
                     let sql = if ids {
-                        "SELECT DISTINCT contributor FROM contributor_track WHERE track = ? AND role = ? ORDER BY rowid"
+                        "SELECT artist_id FROM track_artists WHERE track_id = ? AND role = ? ORDER BY position"
                     } else {
-                        "SELECT DISTINCT contributors.name FROM contributor_track JOIN contributors ON contributors.id = contributor_track.contributor
-                         WHERE track = ? AND role = ? ORDER BY contributor_track.rowid"
+                        "SELECT artists.name FROM track_artists JOIN artists ON artists.id = track_artists.artist_id
+                         WHERE track_id = ? AND role = ? ORDER BY track_artists.position"
                     };
                     let vals: Vec<String> = c
                         .prepare_cached(sql)
@@ -1040,16 +1021,7 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
             'F' => Value::Null,
             'm' => opt_i(t.bpm),
             'v' => opt_s(&t.tagversion),
-            'M' => c
-                .query_row(
-                    "SELECT musicmagic_mixable FROM tracks WHERE id = ?",
-                    [t.id],
-                    |r| r.get::<_, Option<i64>>(0),
-                )
-                .ok()
-                .flatten()
-                .map(|x| json!(x))
-                .unwrap_or(Value::Null),
+            'M' => Value::Null,
             'Q' => json!(if t.lossless { 1 } else { 0 }),
             'w' => opt_s(&t.lyrics),
             'R' => match t.rating {
@@ -1063,17 +1035,15 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
                 Some(cv) if cv.starts_with("http") => json!(proxied_image(cv)),
                 _ => Value::Null,
             },
-            'E' => opt_s(&t.extid),
+            'E' => Value::Null,
             'g' => opt_s(&t.genre),
             'p' => opt_i(t.genre_id),
             '4' => t
                 .artist_id
                 .and_then(|a| {
-                    c.query_row(
-                        "SELECT portraitid FROM contributors WHERE id = ?",
-                        [a],
-                        |r| r.get::<_, Option<String>>(0),
-                    )
+                    c.query_row("SELECT portrait_id FROM artists WHERE id = ?", [a], |r| {
+                        r.get::<_, Option<String>>(0)
+                    })
                     .ok()
                     .flatten()
                 })
@@ -1114,7 +1084,7 @@ pub fn object_row(c: &Connection, cfg: &LibraryConfig, t: &Track, tags: &str) ->
                 let ids = tag == 'P';
                 let vals: Vec<String> = c
                     .prepare_cached(
-                        "SELECT genres.id, genres.name FROM genre_track JOIN genres ON genres.id = genre_track.genre WHERE track = ? ORDER BY genre_track.genre",
+                        "SELECT genres.id, genres.name FROM track_genres JOIN genres ON genres.id = track_genres.genre_id WHERE track_id = ? ORDER BY track_genres.genre_id",
                     )
                     .and_then(|mut st| {
                         let rows = st.query_map([t.id], |r| Ok((r.get::<_, i64>(0)?, get_text(r, 1)?.unwrap_or_default())))?;
