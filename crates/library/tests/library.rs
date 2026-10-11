@@ -988,3 +988,53 @@ fn contributor_portraits() {
     assert!(missing.iter().any(|(_, n)| n == "Artist A"));
     assert!(!missing.iter().any(|(_, n)| n == "The Artist B"));
 }
+
+#[test]
+fn mixes_from_the_library() {
+    use rms_library::mix::Seed;
+    use std::collections::HashSet;
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let id = |title: &str| all.iter().find(|t| t.title == title).unwrap().id;
+    let (one, two) = (id("Song One"), id("Song Two"));
+    let none = HashSet::new();
+
+    // Song Two shares Song One's artist, album, genre (Rock) and year: the best match
+    for _ in 0..5 {
+        let similar = f.lib.similar_tracks(&[one], 3, &none);
+        assert_eq!(similar.first(), Some(&two), "{similar:?}");
+        assert!(!similar.contains(&one), "the seed is not part of its mix");
+    }
+    // excluded tracks (already in the playlist) are never picked
+    let ex: HashSet<i64> = [two].into();
+    assert!(!f.lib.similar_tracks(&[one], 5, &ex).contains(&two));
+
+    // random songs limited to the playlist's genres
+    let rock = f.lib.genres_of(&[one]);
+    assert_eq!(rock.len(), 1);
+    let picks = f.lib.random_tracks(10, &rock, None, &none);
+    let mut picks_sorted = picks.clone();
+    picks_sorted.sort();
+    let mut expect = vec![one, two];
+    expect.sort();
+    assert_eq!(picks_sorted, expect);
+    assert_eq!(
+        f.lib.random_tracks(10, &rock, None, &[one].into()),
+        vec![two]
+    );
+    assert!(f.lib.random_tracks(10, &[], Some(1999), &none).len() == 1);
+
+    // seeds: an album's tracks in order; random picks exist
+    let album = all
+        .iter()
+        .find(|t| t.title == "Song One")
+        .unwrap()
+        .album_id
+        .unwrap();
+    assert_eq!(f.lib.seed_tracks(Seed::Album(album)), vec![one, two]);
+    assert!(f.lib.random_album(&[]).is_some());
+    assert!(f.lib.random_artist().is_some());
+    assert!(f.lib.random_year().is_some());
+}

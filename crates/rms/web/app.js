@@ -401,10 +401,28 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/** Play a mix of songs similar to a track / album / artist / genre / year (`createmix`). */
+async function createMix(key, value, label = '') {
+  const pid = store.playerId;
+  if (!pid) { toast('Select a player first', 'error'); return false; }
+  try {
+    const r = await rpc(['createmix', 'play', `${key}:${value}`], pid);
+    if (!+r.count) { toast(`No songs to mix with ${label || 'this'}`, 'error'); return false; }
+    if (store.status && store.status.power === 0) await rpc(['power', 1], pid).catch(() => {});
+    toast(label ? `Playing a mix: ${label}` : 'Playing a mix');
+    queueDirty = true;
+    refreshSoon();
+    return true;
+  } catch (e) {
+    toast(`Could not create a mix: ${e.message}`, 'error');
+    return false;
+  }
+}
+
 // =============================================================== context passed to views
 
 export const ctx = {
-  cmd, serverCmd, playItem, togglePlay,
+  cmd, serverCmd, playItem, createMix, togglePlay,
   refreshSoon, refreshQueue: () => { queueDirty = true; return pollStatus(); },
   refreshServer: pollServer, fastServerPoll,
   selectPlayer, navigate, reload, invalidateViews,

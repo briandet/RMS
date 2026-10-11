@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: fmt, clippy, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # ffmpeg: transcoding tests (the synced-players test skips without it)
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Formatting
+        run: cargo fmt --all --check
+
+      # Fails on clippy errors; existing warnings are reported but allowed for now.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked
+
+      - name: Tests
+        run: cargo test --workspace --locked

@@ -130,7 +130,30 @@ The script builds a release binary (the web UI is built in), installs it as
   player (time entry, days, sound, shuffle, repeat, volume) like Lyrion's player screens.  The menus are the
   same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
-  a small internet radio directory, Spotify (below).
+  a small internet radio directory, Don't Stop The Music and Create Mix, Spotify (below).
+
+### Don't Stop The Music and Create Mix
+
+**Don't Stop The Music** keeps a player going when its queue runs out, as in Lyrion: when
+fewer than two songs follow the one playing (and repeat is off), it adds more.  Choose what
+per player under Settings in the web UI, Squeezer, the Touch/Radio or the player's own
+menus:
+
+* **Similar Songs**: songs like the last ones in the queue, picked from your library by
+  shared genres and artists, era, and play history (artists you played around the same
+  time, play counts and ratings; songs played in the last day are avoided), at most one per
+  album and two per artist in each batch.
+* Lyrion's Random Mix choices: **Song Mix** (optionally limited to the queue's genres),
+  **Random Album** (optionally limited to the queue's genres), **Random Artist**,
+  **Random Year**.
+* Any of your favorites, e.g. a radio station.
+
+It does nothing after a radio station, and keeps the queue under `maxPlaylistLength` by
+dropping songs from its start.  **Create Mix** plays about 20 similar songs for a track
+(starting with it), album, artist, genre or year: the *Mix* button in the web UI, or
+*Create Mix* in the track / album / artist / genre / year menus on Squeezer and the players.
+The mixes use tags and play history only, no audio analysis (yet).
+
 
 ### Spotify
 
@@ -148,7 +171,14 @@ playlists can be played, added and saved as favorites.  RMS plays the audio itse
 96/160/320 kbit/s, optional volume normalisation, both set in the settings card) and streams
 it to the player as 16-bit 44.1 kHz FLAC (lossless, about half the size of PCM; PCM for
 players without FLAC), so any player works (including WiiM), seeking included.  Synced
-players share one decode.  RMS is not a Spotify Connect device: the Spotify app cannot cast to it.
+players share one decode.
+
+Every player is also a **Spotify Connect** device of the signed-in account, named after the
+player: pick it in a Spotify app to play there.  Play, pause, seek and track changes in the
+app drive the player, and the player's volume follows the app's; stopping, pausing or
+playing something else on the player pauses the Connect device.  The devices are
+registered with the account rather than announced on the network, so they are visible only
+to the account RMS is signed in with.
 
 ### WiiM notes
 
@@ -163,9 +193,10 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 
 * One transcoder (ffmpeg) replaces Lyrion's `convert.conf` helper chain (flac, sox, lame,
   faad…); per-format enable/disable is not configurable yet.
-* Only a few plugins exist (Favorites, alarms, radio directory, Spotify).  Other
-  streaming services (Qobuz, TIDAL…) and the TuneIn directory are not ported; Spotify is
-  built in rather than through Spotty, and without Spotify Connect.
+* Only a few plugins exist (Favorites, alarms, radio directory, Don't Stop The Music,
+  Spotify).  Other streaming services (Qobuz, TIDAL…), the Random Mix plugin and the TuneIn
+  directory are not ported; Spotify, including Spotify Connect, is built in rather than
+  through Spotty.
 * The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
   than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.
   Squeezebox 1 and SliMP3 (text displays) are not supported.

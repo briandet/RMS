@@ -408,6 +408,10 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
             "volume" => {
                 p.set_volume(val.parse().unwrap_or(50), false);
             }
+            // plugin prefs keep their namespace (`plugin.dontstopthemusic:provider`)
+            _ if ns != "server" => {
+                p.prefs.set(&format!("{ns}:{pname}"), value);
+            }
             _ => {
                 p.prefs.set(&pname, value);
             }
