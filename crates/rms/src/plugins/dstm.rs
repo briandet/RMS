@@ -106,7 +106,12 @@ pub(crate) fn provider(p: &Arc<Player>) -> Option<String> {
 }
 
 /// Ask the provider for songs (`$handler->($client, $cb)`).
-async fn mix(server: &Arc<Server>, token: &str, snap: &Snapshot) -> Option<Addition> {
+async fn mix(
+    server: &Arc<Server>,
+    master: &Arc<Player>,
+    token: &str,
+    snap: &Snapshot,
+) -> Option<Addition> {
     let lib = server.library.clone();
     let token = token.to_string();
     let ids = snap.track_ids.clone();
@@ -120,14 +125,29 @@ async fn mix(server: &Arc<Server>, token: &str, snap: &Snapshot) -> Option<Addit
     if !BUILTIN.contains(&token.as_str()) {
         return favorite.map(Addition::Url);
     }
+    // Similar Songs: some songs from outside what was played (ListenBrainz)
+    let discovered = if token == SIMILAR {
+        let seeds: Vec<i64> = ids.iter().rev().take(SEEDS).copied().collect();
+        let n = crate::plugins::listenbrainz::share(server, master, NEW_TRACKS);
+        crate::plugins::listenbrainz::explore(server, &seeds, n, &snap.urls).await
+    } else {
+        Vec::new()
+    };
     tokio::task::spawn_blocking(move || {
-        let exclude: HashSet<i64> = ids.iter().copied().collect();
+        let mut exclude: HashSet<i64> = ids.iter().copied().collect();
+        exclude.extend(discovered.iter().copied());
         let genres = || lib.genres_of(&ids);
         let album_tracks = |album: Option<i64>| album.map(|a| lib.seed_tracks(Seed::Album(a)));
         let tracks = match token.as_str() {
             SIMILAR => {
                 let seeds: Vec<i64> = ids.iter().rev().take(SEEDS).copied().collect();
-                lib.similar_tracks_with(&seeds, NEW_TRACKS, &exclude, remote)
+                let mix = lib.similar_tracks_with(
+                    &seeds,
+                    NEW_TRACKS.saturating_sub(discovered.len()),
+                    &exclude,
+                    remote,
+                );
+                crate::plugins::listenbrainz::blend(mix, discovered, false)
             }
             SONG_MIX => lib.random_tracks(NEW_TRACKS, &[], None, &exclude),
             SONG_MIX_GENRES => lib.random_tracks(NEW_TRACKS, &genres(), None, &exclude),
@@ -240,7 +260,7 @@ async fn dont_stop_the_music(server: Arc<Server>, master: Arc<Player>, active: A
         return;
     }
 
-    let mut add = mix(&server, &token, &snap)
+    let mut add = mix(&server, &master, &token, &snap)
         .await
         .and_then(|a| dedupe(a, &snap));
     if add.is_none() && !token.starts_with("PLUGIN_RANDOM") {
@@ -250,7 +270,7 @@ async fn dont_stop_the_music(server: Arc<Server>, master: Arc<Player>, active: A
             "{}: DSTM: no songs from {token}; adding a song mix",
             master.id
         );
-        add = mix(&server, SONG_MIX, &snap)
+        add = mix(&server, &master, SONG_MIX, &snap)
             .await
             .and_then(|a| dedupe(a, &snap));
     }
@@ -448,7 +468,7 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
         r.bad_params();
         return r;
     };
-    let tracks = mix_tracks(&server, seed).await;
+    let tracks = mix_tracks(&server, &p, seed).await;
     let count = tracks.len();
     if count > 0 {
         use crate::player::command::{entries_for, run, Item, PlayerCommand};
@@ -461,9 +481,21 @@ async fn create_mix(server: Arc<Server>, mut r: Request) -> Request {
 }
 
 /// Create Mix: songs similar to `seed` (a track's mix starts with the track itself).
-pub async fn mix_tracks(server: &Arc<Server>, seed: Seed) -> Vec<i64> {
+pub async fn mix_tracks(server: &Arc<Server>, p: &Arc<Player>, seed: Seed) -> Vec<i64> {
     let lib = server.library.clone();
     let remote = crate::plugins::spotify::learn::in_mixes(server);
+    let s = lib.clone();
+    let seeds = tokio::task::spawn_blocking(move || s.seed_tracks(seed))
+        .await
+        .unwrap_or_default();
+    // some songs from outside what was played (ListenBrainz)
+    let n = crate::plugins::listenbrainz::share(server, p, MIX_SIZE);
+    let discovered = if seeds.is_empty() {
+        Vec::new()
+    } else {
+        let sample: Vec<i64> = seeds.iter().take(10).copied().collect();
+        crate::plugins::listenbrainz::explore(server, &sample, n, &HashSet::new()).await
+    };
     tokio::task::spawn_blocking(move || {
         let mut seeds = lib.seed_tracks(seed);
         if seeds.is_empty() {
@@ -479,9 +511,10 @@ pub async fn mix_tracks(server: &Arc<Server>, seed: Seed) -> Vec<i64> {
         if let Seed::Track(t) = seed {
             mix.push(t);
         }
-        let none = HashSet::new();
-        mix.extend(lib.similar_tracks_with(&seeds, MIX_SIZE - mix.len(), &none, remote));
-        mix
+        let exclude: HashSet<i64> = discovered.iter().copied().collect();
+        let want = MIX_SIZE.saturating_sub(mix.len() + discovered.len());
+        mix.extend(lib.similar_tracks_with(&seeds, want, &exclude, remote));
+        crate::plugins::listenbrainz::blend(mix, discovered, matches!(seed, Seed::Track(_)))
     })
     .await
     .unwrap_or_default()

@@ -111,7 +111,7 @@ pub async fn run(
                     ))
                 }
             };
-            let ids = crate::plugins::dstm::mix_tracks(server, seed).await;
+            let ids = crate::plugins::dstm::mix_tracks(server, p, seed).await;
             let entries = core::entries_for(server, &core::Item::Tracks(ids)).await;
             let how = Enqueue::Play {
                 start: None,

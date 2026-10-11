@@ -301,6 +301,10 @@ impl std::fmt::Debug for Controller {
     }
 }
 
+/// A song left within this many seconds of its start was skipped (for discovery, and the
+/// listening history's skip count).
+const SKIP_SECS: f64 = 30.0;
+
 impl Controller {
     /// Inert controller used only during player construction.
     pub fn placeholder(id: MacAddress) -> Controller {
@@ -684,6 +688,12 @@ impl Controller {
             self.set_playing_state(PlayingState::Playing);
         }
         self.consecutive_errors = 0;
+        // the song that was playing, to tell a skip
+        let previous = self
+            .queue
+            .iter()
+            .find(|s| s.status == SongStatus::Playing)
+            .map(|s| (s.track.url.clone(), s.started_at, s.duration()));
         while self.queue.len() > 1 {
             let st = self.queue.back().map(|s| s.status).unwrap();
             if matches!(
@@ -709,6 +719,19 @@ impl Controller {
         if let Some((title, index, url)) = newsong {
             self.playlist.current = index;
             if let Some(server) = self.server() {
+                // something else within 30 seconds of a longer song's start: a skip
+                let skipped = previous.and_then(|(u, start, dur)| {
+                    let quick = start.is_some_and(|t| now - t < SKIP_SECS);
+                    (u != url && quick && dur.unwrap_or(0.0) > 2.0 * SKIP_SECS).then_some(u)
+                });
+                let lib = server.library.clone();
+                let started = url.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Some(u) = skipped {
+                        lib.mark_skipped(&u);
+                    }
+                    lib.mark_started(&started);
+                });
                 if !crate::util::is_remote_url(&url) {
                     let lib = server.library.clone();
                     let u = url.clone();

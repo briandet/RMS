@@ -24,7 +24,12 @@ pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 /// `MIGRATIONS[n]` takes a database from version `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2_SEARCH, SCHEMA_V3_REMOTE];
+pub const MIGRATIONS: &[&str] = &[
+    SCHEMA_V1,
+    SCHEMA_V2_SEARCH,
+    SCHEMA_V3_REMOTE,
+    SCHEMA_V4_DISCOVER,
+];
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE meta (
@@ -370,6 +375,39 @@ CREATE TABLE track_rhythm (
   camelot     TEXT,
   rhythm      BLOB,
   analyzed_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+"#;
+
+/// Discovery ([`crate::discover`]): skips counted with the listening history, the
+/// recordings found through ListenBrainz and what became of them, and a cache of web
+/// service answers.
+const SCHEMA_V4_DISCOVER: &str = r#"
+-- played for less than 30 seconds before something else started
+ALTER TABLE track_stats ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0;
+
+-- A recording a mix proposed from outside what was played (similar to a seed, by a similar
+-- artist): what plays it (a library file, a streamed track, or none found) and how it went:
+-- `new` (not played yet), `played`, `rejected` (skipped within 30 seconds).
+CREATE TABLE discovered (
+  url         TEXT PRIMARY KEY,
+  mbid        TEXT,
+  title       TEXT NOT NULL,
+  artist      TEXT NOT NULL,
+  artist_key  TEXT NOT NULL,   -- the artist's search key
+  artist_mbid TEXT,
+  because     TEXT,            -- the seed recording or artist it is similar to
+  status      TEXT NOT NULL,
+  added_at    INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+CREATE INDEX discovered_mbid ON discovered (mbid);
+CREATE INDEX discovered_artist ON discovered (artist_key);
+
+-- Answers of web services (ListenBrainz similarities, …), by request, for a while.
+CREATE TABLE web_cache (
+  key        TEXT PRIMARY KEY,
+  body       TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 "#;
 

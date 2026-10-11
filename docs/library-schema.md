@@ -19,10 +19,12 @@ are `STRICT`, and foreign keys are enforced.
 | `track_artists`, `album_artists` | Who did what. `role` is 1 artist, 2 composer, 3 conductor, 4 band, 5 album artist, 6 track artist (`config::CONTRIBUTOR_ROLES`). `position` keeps the tag order. |
 | `track_genres`, `track_comments` | More tags. |
 | `playlists`, `playlist_items` | Saved playlists (`saved`, in the playlist folder), other playlist files (`file`) and cue sheets (`cue`), each with its entries' URLs in order. |
-| `track_stats` | Listening history: play count, last played, rating, date added. |
+| `track_stats` | Listening history: play count, skips (left within 30 seconds), last played, rating, date added. |
 | `track_analysis` | Sonic analysis (bliss features) and loudness per audio content. |
 | `track_rhythm` | Tempo, beat grid, downbeat, key (with its Camelot code) and an energy curve per bar, per audio content (`rhythm.rs`), for transitions. |
 | `track_musicbrainz` | What MusicBrainz says about the audio (`plugins::musicbrainz` looks it up, `musicbrainz.rs` keeps it): recording id, ISRC, genres, and how it was found. It fills in the `mbid`, `isrc` and genres that tags leave out; tags always win. |
+| `discovered` | Songs mixes proposed from outside what was played (ListenBrainz, `discover.rs`): what plays them, what they are similar to, and how it went (`new`, `played`, `rejected` when skipped within 30 seconds). |
+| `web_cache` | Answers of web services (ListenBrainz similarities), for a month. |
 | `track_chromaprint` | A Chromaprint audio fingerprint of the first two minutes, per audio content (`print.rs`): the same recording in the library and in a stream. |
 | `remote_tracks` | Tracks of streaming services that played to their end (Spotify): metadata only, with their ISRC and, when the library has the same recording, `local_match`. Their analyses are in the tables above under `<source>:<id>`. |
 | `meta` | Key/value settings of the library (`last_scan`). |

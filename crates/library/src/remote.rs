@@ -111,6 +111,12 @@ impl Library {
         Ok(())
     }
 
+    /// Remember a remote track's metadata (without analysis); returns its row id.
+    pub fn remember_remote(&self, t: &RemoteTrack) -> anyhow::Result<i64> {
+        let c = self.conn()?;
+        self.store_remote(&c, t)
+    }
+
     /// Insert or update a remote track's metadata; returns its row id.
     pub fn store_remote(&self, c: &Connection, t: &RemoteTrack) -> anyhow::Result<i64> {
         let rules = self.text_rules();

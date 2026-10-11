@@ -936,7 +936,11 @@
       "musicbrainz": false,
       "acoustid_key": "",
       "musicbrainz_identified": 0,
-      "musicbrainz_pending": 5
+      "musicbrainz_pending": 5,
+      "listenbrainz": false,
+      "discovered": 0,
+      "discovered_played": 0,
+      "discovered_rejected": 0
     }
   },
   "PATCH /api/v1/settings (change settings)": {
@@ -958,7 +962,11 @@
       "musicbrainz": false,
       "acoustid_key": "",
       "musicbrainz_identified": 0,
-      "musicbrainz_pending": 5
+      "musicbrainz_pending": 5,
+      "listenbrainz": false,
+      "discovered": 0,
+      "discovered_played": 0,
+      "discovered_rejected": 0
     }
   },
   "PATCH /api/v1/settings (bad bitrate)": {
@@ -970,7 +978,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `listenbrainz` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {
@@ -1025,7 +1033,8 @@
             "label": "Song Mix (limited to current genres)"
           }
         ]
-      }
+      },
+      "adventurous": 15
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (squeezebox settings)": {
@@ -1081,6 +1090,7 @@
           }
         ]
       },
+      "adventurous": 15,
       "display": {
         "playing_mode": {
           "value": "5",
@@ -1299,7 +1309,8 @@
             "label": "Song Mix (limited to current genres)"
           }
         ]
-      }
+      },
+      "adventurous": 15
     }
   },
   "PATCH /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (change display settings)": {
@@ -1355,6 +1366,7 @@
           }
         ]
       },
+      "adventurous": 15,
       "display": {
         "playing_mode": {
           "value": "2",
