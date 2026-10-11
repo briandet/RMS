@@ -1,6 +1,6 @@
 // RMS web UI – application shell: live state, routing, header, theme, keyboard.
 
-import { rpc, command, getPlayer, getQueue, connectEvents, itemFor } from './api.js';
+import { command, getPlayer, getQueue, connectEvents, itemFor } from './api.js';
 import { store, on, emit, currentPlayer, elapsed, patchPlayer } from './store.js';
 import { $, $$, h, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
 import * as NowPlaying from './views/nowplaying.js';
@@ -32,26 +32,6 @@ async function send(body, { quiet = false } = {}) {
 /** Fetch a player's state again (e.g. after an optimistic change the server refused). */
 async function resync(pid) {
   try { applyPlayer(await getPlayer(pid)); } catch { /* the event stream will catch up */ }
-}
-
-/** Send an LMS command to the selected player (settings that have no native command yet). */
-async function cmd(...args) {
-  const pid = store.playerId;
-  if (!pid) { toast('No player selected', 'error'); return null; }
-  try {
-    return await rpc(args, pid);
-  } catch (e) {
-    toast(`Command “${args.slice(0, 2).join(' ')}” failed: ${e.message}`, 'error');
-    return null;
-  }
-}
-
-/** Send a server-level LMS command (no player). */
-async function serverCmd(...args) {
-  try { return await rpc(args, ''); } catch (e) {
-    toast(`Command “${args.slice(0, 2).join(' ')}” failed: ${e.message}`, 'error');
-    return null;
-  }
 }
 
 const ACTION_VERB = { load: 'Playing', add: 'Added to queue', insert: 'Playing next' };
@@ -403,7 +383,7 @@ async function createMix(key, value, label = '') {
 // =============================================================== context passed to views
 
 export const ctx = {
-  send, cmd, serverCmd, playItem, createMix, togglePlay,
+  send, playItem, createMix, togglePlay,
   refreshQueue: () => refreshQueue(),
   selectPlayer, navigate, reload, invalidateViews,
   getTheme, setTheme,

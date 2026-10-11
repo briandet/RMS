@@ -1,0 +1,429 @@
+{
+  "serverstatus_libraryname": {
+    "lastscan": "<volatile>",
+    "version": "<volatile>",
+    "uuid": "<volatile>",
+    "ip": "<volatile>",
+    "httpport": "<volatile>",
+    "info total albums": 3,
+    "info total artists": 5,
+    "info total genres": 3,
+    "info total songs": 5,
+    "info total duration": "<volatile>",
+    "libraryname": "",
+    "player count": 2,
+    "other player count": 0
+  },
+  "serverstatus_bare": {
+    "lastscan": "<volatile>",
+    "version": "<volatile>",
+    "uuid": "<volatile>",
+    "ip": "<volatile>",
+    "httpport": "<volatile>",
+    "info total albums": 3,
+    "info total artists": 5,
+    "info total genres": 3,
+    "info total songs": 5,
+    "info total duration": "<volatile>",
+    "player count": 2,
+    "other player count": 0
+  },
+  "serverstatus_poll": {
+    "lastscan": "<volatile>",
+    "version": "<volatile>",
+    "uuid": "<volatile>",
+    "ip": "<volatile>",
+    "httpport": "<volatile>",
+    "info total albums": 3,
+    "info total artists": 5,
+    "info total genres": 3,
+    "info total songs": 5,
+    "info total duration": "<volatile>",
+    "player count": 2,
+    "other player count": 0
+  },
+  "can_restartserver": {
+    "_can": 1
+  },
+  "players_status": {
+    "count": 2
+  },
+  "status_exists": {
+    "player_name": "Kitchen",
+    "player_connected": 1,
+    "player_ip": "<volatile>",
+    "power": 1,
+    "signalstrength": 0,
+    "mode": "stop",
+    "mixer volume": 50,
+    "playlist repeat": 0,
+    "playlist shuffle": 0,
+    "playlist mode": "off",
+    "playlist_tracks": 0,
+    "digital_volume_control": 1,
+    "use_volume_control": 1
+  },
+  "apps": {
+    "count": 0
+  },
+  "radios": {
+    "count": 2,
+    "radioss_loop": [
+      {
+        "cmd": "radiofavorites",
+        "name": "Favorite Stations",
+        "type": "xmlbrowser",
+        "icon": "html/images/favorites.png",
+        "weight": 10
+      },
+      {
+        "cmd": "radiodirectory",
+        "name": "Popular Stations",
+        "type": "xmlbrowser",
+        "icon": "html/images/radio.png",
+        "weight": 20
+      }
+    ]
+  },
+  "albums_count": {
+    "albums_loop": [
+      {
+        "id": 1,
+        "performance": "",
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light"
+      }
+    ],
+    "count": 3
+  },
+  "albums": {
+    "albums_loop": [
+      {
+        "id": 1,
+        "performance": "",
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light",
+        "artist": "Alpha Band"
+      },
+      {
+        "id": 3,
+        "performance": "",
+        "favorites_url": "db:album.title=Mixed%20Bag&contributor.name=Various%20Artists",
+        "favorites_title": "Mixed Bag",
+        "album": "Mixed Bag",
+        "artist": "Various Artists"
+      },
+      {
+        "id": 2,
+        "performance": "",
+        "favorites_url": "db:album.title=Second%20Wind&contributor.name=Beta%20Singer",
+        "favorites_title": "Second Wind",
+        "album": "Second Wind",
+        "artist": "Beta Singer"
+      }
+    ],
+    "count": 3
+  },
+  "albums_new": {
+    "albums_loop": [
+      {
+        "id": 3,
+        "performance": "",
+        "favorites_url": "db:album.title=Mixed%20Bag&contributor.name=Various%20Artists",
+        "favorites_title": "Mixed Bag",
+        "album": "Mixed Bag",
+        "artist": "Various Artists"
+      },
+      {
+        "id": 2,
+        "performance": "",
+        "favorites_url": "db:album.title=Second%20Wind&contributor.name=Beta%20Singer",
+        "favorites_title": "Second Wind",
+        "album": "Second Wind",
+        "artist": "Beta Singer"
+      },
+      {
+        "id": 1,
+        "performance": "",
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light",
+        "artist": "Alpha Band"
+      }
+    ],
+    "count": 3
+  },
+  "albums_of_artist": {
+    "albums_loop": [
+      {
+        "id": 1,
+        "performance": "",
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light",
+        "artist": "Alpha Band"
+      }
+    ],
+    "count": 1
+  },
+  "albums_search": {
+    "albums_loop": [
+      {
+        "id": 1,
+        "performance": "",
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light",
+        "artist": "Alpha Band"
+      }
+    ],
+    "count": 1
+  },
+  "artists": {
+    "artists_loop": [
+      {
+        "id": 2,
+        "artist": "Alpha Band",
+        "favorites_url": "db:contributor.name=Alpha%20Band"
+      },
+      {
+        "id": 3,
+        "artist": "Beta Singer",
+        "favorites_url": "db:contributor.name=Beta%20Singer"
+      },
+      {
+        "id": 5,
+        "artist": "Delta",
+        "favorites_url": "db:contributor.name=Delta"
+      },
+      {
+        "id": 6,
+        "artist": "Epsilon",
+        "favorites_url": "db:contributor.name=Epsilon"
+      },
+      {
+        "id": 4,
+        "artist": "Gamma Writer",
+        "favorites_url": "db:contributor.name=Gamma%20Writer"
+      }
+    ],
+    "count": 5
+  },
+  "album_artists": {
+    "artists_loop": [
+      {
+        "id": 2,
+        "artist": "Alpha Band",
+        "favorites_url": "db:contributor.name=Alpha%20Band"
+      },
+      {
+        "id": 3,
+        "artist": "Beta Singer",
+        "favorites_url": "db:contributor.name=Beta%20Singer"
+      }
+    ],
+    "count": 2
+  },
+  "genres": {
+    "genres_loop": [
+      {
+        "id": 2,
+        "genre": "Jazz",
+        "favorites_url": "db:genre.name=Jazz"
+      },
+      {
+        "id": 3,
+        "genre": "Pop",
+        "favorites_url": "db:genre.name=Pop"
+      },
+      {
+        "id": 1,
+        "genre": "Rock",
+        "favorites_url": "db:genre.name=Rock"
+      }
+    ],
+    "count": 3
+  },
+  "titles_of_album": {
+    "titles_loop": [
+      {
+        "id": 1,
+        "title": "Morning",
+        "coverart": 0,
+        "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+        "tracknum": 1,
+        "album": "First Light"
+      },
+      {
+        "id": 2,
+        "title": "Noon",
+        "coverart": 0,
+        "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+        "tracknum": 2,
+        "album": "First Light"
+      }
+    ],
+    "count": 2
+  },
+  "titles_of_genre": {
+    "titles_loop": [
+      {
+        "id": 3,
+        "title": "Breeze",
+        "coverart": 0,
+        "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+        "tracknum": 1,
+        "album": "Second Wind"
+      }
+    ],
+    "count": 1
+  },
+  "playlists": {},
+  "favorites": {
+    "title": "Favorites",
+    "count": 2,
+    "loop_loop": [
+      {
+        "id": "0",
+        "name": "Stations",
+        "type": "link",
+        "isaudio": 0,
+        "hasitems": 1
+      },
+      {
+        "id": "1",
+        "name": "First Light",
+        "type": "audio",
+        "url": "db:album.title=First%20Light",
+        "isaudio": 1,
+        "hasitems": 0
+      }
+    ]
+  },
+  "favorites_item_null": {
+    "title": "Stations",
+    "count": 1,
+    "loop_loop": [
+      {
+        "id": "0.0",
+        "name": "Example FM",
+        "type": "audio",
+        "url": "http://radio.example.com/live.mp3",
+        "isaudio": 1,
+        "hasitems": 0
+      }
+    ]
+  },
+  "cmd_volume": {},
+  "cmd_volume_relative": {},
+  "cmd_mute": {},
+  "cmd_unmute": {},
+  "cmd_power_off": {},
+  "cmd_power_on": {},
+  "cmd_playlist_play": {},
+  "cmd_playlist_add": {},
+  "cmd_shuffle": {},
+  "cmd_shuffle_off": {},
+  "cmd_repeat": {},
+  "cmd_time": {},
+  "cmd_pause": {},
+  "cmd_stop": {},
+  "cmd_sync": {},
+  "syncgroups": {
+    "syncgroups_loop": [
+      {
+        "sync_members": "00:04:20:12:34:56,00:04:20:fe:ed:01",
+        "sync_member_names": "Squeezebox Classic,Kitchen"
+      }
+    ]
+  },
+  "cmd_unsync": {},
+  "cmd_alarm_add": {
+    "id": "<alarm id>"
+  },
+  "alarms": {
+    "fade": 1,
+    "count": 1,
+    "alarms_loop": [
+      {
+        "id": "<alarm id>",
+        "dow": "1,2,3,4,5",
+        "enabled": 1,
+        "repeat": 1,
+        "shufflemode": 0,
+        "time": "<volatile>",
+        "volume": 40,
+        "url": "CURRENT_PLAYLIST"
+      }
+    ]
+  },
+  "cmd_alarm_update": {
+    "id": "<alarm id>"
+  },
+  "alarms_after_update": {
+    "fade": 1,
+    "count": 1,
+    "alarms_loop": [
+      {
+        "id": "<alarm id>",
+        "dow": "0,6",
+        "enabled": 0,
+        "repeat": 1,
+        "shufflemode": 0,
+        "time": "<volatile>",
+        "volume": 40,
+        "url": "CURRENT_PLAYLIST"
+      }
+    ]
+  },
+  "cmd_alarm_delete": {
+    "id": "<alarm id>"
+  },
+  "alarms_enabled": {
+    "_p2": 1
+  },
+  "cmd_playlist_save": {
+    "writeError": 1
+  },
+  "cmd_playlist_clear": {},
+  "cmd_playlist_resume": {},
+  "cmd_playlist_index": {},
+  "cmd_stop_again": {},
+  "status": {
+    "player_name": "Kitchen",
+    "player_connected": 1,
+    "player_ip": "<volatile>",
+    "power": 1,
+    "signalstrength": 0,
+    "mode": "stop",
+    "mixer volume": 25,
+    "playlist repeat": 0,
+    "playlist shuffle": 0,
+    "playlist mode": "off",
+    "playlist_tracks": 0,
+    "digital_volume_control": 1,
+    "use_volume_control": 1,
+    "alarm_state": "none",
+    "alarm_next": 0,
+    "alarm_version": 2,
+    "alarm_snooze_seconds": 540,
+    "alarm_timeout_seconds": 3600
+  },
+  "status_playlist": {
+    "player_name": "Kitchen",
+    "player_connected": 1,
+    "player_ip": "<volatile>",
+    "power": 1,
+    "signalstrength": 0,
+    "mode": "stop",
+    "mixer volume": 25,
+    "playlist repeat": 0,
+    "playlist shuffle": 0,
+    "playlist mode": "off",
+    "playlist_tracks": 0,
+    "digital_volume_control": 1,
+    "use_volume_control": 1
+  }
+}

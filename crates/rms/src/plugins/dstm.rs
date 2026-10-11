@@ -73,7 +73,7 @@ struct Snapshot {
 
 /// Provider tokens, sorted by their names (`getSortedHandlerTokens`); favorites are named by
 /// their titles.
-fn providers(server: &Arc<Server>) -> Vec<(String, String)> {
+pub(crate) fn providers(server: &Arc<Server>) -> Vec<(String, String)> {
     let mut v: Vec<(String, String)> = BUILTIN.iter().map(|t| (t.to_string(), s(t))).collect();
     if favorites_registered(server) {
         for (title, _) in server.favorites.flat_audio() {
@@ -96,7 +96,7 @@ fn favorites_registered(server: &Arc<Server>) -> bool {
 }
 
 /// The provider chosen for a player ("" / "0" = disabled).
-fn provider(p: &Arc<Player>) -> Option<String> {
+pub(crate) fn provider(p: &Arc<Player>) -> Option<String> {
     let v = p.prefs.get(PREF)?;
     let v = match v {
         serde_json::Value::String(s) => s,

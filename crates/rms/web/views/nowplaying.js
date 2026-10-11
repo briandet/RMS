@@ -2,7 +2,7 @@
 
 import { store, on, elapsed, currentTrack, currentPlayer, patchPlayer } from '../store.js';
 import { h, icon, setIcon, fmtTime, throttle, toast } from '../util.js';
-import { sizedArtwork, currentArtUrl } from '../api.js';
+import { sizedArtwork, currentArtUrl, addFavorite as addFavoriteApi } from '../api.js';
 import { connectHelp, enc } from './common.js';
 
 const SHUFFLE = { off: 'off', songs: 'by song', albums: 'by album' };
@@ -306,6 +306,10 @@ async function addFavorite() {
   if (!tr?.url) { toast('Nothing to add to favorites', 'error'); return; }
   const d = describe(tr);
   const title = d.remote ? (tr.station || tr.album || d.title) : [d.title, d.artist].filter(Boolean).join(' – ');
-  const r = await ctx.serverCmd('favorites', 'add', `url:${tr.url}`, `title:${title}`);
-  if (r) toast(`Added “${title}” to favorites`);
+  try {
+    await addFavoriteApi(tr.url, title);
+    toast(`Added “${title}” to favorites`);
+  } catch (e) {
+    toast(`Could not add to favorites: ${e.message}`, 'error');
+  }
 }

@@ -40,7 +40,7 @@ pub fn parse_db_url(url: &str) -> Option<(String, Vec<(String, String)>)> {
 }
 
 /// Look up a `db:` favorite in the library (`_prepareDbItems`).
-fn resolve_db(server: &Server, url: &str) -> Option<DbObject> {
+pub fn resolve_db(server: &Server, url: &str) -> Option<DbObject> {
     let (class, fields) = parse_db_url(url)?;
     let field = |k: &str| fields.iter().find(|(f, _)| f == k).map(|(_, v)| v.clone());
     let query = |name: rms_library::LibQueryName, search: &str| {

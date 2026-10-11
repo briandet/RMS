@@ -45,7 +45,8 @@ pub fn server_defaults() -> PrefMap {
         ("maxRedirects", json!(7)),
         ("maxPlaylistLength", json!(2500)),
         ("precacheArtwork", json!(1)),
-        ("autorescan", json!(0)),
+        // watch the music folders (Lyrion's default is off)
+        ("autorescan", json!(1)),
         ("disableStatistics", json!(0)),
         ("filterHosts", json!(0)),
         ("allowedHosts", json!("")),

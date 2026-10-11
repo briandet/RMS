@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// Tag letters for [`song_row`]: url, artist, artist id, album, album id, cover id,
 /// artwork url, duration, track number, year, type, remote flag, station name.
-const TRACK_TAGS: &str = "uasleKcdtyoxN";
+const TRACK_TAGS: &str = "uasleKcdtiyoxN";
 
 pub fn server_info(server: &Server) -> ServerInfo {
     let lib = &server.library;
@@ -178,7 +178,7 @@ pub fn track(server: &Server, entry: &Entry, song: Option<&Song>) -> Track {
     track_from_row(&row, &entry.url)
 }
 
-fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
+pub(super) fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
     let remote = int(row.get("remote")) == Some(1) || crate::util::is_remote_url(url);
     let mut title = string(row.get("title")).unwrap_or_default();
     let mut artist = string(row.get("artist"));
@@ -207,6 +207,7 @@ fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
         album_id: int(row.get("album_id")),
         duration: float(row.get("duration")).filter(|&d| d > 0.0),
         track_number: int(row.get("tracknum")),
+        disc: int(row.get("disc")),
         year: int(row.get("year")).filter(|&y| y > 0),
         artwork,
         remote,
@@ -216,7 +217,7 @@ fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
 }
 
 /// Server-relative artwork path without size suffix, so clients can append one.
-fn artwork_path(url: &str) -> String {
+pub(super) fn artwork_path(url: &str) -> String {
     if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("data:") {
         return url.to_string();
     }
@@ -231,7 +232,7 @@ fn round_ms(v: f64) -> f64 {
     (v * 1000.0).round() / 1000.0
 }
 
-fn string(v: Option<&Value>) -> Option<String> {
+pub(super) fn string(v: Option<&Value>) -> Option<String> {
     match v? {
         Value::String(s) if !s.is_empty() => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
@@ -240,7 +241,7 @@ fn string(v: Option<&Value>) -> Option<String> {
 }
 
 /// Integer from a number or a numeric string; for id lists (`"3,7"`) the first id.
-fn int(v: Option<&Value>) -> Option<i64> {
+pub(super) fn int(v: Option<&Value>) -> Option<i64> {
     match v? {
         Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
         Value::String(s) => s.split(',').next()?.trim().parse().ok(),
@@ -248,7 +249,7 @@ fn int(v: Option<&Value>) -> Option<i64> {
     }
 }
 
-fn float(v: Option<&Value>) -> Option<f64> {
+pub(super) fn float(v: Option<&Value>) -> Option<f64> {
     match v? {
         Value::Number(n) => n.as_f64(),
         Value::String(s) => s.trim().parse().ok(),

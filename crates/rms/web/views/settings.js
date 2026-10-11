@@ -1,6 +1,9 @@
 // Settings: appearance, player settings & sync, library (name, folders, rescan), server info.
 
-import { rpc, serverRoot } from '../api.js';
+import {
+  serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
+  getSpotify, spotifyLogin, spotifyLogout,
+} from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
 import { connectHelp } from './common.js';
@@ -9,18 +12,6 @@ export const cacheable = false;
 
 const TRANSITIONS = [[0, 'None'], [1, 'Crossfade'], [2, 'Fade in'], [3, 'Fade out'], [4, 'Fade in and out']];
 const REPLAY_GAIN = [[0, 'Off'], [1, 'Track gain'], [2, 'Album gain'], [3, 'Smart gain (album when playing whole album)']];
-// Playing display modes of each display type (`Slim::Display::*` `@modes`), indexed by mode number.
-const VU = 'Small VU meter', SPEC_S = 'Small spectrum', SPEC = 'Spectrum analyzer';
-const DISPLAY_MODES = {
-  squeezebox2: ['Text only', 'Elapsed time', 'Remaining time', VU, `${VU} and elapsed time`, `${VU} and remaining time`,
-    SPEC_S, `${SPEC_S} and elapsed time`, `${SPEC_S} and remaining time`, SPEC, `${SPEC} and elapsed time`,
-    `${SPEC} and remaining time`, 'Buffer fullness', 'Clock'],
-  transporter: ['Text only', 'Progress bar', 'Progress bar and elapsed time', 'Progress bar and remaining time',
-    'Elapsed time', 'Remaining time', 'Buffer fullness', 'Clock'],
-  boom: ['Text only', 'Progress bar', 'Elapsed time', 'Remaining time', VU, SPEC_S, SPEC, `${SPEC} and progress bar`,
-    `${SPEC} and elapsed time`, `${SPEC} and remaining time`, 'Clock', 'Buffer fullness'],
-};
-DISPLAY_MODES.squeezebox3 = DISPLAY_MODES.squeezebox2;
 const BITRATES = [[0, 'No limit'], [320, '320 kbps'], [256, '256 kbps'], [192, '192 kbps'], [160, '160 kbps'], [128, '128 kbps'], [96, '96 kbps'], [64, '64 kbps']];
 
 let uid = 0;
@@ -43,29 +34,46 @@ export function render(node, { ctx }) {
     h('h1', { class: 'view-title' }, 'Settings'),
     h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
+  // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
+  async function saveServer(patch, done = 'Setting saved') {
+    try {
+      const r = await patchSettings(patch);
+      if (done) toast(done);
+      return r;
+    } catch (e) {
+      toast(`Could not save: ${e.message}`, 'error');
+      return null;
+    }
+  }
+
   // ---------------------------------------------------------------- player
   let renderedName = null;
+  let playerSeq = 0;
   async function renderPlayer() {
     const pid = store.playerId;
     const p = currentPlayer();
+    const seq = ++playerSeq;
     if (!pid || !p) {
       playerSection.replaceChildren(h('h2', { id: 'set-player' }, 'Player'), store.players.length ? h('p', { class: 'muted' }, 'Select a player in the header.') : connectHelp());
+      renderDisplay(null);
       return;
     }
     renderedName = p.name;
     playerSection.replaceChildren(h('h2', { id: 'set-player' }, `Player: ${p.name}`), h('div', { class: 'loading' }, h('span', { class: 'spinner' })));
-    const names = ['transitionType', 'transitionDuration', 'replayGainMode', 'maxBitrate', 'digitalVolumeControl'];
-    const [vals, dstm] = await Promise.all([
-      Promise.allSettled(names.map((n) => rpc(['playerpref', n, '?'], pid))),
-      rpc(['dontstopthemusicsetting', 0, 200], pid).catch(() => null),
-    ]);
-    if (!alive || pid !== store.playerId) return;
-    const pref = {};
-    names.forEach((n, i) => { pref[n] = vals[i].status === 'fulfilled' ? vals[i].value._p2 : undefined; });
+    let ps = null, err = null;
+    try { ps = await getPlayerSettings(pid); } catch (e) { err = e; }
+    if (!alive || pid !== store.playerId || seq !== playerSeq) return;
+    const pref = ps || {};
 
-    const setPref = async (name, value) => {
-      const r = await ctx.cmd('playerpref', name, value);
-      if (r) toast('Setting saved');
+    const setPref = async (patch) => {
+      try {
+        const r = await patchPlayerSettings(pid, patch);
+        toast('Setting saved');
+        return r;
+      } catch (e) {
+        toast(`Could not save: ${e.message}`, 'error');
+        return null;
+      }
     };
 
     // Name
@@ -83,111 +91,79 @@ export function render(node, { ctx }) {
 
     // Transition
     const durId = fieldId();
-    const durOut = h('output', { for: durId }, `${pref.transitionDuration ?? 0} s`);
-    const dur = h('input', { id: durId, type: 'range', class: 'range', min: 0, max: 10, step: 1, value: pref.transitionDuration ?? 0,
-      disabled: pref.transitionDuration === undefined,
+    const durOut = h('output', { for: durId }, `${pref.transition_duration ?? 0} s`);
+    const dur = h('input', { id: durId, type: 'range', class: 'range', min: 0, max: 10, step: 1, value: pref.transition_duration ?? 0,
+      disabled: pref.transition_duration === undefined,
       oninput: (e) => { durOut.textContent = `${e.target.value} s`; },
-      onchange: (e) => setPref('transitionDuration', +e.target.value) });
+      onchange: (e) => setPref({ transition_duration: +e.target.value }) });
 
-    // Don't Stop The Music: the provider tokens are the last word of each item's command
-    const dstmField = (() => {
-      const items = (dstm && dstm.item_loop) || [];
-      if (!items.length) return null;
-      const id = fieldId();
-      const token = (it) => String(it.actions?.do?.cmd?.slice(-1)[0] ?? '0');
-      return h('div', { class: 'field' },
-        h('label', { for: id }, 'Don’t Stop The Music'),
-        h('select', { id, onchange: (e) => setPref('plugin.dontstopthemusic:provider', e.target.value) },
-          items.map((it) => h('option', { value: token(it), selected: +it.radio === 1 }, it.text))),
-        h('p', { class: 'muted small' }, 'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.'));
-    })();
+    // Don't Stop The Music: the server lists the choices with their labels
+    const dstmField = pref.dont_stop_the_music?.options?.length
+      ? choiceField('Don’t Stop The Music', pref.dont_stop_the_music, (v) => setPref({ dont_stop_the_music: v }),
+        'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.')
+      : null;
 
     const digitalId = fieldId();
-    playerSection.replaceChildren(
+    playerSection.replaceChildren(...[
       h('h2', { id: 'set-player' }, `Player: ${p.name}`),
       h('p', { class: 'muted small' }, [p.model_name || p.model, p.ip, p.id].filter(Boolean).join(' · ')),
+      err && h('p', { class: 'muted small', role: 'alert' }, `Could not load the player’s settings: ${err.message}`),
       nameForm,
-      selectField('Transition', TRANSITIONS, pref.transitionType, (v) => setPref('transitionType', v)),
+      selectField('Transition', TRANSITIONS, pref.transition_type, (v) => setPref({ transition_type: v })),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
       dstmField,
-      selectField('Replay gain', REPLAY_GAIN, pref.replayGainMode, (v) => setPref('replayGainMode', v)),
-      selectField('Maximum bitrate', BITRATES, pref.maxBitrate, (v) => setPref('maxBitrate', v), 'Higher bitrates are transcoded down when the player or network needs it.'),
+      selectField('Replay gain', REPLAY_GAIN, pref.replay_gain_mode, (v) => setPref({ replay_gain_mode: v })),
+      selectField('Maximum bitrate', BITRATES, pref.max_bitrate, (v) => setPref({ max_bitrate: v }), 'Higher bitrates are transcoded down when the player or network needs it.'),
       h('div', { class: 'field check' },
-        h('input', { id: digitalId, type: 'checkbox', checked: +pref.digitalVolumeControl !== 0, disabled: pref.digitalVolumeControl === undefined,
-          onchange: (e) => setPref('digitalVolumeControl', e.target.checked ? 1 : 0) }),
+        h('input', { id: digitalId, type: 'checkbox', checked: !!pref.digital_volume_control, disabled: pref.digital_volume_control === undefined,
+          onchange: (e) => setPref({ digital_volume_control: e.target.checked }) }),
         h('label', { for: digitalId }, 'Digital volume control', h('span', { class: 'muted small block' }, 'Turn off to output fixed (100%) volume to an external amplifier.'))),
-    );
+    ].filter(Boolean));
+    renderDisplay(ps?.display ? { display: ps.display, setPref } : null);
   }
 
   // ---------------------------------------------------------------- display (Squeezebox screens)
-  async function renderDisplay() {
-    const pid = store.playerId;
-    const p = currentPlayer();
-    const modes = p && DISPLAY_MODES[p.model];
-    displaySection.hidden = !modes;
-    if (!modes) { displaySection.replaceChildren(); return; }
-    const [bright, active, idle, pdm, pdms] = await Promise.allSettled([
-      rpc(['jiveplayerbrightnesssettings', 0, 10], pid),
-      rpc(['jiveplayertextsettings', 'activeFont', 0, 10], pid),
-      rpc(['jiveplayertextsettings', 'idleFont', 0, 10], pid),
-      rpc(['playerpref', 'playingDisplayMode', '?'], pid),
-      rpc(['playerpref', 'playingDisplayModes', '?'], pid),
-    ]);
-    if (!alive || pid !== store.playerId) return;
-    const ok = (r) => (r.status === 'fulfilled' ? r.value : null);
-    const setPref = async (name, value) => {
-      if (await ctx.cmd('playerpref', name, value)) toast('Setting saved');
+  // Present only for players with a screen; the server sends the labels of every choice.
+  function renderDisplay(state) {
+    displaySection.hidden = !state;
+    if (!state) { displaySection.replaceChildren(); return; }
+    const { display: d, setPref } = state;
+    const choice = (label, key) => d[key]?.options?.length ? choiceField(label, d[key], (v) => setPref({ [key]: v })) : null;
+    const slider = (label, key) => {
+      const r = d[key];
+      if (!r) return null;
+      const id = fieldId();
+      const out = h('output', { for: id }, String(r.value));
+      return h('div', { class: 'field' }, h('label', { for: id }, label),
+        h('div', { class: 'inline-row' },
+          h('input', { id, type: 'range', class: 'range', min: r.min, max: r.max, step: 1, value: r.value,
+            oninput: (e) => { out.textContent = e.target.value; }, onchange: (e) => setPref({ [key]: +e.target.value }) }), out));
     };
-    // radio lists from the Jive menus: [{text, radio, actions.do.cmd}] → select
-    const radioSelect = (label, items) => {
-      if (!items?.length) return null;
-      const opts = items.map((it, i) => [i, it.text]);
-      const cur = items.findIndex((it) => +it.radio === 1);
-      return selectField(label, opts, cur < 0 ? undefined : cur, (i) => {
-        const c = items[i]?.actions?.do?.cmd;
-        if (c) setPref(c[1], c[2]);
-      });
-    };
-    const sliders = [];
-    const brightness = (ok(bright)?.item_loop || []).map((group) => {
-      const slider = group.item_loop?.[0];
-      if (slider?.slider) {
-        const id = fieldId();
-        const pref = slider.actions.do.cmd[1];
-        const out = h('output', { for: id }, String(slider.initial));
-        sliders.push(h('div', { class: 'field' }, h('label', { for: id }, group.text),
-          h('div', { class: 'inline-row' },
-            h('input', { id, type: 'range', class: 'range', min: slider.min, max: slider.max, step: 1, value: slider.initial,
-              oninput: (e) => { out.textContent = e.target.value; }, onchange: (e) => setPref(pref, +e.target.value) }), out)));
-        return null;
-      }
-      const when = group.text.toLowerCase();
-      return radioSelect(when.startsWith('while') ? `Brightness ${when}` : `Brightness when ${when}`, group.item_loop);
-    });
-    const list = (ok(pdms)?._p2 ?? []).map(Number);
-    const modeOpts = list.map((m, i) => [i, modes[m] ?? `Mode ${m}`]);
     displaySection.replaceChildren(...[
       h('h2', { id: 'set-display' }, 'Player display'),
       h('p', { class: 'muted small' }, 'The Now Playing button on the remote cycles the playing display; Size and Brightness change the text size and brightness.'),
-      selectField('Now Playing information', modeOpts, ok(pdm)?._p2, (v) => setPref('playingDisplayMode', v)),
-      radioSelect('Text size', ok(active)?.item_loop),
-      radioSelect('Text size when off', ok(idle)?.item_loop),
-      ...brightness, ...sliders,
+      choice('Now Playing information', 'playing_mode'),
+      choice('Text size', 'text_size'),
+      choice('Text size when off', 'text_size_off'),
+      choice('Brightness when on', 'brightness_on'),
+      choice('Brightness when off', 'brightness_off'),
+      choice('Brightness when idle', 'brightness_idle'),
+      slider('Automatic brightness: minimum', 'auto_brightness_min'),
+      slider('Automatic brightness: sensitivity', 'auto_brightness_sensitivity'),
     ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- spotify
   let spotifyPoll = null;
   // The user's own Spotify app: the shared default client id is rate-limited by Spotify.
-  async function spotifyClientIdField() {
-    const cur = await rpc(['pref', 'spotifyClientId', '?']).catch(() => null);
+  function spotifyClientIdField(settings) {
     const id = fieldId();
-    const input = h('input', { id, type: 'text', value: cur?._p2 ?? '', placeholder: '32 hex digits', spellcheck: 'false', autocomplete: 'off' });
+    const input = h('input', { id, type: 'text', value: settings?.spotify_client_id ?? '', placeholder: '32 hex digits', spellcheck: 'false', autocomplete: 'off' });
     return h('form', { class: 'field', onsubmit: async (e) => {
       e.preventDefault();
       const v = input.value.trim();
       if (v && !/^[0-9a-fA-F]{32}$/.test(v)) { toast('A client ID is 32 hexadecimal digits', 'error'); return; }
-      if (await ctx.serverCmd('pref', 'spotifyClientId', v)) toast('Saved: sign out and sign in again to use it');
+      await saveServer({ spotify_client_id: v }, 'Saved: sign out and sign in again to use it');
     } },
     h('label', { for: id }, 'Client ID of your own Spotify app (recommended)'),
     h('p', { class: 'muted small' }, 'Spotify limits the shared client ID RMS uses by default, so browsing and track names may not load. Create an app at developer.spotify.com/dashboard with the redirect URI http://127.0.0.1:5588/login and the Web API, paste its client ID here, then sign in again.'),
@@ -196,39 +172,44 @@ export function render(node, { ctx }) {
 
   async function renderSpotify() {
     const head = h('h2', { id: 'set-spotify' }, 'Spotify');
-    const st = await rpc(['spotify', 'status']).catch(() => null);
+    let st = null, err = null;
+    const [stRes, setRes] = await Promise.allSettled([getSpotify(), getSettings()]);
     if (!alive) return;
-    if (!st) { spotifySection.replaceChildren(head, h('p', { class: 'muted' }, 'Spotify is not available.')); return; }
-    if (+st.signed_in) {
+    if (stRes.status === 'fulfilled') st = stRes.value;
+    else if (stRes.reason?.status !== 404) err = stRes.reason;
+    const settings = setRes.status === 'fulfilled' ? setRes.value : null;
+    if (!st) {
+      spotifySection.replaceChildren(head, h('p', { class: 'muted' }, err ? `Could not get the Spotify status: ${err.message}` : 'Spotify is not available.'));
+      return;
+    }
+    if (st.signed_in) {
       clearInterval(spotifyPoll);
-      const [br, norm] = await Promise.allSettled([rpc(['pref', 'spotifyBitrate', '?']), rpc(['pref', 'spotifyNormalisation', '?'])]);
-      if (!alive) return;
       const normId = fieldId();
-      spotifySection.replaceChildren(head,
+      spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
         st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
         selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
-          br.status === 'fulfilled' ? br.value._p2 : 320,
-          async (v) => { if (await ctx.serverCmd('pref', 'spotifyBitrate', v)) toast('Setting saved'); }),
+          settings?.spotify_bitrate, (v) => saveServer({ spotify_bitrate: v })),
         h('div', { class: 'field check' },
-          h('input', { id: normId, type: 'checkbox', checked: norm.status === 'fulfilled' && +norm.value._p2 === 1,
-            onchange: async (e) => { if (await ctx.serverCmd('pref', 'spotifyNormalisation', e.target.checked ? 1 : 0)) toast('Setting saved'); } }),
+          h('input', { id: normId, type: 'checkbox', checked: !!settings?.spotify_normalisation, disabled: !settings,
+            onchange: (e) => saveServer({ spotify_normalisation: e.target.checked }) }),
           h('label', { for: normId }, 'Normalise volume', h('span', { class: 'muted small block' }, 'Spotify’s loudness normalisation, like its apps.'))),
         h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
-        await spotifyClientIdField(),
+        spotifyClientIdField(settings),
         ...spotifySignIn('Sign in again (keeps playback working)', false),
         h('div', { class: 'button-row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!confirm('Sign out of Spotify on this server?')) return;
-          await ctx.serverCmd('spotify', 'logout');
+          try { await spotifyLogout(); } catch (e) { toast(`Could not sign out: ${e.message}`, 'error'); }
           renderSpotify();
-        } }, 'Sign out')));
+        } }, 'Sign out'))].filter(Boolean));
       return;
     }
-    spotifySection.replaceChildren(head,
+    spotifySection.replaceChildren(...[head,
       h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
+      st.error && h('p', { class: 'muted small' }, st.error),
       ...spotifySignIn('Sign in with Spotify', true),
-      await spotifyClientIdField());
+      spotifyClientIdField(settings)].filter(Boolean));
   }
 
   // Sign-in button plus the "paste the redirected address" form.  `poll`: also finish by
@@ -246,7 +227,8 @@ export function render(node, { ctx }) {
         return;
       }
       msg.textContent = 'Signing in…';
-      const r = await rpc(['spotify', 'login', `code:${v}`], '', { timeout: 60000 }).catch((err) => ({ error: err.message }));
+      const r = await spotifyLogin(v).catch((err) => ({ error: err.message }));
+      if (!alive) return;
       if (r.user) { toast(`Signed in to Spotify as ${r.user}`); renderSpotify(); } else msg.textContent = r.error || 'Sign-in failed.';
     } },
     h('label', { for: pasteId }, 'Address of the page Spotify sent you to'),
@@ -254,7 +236,8 @@ export function render(node, { ctx }) {
     h('div', { class: 'inline-row' }, paste, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Finish')),
     msg);
     const button = h('div', { class: 'button-row' }, h('button', { class: poll ? 'btn btn-primary' : 'btn', type: 'button', onclick: async () => {
-      const r = await rpc(['spotify', 'login']).catch(() => null);
+      let r;
+      try { r = await spotifyLogin(); } catch (e) { toast(`Could not start the Spotify sign-in: ${e.message}`, 'error'); return; }
       if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
       window.open(r.url, '_blank', 'noopener');
       finish.hidden = false;
@@ -262,8 +245,8 @@ export function render(node, { ctx }) {
       if (!poll) return;
       clearInterval(spotifyPoll);
       spotifyPoll = setInterval(async () => {
-        const s2 = await rpc(['spotify', 'status']).catch(() => null);
-        if (s2 && +s2.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
+        const s2 = await getSpotify().catch(() => null);
+        if (s2?.signed_in) { clearInterval(spotifyPoll); toast('Signed in to Spotify'); renderSpotify(); }
       }, 3000);
     } }, label));
     return [button, finish];
@@ -306,22 +289,23 @@ export function render(node, { ctx }) {
   // ---------------------------------------------------------------- library
   async function renderLibrary() {
     libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), h('div', { class: 'loading' }, h('span', { class: 'spinner' })));
-    const [nameRes, dirsRes, artRes, onlineRes] = await Promise.allSettled([rpc(['pref', 'libraryname', '?']), rpc(['pref', 'mediadirs', '?']),
-      rpc(['pref', 'artfolder', '?']), rpc(['pref', 'onlineArtistImages', '?'])]);
+    let settings;
+    try { settings = await getSettings(); } catch (e) {
+      if (alive) libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), h('p', { class: 'muted', role: 'alert' }, `Could not load the library settings: ${e.message}`));
+      return;
+    }
     if (!alive) return;
-    const libName = nameRes.status === 'fulfilled' ? nameRes.value._p2 ?? '' : '';
-    const artFolder = artRes.status === 'fulfilled' ? artRes.value._p2 ?? '' : '';
-    const onlineArt = onlineRes.status === 'fulfilled' ? +onlineRes.value._p2 || 0 : 0;
-    let dirs = dirsRes.status === 'fulfilled' ? dirsRes.value._p2 : [];
-    if (typeof dirs === 'string') dirs = dirs ? dirs.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean) : [];
-    if (!Array.isArray(dirs)) dirs = [];
+    const libName = settings.library_name ?? '';
+    const artFolder = settings.art_folder ?? '';
+    const onlineArt = !!settings.online_artist_images;
+    const watching = !!settings.watch_folders;
+    const dirs = Array.isArray(settings.media_dirs) ? settings.media_dirs : [];
 
     const nameId = fieldId();
     const nameInput = h('input', { id: nameId, type: 'text', value: libName, placeholder: 'My Music' });
     const nameForm = h('form', { class: 'field inline', onsubmit: async (e) => {
       e.preventDefault();
-      const r = await ctx.serverCmd('pref', 'libraryname', nameInput.value.trim());
-      if (r) toast('Library name saved');
+      await saveServer({ library_name: nameInput.value.trim() }, 'Library name saved');
     } }, h('label', { for: nameId }, 'Library name'), h('div', { class: 'inline-row' }, nameInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
 
     // Music folders editor
@@ -339,8 +323,7 @@ export function render(node, { ctx }) {
       e.preventDefault();
       const values = [...dirList.querySelectorAll('input')].map((i) => i.value.trim()).filter(Boolean);
       const unique = [...new Set(values)];
-      const r = await ctx.serverCmd('pref', 'mediadirs', unique);
-      if (r) toast(`Saved ${plural(unique.length, 'music folder')}. Rescan to pick up changes.`);
+      await saveServer({ media_dirs: unique }, `Saved ${plural(unique.length, 'music folder')}. Rescan to pick up changes.`);
     } },
     h('label', {}, 'Music folders'),
     h('p', { class: 'muted small' }, 'Folders on the server that contain your music.'),
@@ -349,41 +332,52 @@ export function render(node, { ctx }) {
       h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => addDir().focus() }, icon('add'), 'Add folder'),
       h('button', { class: 'btn btn-primary', type: 'submit' }, 'Save folders')));
 
+    const watchId = fieldId();
+    const watchField = h('div', { class: 'field check' },
+      h('input', { id: watchId, type: 'checkbox', checked: watching, onchange: async (e) => {
+        await saveServer({ watch_folders: e.target.checked },
+          e.target.checked ? 'Changes in the music folders will be scanned as they happen' : 'Music folders are no longer watched');
+      } }),
+      h('label', { for: watchId }, 'Watch the music folders', h('span', { class: 'muted small block' }, 'Music added, changed or removed shows up by itself. Changes made on another computer to a network share may not be noticed: rescan then.')));
+
     // Artist pictures: <artfolder>/<Artist Name>.jpg, artist.jpg next to albums, optional download
     const artId = fieldId();
     const artInput = h('input', { id: artId, type: 'text', value: artFolder, placeholder: '/path/to/artist/pictures', spellcheck: 'false' });
     const artForm = h('form', { class: 'field inline', onsubmit: async (e) => {
       e.preventDefault();
-      const r = await ctx.serverCmd('pref', 'artfolder', artInput.value.trim());
-      if (r) toast('Artist pictures folder saved. Rescan to pick up changes.');
+      await saveServer({ art_folder: artInput.value.trim() }, 'Artist pictures folder saved. Rescan to pick up changes.');
     } }, h('label', { for: artId }, 'Artist pictures folder'),
     h('p', { class: 'muted small' }, 'Optional folder with pictures named after the artist (e.g. “Miles Davis.jpg”). An artist.jpg next to the album folders is found as well.'),
     h('div', { class: 'inline-row' }, artInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
     const onlineId = fieldId();
     const onlineField = h('div', { class: 'field check' },
-      h('input', { id: onlineId, type: 'checkbox', checked: onlineArt !== 0, onchange: async (e) => {
-        const r = await ctx.serverCmd('pref', 'onlineArtistImages', e.target.checked ? 1 : 0);
-        if (r) toast(e.target.checked ? 'Missing artist pictures will be downloaded' : 'Artist picture downloads off');
+      h('input', { id: onlineId, type: 'checkbox', checked: onlineArt, onchange: async (e) => {
+        await saveServer({ online_artist_images: e.target.checked },
+          e.target.checked ? 'Missing artist pictures will be downloaded' : 'Artist picture downloads off');
       } }),
       h('label', { for: onlineId }, 'Download missing artist pictures', h('span', { class: 'muted small block' }, 'Looks up artists without a local picture on Deezer after each scan.')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, artForm, onlineField);
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField);
   }
 
   // ---------------------------------------------------------------- scan
   const scanStatus = h('div', { class: 'scan-status', role: 'status', 'aria-live': 'polite' });
-  const scanBtn = (label, args, confirmMsg, primary) => h('button', { class: `btn${primary ? ' btn-primary' : ''}`, type: 'button', onclick: async () => {
+  const scanBtn = (label, mode, confirmMsg, primary) => h('button', { class: `btn${primary ? ' btn-primary' : ''}`, type: 'button', onclick: async () => {
     if (confirmMsg && !confirm(confirmMsg)) return;
-    const r = await ctx.serverCmd(...args);
-    if (r) toast(`${label} started`);
+    try {
+      await scanLibrary(mode);
+      toast(`${label} started`);
+    } catch (e) {
+      toast(`${label} failed: ${e.message}`, 'error');
+    }
   } }, label);
   scanSection.append(
     h('h2', { id: 'set-scan' }, 'Scan'),
     scanStatus,
     h('div', { class: 'button-row' },
-      scanBtn('Rescan library', ['rescan'], null, true),
-      scanBtn('Rescan playlists', ['rescan', 'playlists']),
-      scanBtn('Clear library and rescan', ['wipecache'], 'This deletes the library database and rebuilds it from scratch. Continue?')));
+      scanBtn('Rescan library', 'changes', null, true),
+      scanBtn('Rescan playlists', 'playlists'),
+      scanBtn('Clear library and rescan', 'full', 'This deletes the library database and rebuilds it from scratch. Continue?')));
 
   function renderScan() {
     const s = store.server || {};
@@ -415,13 +409,12 @@ export function render(node, { ctx }) {
 
   // ---------------------------------------------------------------- wire up
   renderPlayer();
-  renderDisplay();
   renderSync(true);
   renderLibrary();
   renderSpotify();
   renderScan();
   offs.push(
-    on('player', () => { renderPlayer(); renderDisplay(); renderSync(true); }),
+    on('player', () => { renderPlayer(); renderSync(true); }),
     on('players', () => { renderSync(); if (currentPlayer()?.name !== renderedName) renderPlayer(); }),
     on('status', () => renderSync()),
     on('server', renderScan),
@@ -437,6 +430,18 @@ function appearance(ctx) {
   return h('section', { class: 'settings-card', 'aria-labelledby': 'set-look' },
     h('h2', { id: 'set-look' }, 'Appearance'),
     h('div', { class: 'field' }, h('label', { for: id }, 'Theme'), sel));
+}
+
+/** A select for a server `Choice` ({value, options: [{value, label}]}); onChange gets the value string. */
+function choiceField(label, choice, onChange, help) {
+  const id = fieldId();
+  const known = choice.options.some((o) => o.value === choice.value);
+  const opts = known ? choice.options : [...choice.options, { value: choice.value, label: choice.value }];
+  return h('div', { class: 'field' },
+    h('label', { for: id }, label),
+    h('select', { id, onchange: (e) => onChange(e.target.value) },
+      opts.map((o) => h('option', { value: o.value, selected: o.value === choice.value }, o.label))),
+    help && h('p', { class: 'muted small' }, help));
 }
 
 function selectField(label, options, value, onChange, help) {

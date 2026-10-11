@@ -56,11 +56,16 @@ pub fn authorized(server: &Server, authorization: Option<&str>) -> bool {
         && check_password(&pass, &server.prefs.server.get_str("password"))
 }
 
-/// Router middleware.  `/stream*` keeps its own per-stream check; CORS preflights pass so
-/// browsers can learn that credentials are needed.
+/// Router middleware.  `/stream*` keeps its own per-stream check and the Subsonic API
+/// (`/rest/*`) its own sign-in; CORS preflights pass so browsers can learn that
+/// credentials are needed.
 pub async fn require(State(server): State<Arc<Server>>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
-    if req.method() == Method::OPTIONS || path == "/stream" || path == "/stream.mp3" {
+    if req.method() == Method::OPTIONS
+        || path == "/stream"
+        || path == "/stream.mp3"
+        || path.starts_with("/rest/")
+    {
         return next.run(req).await;
     }
     let auth = req
