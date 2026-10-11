@@ -12,6 +12,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/`, installable as an app | ✔ new responsive UI; the browser can be a player too (*Play in this browser*) |
 | New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, library, favorites, settings ([docs/api.md](docs/api.md)) |
+| UPnP/DLNA renderers, Chromecast, AirPlay speakers | bridged as players (Settings → Other players) | ✔ tested against simulated devices |
 | **Subsonic apps** (DSub, Symfonium, Ultrasonic, play:Sub, Amperfy, Feishin, …) | Subsonic / OpenSubsonic API (`/rest/*`) | ✔ browsing, streaming to the app, playlists, stars, jukebox ([docs/subsonic.md](docs/subsonic.md)) |
 
 ## Quick start
@@ -126,7 +127,14 @@ The script builds a release binary (the web UI is built in), installs it as
   players through an in-process slimproto client per device, so the queue, sync groups,
   alarms and every remote control work on them.  The first is the web browser: *Play in
   this browser* (Settings) plays through an `<audio>` element, gaplessly where the browser
-  allows, with lock-screen and media-key controls (Media Session).
+  allows, with lock-screen and media-key controls (Media Session).  Under *Other players*
+  the server can also find **UPnP/DLNA renderers** (SSDP), **Chromecasts** (mDNS) and
+  **AirPlay 1 speakers** (mDNS, ALAC over RAOP) on its network and add them as players (off
+  by default).  The devices fetch the audio from the server themselves, so they must reach
+  it on the network; where multicast discovery can't see them (other subnets, Docker without
+  host networking), list them in the prefs `upnpRenderers` (description URLs),
+  `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
+  pairing) are not supported; sync with these players is loose (they buffer by themselves).
 * **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
   copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
   folders that changed are scanned.  It uses the operating system's file notifications
