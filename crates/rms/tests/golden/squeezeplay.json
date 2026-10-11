@@ -1,0 +1,2085 @@
+{
+  "serverstatus": {
+    "lastscan": "<volatile>",
+    "version": "9.2.0",
+    "uuid": "<volatile>",
+    "ip": "<volatile>",
+    "httpport": "<volatile>",
+    "info total albums": 3,
+    "info total artists": 5,
+    "info total genres": 3,
+    "info total songs": 5,
+    "info total duration": "<volatile>",
+    "player count": 2,
+    "players_loop": [
+      {
+        "playerindex": 0,
+        "playerid": "00:04:20:fe:ed:01",
+        "uuid": null,
+        "ip": "<volatile>",
+        "name": "Kitchen",
+        "model": "squeezelite",
+        "modelname": "SqueezeLite",
+        "power": 1,
+        "isplaying": 0,
+        "displaytype": "none",
+        "isplayer": 1,
+        "canpoweroff": 1,
+        "connected": 1,
+        "firmware": "v2.0.0-test"
+      },
+      {
+        "playerindex": 1,
+        "playerid": "00:04:20:12:34:56",
+        "uuid": null,
+        "ip": "<volatile>",
+        "name": "Squeezebox Classic",
+        "model": "squeezebox3",
+        "modelname": "Squeezebox Classic",
+        "power": 1,
+        "isplaying": 0,
+        "displaytype": "graphic-320x32",
+        "isplayer": 1,
+        "canpoweroff": 1,
+        "connected": 1,
+        "firmware": "130"
+      }
+    ],
+    "other player count": 0
+  },
+  "playerstatus": {
+    "player_name": "Kitchen",
+    "player_connected": 1,
+    "player_ip": "<volatile>",
+    "power": 1,
+    "signalstrength": 0,
+    "mode": "stop",
+    "mixer volume": 50,
+    "playlist repeat": 0,
+    "playlist shuffle": 0,
+    "playlist mode": "off",
+    "playlist_tracks": 0,
+    "digital_volume_control": 1,
+    "use_volume_control": 1,
+    "alarm_state": "none",
+    "alarm_next": 0,
+    "alarm_version": 2,
+    "alarm_snooze_seconds": 540,
+    "alarm_timeout_seconds": 3600,
+    "preset_loop": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "preset_data": [
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "count": 0,
+    "base": {
+      "actions": {
+        "more": {
+          "player": 0,
+          "cmd": [
+            "contextmenu"
+          ],
+          "params": {
+            "menu": "track",
+            "context": "playlist"
+          },
+          "itemsParams": "params",
+          "window": {
+            "isContextMenu": 1
+          }
+        }
+      }
+    }
+  },
+  "firmwarestatus": {
+    "firmwareUpgrade": 0
+  },
+  "menu": {
+    "count": 29,
+    "offset": 0,
+    "item_loop": [
+      {
+        "text": "My Music",
+        "weight": 11,
+        "id": "myMusic",
+        "isANode": 1,
+        "node": "home"
+      },
+      {
+        "text": "Favorites",
+        "id": "favorites",
+        "node": "home",
+        "weight": 100,
+        "actions": {
+          "go": {
+            "cmd": [
+              "favorites",
+              "items"
+            ],
+            "params": {
+              "menu": "favorites"
+            }
+          }
+        }
+      },
+      {
+        "text": "Favorite Stations",
+        "id": "opmlradiofavorites",
+        "uuid": "<volatile>",
+        "node": "radios",
+        "weight": 10,
+        "displayWhenOff": 0,
+        "window": {
+          "icon-id": "html/images/favorites.png",
+          "titleStyle": "album"
+        },
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "radiofavorites",
+              "items"
+            ],
+            "params": {
+              "menu": "radiofavorites"
+            }
+          }
+        }
+      },
+      {
+        "text": "Popular Stations",
+        "id": "opmlradiodirectory",
+        "uuid": "<volatile>",
+        "node": "radios",
+        "weight": 20,
+        "displayWhenOff": 0,
+        "window": {
+          "icon-id": "html/images/radio.png",
+          "titleStyle": "album"
+        },
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "radiodirectory",
+              "items"
+            ],
+            "params": {
+              "menu": "radiodirectory"
+            }
+          }
+        }
+      },
+      {
+        "text": "Spotify",
+        "id": "spotify",
+        "node": "home",
+        "weight": 45,
+        "window": {
+          "titleStyle": "album",
+          "icon-id": "html/images/spotify.png"
+        },
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "spotify",
+              "items"
+            ],
+            "params": {
+              "menu": "spotify"
+            }
+          }
+        }
+      },
+      {
+        "text": "Turn Off Kitchen",
+        "id": "playerpower",
+        "node": "home",
+        "weight": 100,
+        "actions": {
+          "do": {
+            "player": 0,
+            "cmd": [
+              "power",
+              0
+            ]
+          }
+        }
+      },
+      {
+        "text": "Audio",
+        "id": "settingsAudio",
+        "node": "settings",
+        "isANode": 1,
+        "weight": 35
+      },
+      {
+        "text": "Repeat",
+        "id": "settingsRepeat",
+        "node": "settings",
+        "weight": 20,
+        "choiceStrings": [
+          "Off",
+          "Song",
+          "Playlist"
+        ],
+        "selectedIndex": 1,
+        "actions": {
+          "do": {
+            "choices": [
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "repeat",
+                  "0"
+                ]
+              },
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "repeat",
+                  "1"
+                ]
+              },
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "repeat",
+                  "2"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "text": "Shuffle",
+        "id": "settingsShuffle",
+        "node": "settings",
+        "weight": 10,
+        "choiceStrings": [
+          "Off",
+          "Song",
+          "Album"
+        ],
+        "selectedIndex": 1,
+        "actions": {
+          "do": {
+            "choices": [
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "shuffle",
+                  "0"
+                ]
+              },
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "shuffle",
+                  "1"
+                ]
+              },
+              {
+                "player": 0,
+                "cmd": [
+                  "playlist",
+                  "shuffle",
+                  "2"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "text": "Alarm Clock",
+        "id": "settingsAlarm",
+        "node": "settings",
+        "weight": 29,
+        "actions": {
+          "go": {
+            "cmd": [
+              "alarmsettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Don't Stop The Music",
+        "id": "settingsDontStopTheMusic",
+        "node": "settings",
+        "weight": 1,
+        "actions": {
+          "go": {
+            "cmd": [
+              "dontstopthemusicsetting"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Fixed Volume",
+        "id": "settingsFixedVolume",
+        "iconStyle": "hm_settingsAudio",
+        "node": "settingsAudio",
+        "weight": 100,
+        "actions": {
+          "go": {
+            "cmd": [
+              "jivefixedvolumesettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Sleep",
+        "id": "settingsSleep",
+        "node": "settings",
+        "weight": 65,
+        "actions": {
+          "go": {
+            "cmd": [
+              "sleepsettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Synchronize",
+        "id": "settingsSync",
+        "node": "settings",
+        "weight": 70,
+        "actions": {
+          "go": {
+            "cmd": [
+              "syncsettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Squeezebox Information",
+        "id": "settingsInformation",
+        "node": "advancedSettings",
+        "weight": 100,
+        "actions": {
+          "go": {
+            "cmd": [
+              "systeminfo",
+              "items"
+            ],
+            "params": {
+              "menu": 1
+            }
+          }
+        }
+      },
+      {
+        "text": "Squeezebox Name",
+        "id": "settingsPlayerNameChange",
+        "node": "settings",
+        "weight": 67,
+        "input": {
+          "initialText": "Kitchen",
+          "len": 1,
+          "allowedChars": " abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+{}|:\\\"'<>?-=,./~`[];0123456789",
+          "help": {
+            "text": "Use the scroll wheel to change letters, then press the center button to select that letter. Press the center button again to change the name of your player."
+          },
+          "softbutton1": "Insert",
+          "softbutton2": "Delete"
+        },
+        "actions": {
+          "do": {
+            "cmd": [
+              "name"
+            ],
+            "player": 0,
+            "params": {
+              "playername": "__INPUT__"
+            }
+          }
+        }
+      },
+      {
+        "text": "Crossfade",
+        "id": "settingsXfade",
+        "iconStyle": "hm_settingsAudio",
+        "node": "settingsAudio",
+        "weight": 30,
+        "actions": {
+          "go": {
+            "cmd": [
+              "crossfadesettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Volume Adjustment",
+        "id": "settingsReplayGain",
+        "iconStyle": "hm_settingsAudio",
+        "node": "settingsAudio",
+        "weight": 40,
+        "actions": {
+          "go": {
+            "cmd": [
+              "replaygainsettings"
+            ],
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "Radio",
+        "id": "radios",
+        "node": "home",
+        "weight": 20,
+        "actions": {
+          "go": {
+            "cmd": [
+              "radios"
+            ],
+            "params": {
+              "menu": "radio"
+            }
+          }
+        },
+        "window": {
+          "menuStyle": "album"
+        }
+      },
+      {
+        "text": "Albums Sort Method",
+        "id": "settingsAlbumSettings",
+        "node": "advancedSettings",
+        "iconStyle": "hm_advancedSettings",
+        "weight": 105,
+        "actions": {
+          "go": {
+            "cmd": [
+              "jivealbumsortsettings"
+            ],
+            "params": {
+              "menu": "radio"
+            }
+          }
+        }
+      },
+      {
+        "text": "Album Artists",
+        "id": "myMusicArtistsAlbumArtists",
+        "node": "myMusic",
+        "weight": 9,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "artists",
+              "role_id": "ALBUMARTIST"
+            }
+          }
+        },
+        "homeMenuText": "Browse Album Artists",
+        "icon": "html/images/artists.png"
+      },
+      {
+        "text": "All Artists",
+        "id": "myMusicArtistsAllArtists",
+        "node": "myMusic",
+        "weight": 11,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "artists"
+            }
+          }
+        },
+        "homeMenuText": "All Artists",
+        "icon": "html/images/artists.png"
+      },
+      {
+        "text": "Albums",
+        "id": "myMusicAlbums",
+        "node": "myMusic",
+        "weight": 20,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "albums"
+            }
+          }
+        },
+        "homeMenuText": "Browse Albums"
+      },
+      {
+        "text": "Genres",
+        "id": "myMusicGenres",
+        "node": "myMusic",
+        "weight": 30,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "genres"
+            }
+          }
+        },
+        "homeMenuText": "Browse Genres"
+      },
+      {
+        "text": "Years",
+        "id": "myMusicYears",
+        "node": "myMusic",
+        "weight": 40,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "years"
+            }
+          }
+        },
+        "homeMenuText": "Browse Years"
+      },
+      {
+        "text": "New Music",
+        "id": "myMusicNewMusic",
+        "node": "myMusic",
+        "weight": 50,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "albums",
+              "sort": "new",
+              "wantMetadata": 1
+            }
+          }
+        },
+        "homeMenuText": "New Music"
+      },
+      {
+        "text": "Music Folder",
+        "id": "myMusicMusicFolder",
+        "node": "myMusic",
+        "weight": 70,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "bmf"
+            }
+          }
+        },
+        "homeMenuText": "Music Folder"
+      },
+      {
+        "text": "Search",
+        "id": "myMusicSearch",
+        "node": "myMusic",
+        "weight": 90,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "search"
+            }
+          }
+        }
+      },
+      {
+        "text": "Search",
+        "homeMenuText": "Search",
+        "id": "globalSearch",
+        "node": "home",
+        "weight": 22,
+        "input": {
+          "len": 1,
+          "processingPopup": {
+            "text": "Searching..."
+          },
+          "help": {
+            "text": "Use the scroll wheel to change letters, then press the center button to select that letter. Press the center button again to start your search."
+          }
+        },
+        "actions": {
+          "go": {
+            "cmd": [
+              "globalsearch",
+              "items"
+            ],
+            "params": {
+              "menu": "globalsearch",
+              "search": "__TAGGEDINPUT__"
+            }
+          }
+        },
+        "window": {
+          "text": "Search"
+        }
+      }
+    ]
+  },
+  "artists": {
+    "offset": 0,
+    "item_loop": [
+      {
+        "type": "playlist",
+        "text": "Alpha Band",
+        "presetParams": {
+          "favorites_url": "db:contributor.name=Alpha%20Band",
+          "favorites_title": "Alpha Band",
+          "favorites_type": "playlist",
+          "icon": "html/images/artists.png"
+        },
+        "icon-id": "html/images/artists.png",
+        "commonParams": {
+          "artist_id": 2
+        },
+        "textkey": "A"
+      },
+      {
+        "type": "playlist",
+        "text": "Beta Singer",
+        "presetParams": {
+          "favorites_url": "db:contributor.name=Beta%20Singer",
+          "favorites_title": "Beta Singer",
+          "favorites_type": "playlist",
+          "icon": "html/images/artists.png"
+        },
+        "icon-id": "html/images/artists.png",
+        "commonParams": {
+          "artist_id": 3
+        },
+        "textkey": "B"
+      },
+      {
+        "type": "playlist",
+        "text": "Delta",
+        "presetParams": {
+          "favorites_url": "db:contributor.name=Delta",
+          "favorites_title": "Delta",
+          "favorites_type": "playlist",
+          "icon": "html/images/artists.png"
+        },
+        "icon-id": "html/images/artists.png",
+        "commonParams": {
+          "artist_id": 5
+        },
+        "textkey": "D"
+      },
+      {
+        "type": "playlist",
+        "text": "Epsilon",
+        "presetParams": {
+          "favorites_url": "db:contributor.name=Epsilon",
+          "favorites_title": "Epsilon",
+          "favorites_type": "playlist",
+          "icon": "html/images/artists.png"
+        },
+        "icon-id": "html/images/artists.png",
+        "commonParams": {
+          "artist_id": 6
+        },
+        "textkey": "E"
+      },
+      {
+        "type": "playlist",
+        "text": "Gamma Writer",
+        "presetParams": {
+          "favorites_url": "db:contributor.name=Gamma%20Writer",
+          "favorites_title": "Gamma Writer",
+          "favorites_type": "playlist",
+          "icon": "html/images/artists.png"
+        },
+        "icon-id": "html/images/artists.png",
+        "commonParams": {
+          "artist_id": 4
+        },
+        "textkey": "G"
+      }
+    ],
+    "count": 5,
+    "base": {
+      "actions": {
+        "more": {
+          "cmd": [
+            "artistinfo",
+            "items"
+          ],
+          "params": {
+            "menu": 1
+          },
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "itemsParams": "commonParams"
+        },
+        "go": {
+          "cmd": [
+            "browselibrary",
+            "items"
+          ],
+          "params": {
+            "mode": "albums",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "play": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "load",
+            "menu": 1
+          },
+          "player": 0,
+          "nextWindow": "nowPlaying",
+          "itemsParams": "commonParams"
+        },
+        "add": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "add",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "add-hold": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "insert",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "playControl": {
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "cmd": [
+            "browselibrary",
+            "items"
+          ],
+          "itemsParams": "playControlParams",
+          "params": {
+            "useContextMenu": "1",
+            "mode": "artists",
+            "menu": "1"
+          }
+        },
+        "set-preset-0": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:0"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-1": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:1"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-2": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:2"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-3": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:3"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-4": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:4"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-5": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:5"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-6": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:6"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-7": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:7"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-8": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:8"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-9": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:9"
+          ],
+          "itemsParams": "presetParams"
+        }
+      }
+    },
+    "window": {
+      "windowStyle": "home_menu"
+    }
+  },
+  "albums_of_artist": {
+    "offset": 0,
+    "item_loop": [
+      {
+        "type": "playlist",
+        "text": "First Light",
+        "presetParams": {
+          "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+          "favorites_title": "First Light",
+          "favorites_type": "playlist"
+        },
+        "commonParams": {
+          "album_id": 1,
+          "performance": ""
+        },
+        "textkey": "F"
+      }
+    ],
+    "count": 1,
+    "base": {
+      "actions": {
+        "more": {
+          "cmd": [
+            "albuminfo",
+            "items"
+          ],
+          "params": {
+            "artist_id": "2",
+            "menu": 1
+          },
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "itemsParams": "commonParams"
+        },
+        "go": {
+          "cmd": [
+            "browselibrary",
+            "items"
+          ],
+          "params": {
+            "artist_id": "2",
+            "mode": "tracks",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "play": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "load",
+            "artist_id": "2",
+            "menu": 1
+          },
+          "player": 0,
+          "nextWindow": "nowPlaying",
+          "itemsParams": "commonParams"
+        },
+        "add": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "add",
+            "artist_id": "2",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "add-hold": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "insert",
+            "artist_id": "2",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "playControl": {
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "cmd": [
+            "browselibrary",
+            "items"
+          ],
+          "itemsParams": "playControlParams",
+          "params": {
+            "useContextMenu": "1",
+            "mode": "albums",
+            "artist_id": "2",
+            "menu": "1"
+          }
+        },
+        "set-preset-0": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:0"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-1": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:1"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-2": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:2"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-3": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:3"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-4": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:4"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-5": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:5"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-6": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:6"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-7": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:7"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-8": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:8"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-9": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:9"
+          ],
+          "itemsParams": "presetParams"
+        }
+      }
+    },
+    "window": {
+      "windowStyle": "text_list"
+    }
+  },
+  "tracks_of_album": {
+    "offset": 0,
+    "item_loop": [
+      {
+        "type": "audio",
+        "text": "Morning",
+        "presetParams": {
+          "favorites_url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "favorites_title": "Morning",
+          "favorites_type": "audio"
+        },
+        "goAction": "play",
+        "style": "itemplay",
+        "commonParams": {
+          "track_id": 1
+        },
+        "playallParams": {
+          "play_index": 0
+        }
+      },
+      {
+        "type": "audio",
+        "text": "Noon",
+        "presetParams": {
+          "favorites_url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+          "favorites_title": "Noon",
+          "favorites_type": "audio"
+        },
+        "goAction": "play",
+        "style": "itemplay",
+        "commonParams": {
+          "track_id": 2
+        },
+        "playallParams": {
+          "play_index": 1
+        }
+      }
+    ],
+    "count": 2,
+    "base": {
+      "actions": {
+        "more": {
+          "cmd": [
+            "trackinfo",
+            "items"
+          ],
+          "params": {
+            "artist_id": "2",
+            "album_id": "1",
+            "menu": 1
+          },
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "itemsParams": "commonParams"
+        },
+        "go": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "artist_id": "2",
+            "album_id": "1",
+            "sort": "albumtrack",
+            "cmd": "load",
+            "menu": 1
+          },
+          "player": 0,
+          "nextWindow": "nowPlaying",
+          "itemsParams": "playallParams"
+        },
+        "play": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "artist_id": "2",
+            "album_id": "1",
+            "sort": "albumtrack",
+            "cmd": "load",
+            "menu": 1
+          },
+          "player": 0,
+          "nextWindow": "nowPlaying",
+          "itemsParams": "playallParams"
+        },
+        "add": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "artist_id": "2",
+            "album_id": "1",
+            "sort": "albumtrack",
+            "cmd": "add",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "addallParams"
+        },
+        "add-hold": {
+          "cmd": [
+            "playlistcontrol"
+          ],
+          "params": {
+            "cmd": "insert",
+            "menu": 1
+          },
+          "player": 0,
+          "itemsParams": "commonParams"
+        },
+        "playControl": {
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "cmd": [
+            "browselibrary",
+            "items"
+          ],
+          "itemsParams": "playControlParams",
+          "params": {
+            "useContextMenu": "1",
+            "performance": "",
+            "album_id": "1",
+            "artist_id": "2",
+            "menu": "1",
+            "mode": "tracks"
+          }
+        },
+        "set-preset-0": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:0"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-1": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:1"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-2": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:2"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-3": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:3"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-4": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:4"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-5": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:5"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-6": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:6"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-7": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:7"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-8": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:8"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-9": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:9"
+          ],
+          "itemsParams": "presetParams"
+        }
+      }
+    },
+    "window": {
+      "windowStyle": "text_list"
+    }
+  },
+  "track_context_menu": {
+    "offset": 0,
+    "title": "Morning",
+    "item_loop": [
+      {
+        "type": "text",
+        "style": "item_add",
+        "text": "Add to End",
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          },
+          "add": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          },
+          "play": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          }
+        },
+        "addAction": "go"
+      },
+      {
+        "type": "text",
+        "style": "item_insert",
+        "text": "Play Next",
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          },
+          "add": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          },
+          "play": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "track_id": 1
+            },
+            "nextWindow": "parent"
+          }
+        },
+        "addAction": "go"
+      },
+      {
+        "type": "text",
+        "style": "itemplay",
+        "text": "Play",
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "track_id": 1
+            },
+            "nextWindow": "nowPlaying"
+          },
+          "play": {
+            "player": 0,
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "track_id": 1
+            },
+            "nextWindow": "nowPlaying"
+          }
+        },
+        "addAction": "go"
+      },
+      {
+        "type": "text",
+        "text": "Save to Favorites",
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "jivefavorites",
+              "add"
+            ],
+            "params": {
+              "title": "Morning",
+              "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+              "isContextMenu": 1
+            }
+          }
+        },
+        "addAction": "go",
+        "style": "item_fav"
+      },
+      {
+        "type": "text",
+        "text": "Create Mix",
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "createmix",
+              "play"
+            ],
+            "params": {
+              "track_id": 1
+            },
+            "nextWindow": "nowPlaying"
+          },
+          "play": {
+            "player": 0,
+            "cmd": [
+              "createmix",
+              "play"
+            ],
+            "params": {
+              "track_id": 1
+            },
+            "nextWindow": "nowPlaying"
+          }
+        },
+        "addAction": "go"
+      },
+      {
+        "type": "playlist",
+        "text": "Artist: Alpha Band",
+        "presetParams": {
+          "favorites_url": "not a valid URL, but needed to make the ip3k UI work...",
+          "favorites_title": "Alpha Band",
+          "favorites_type": "playlist"
+        },
+        "actions": {
+          "more": {
+            "cmd": [
+              "artistinfo",
+              "items"
+            ],
+            "params": {
+              "artist_id": "2",
+              "menu": 1
+            },
+            "player": 0,
+            "window": {
+              "isContextMenu": 1
+            }
+          },
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "mode": "albums",
+              "artist_id": "2",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "play": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "artist_id": "2",
+              "menu": 1
+            },
+            "player": 0,
+            "nextWindow": "nowPlaying"
+          },
+          "add": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "artist_id": "2",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "add-hold": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "artist_id": "2",
+              "menu": 1
+            },
+            "player": 0
+          }
+        }
+      },
+      {
+        "type": "playlist",
+        "text": "Album: First Light",
+        "presetParams": {
+          "favorites_url": "blabla",
+          "favorites_title": "First Light",
+          "favorites_type": "playlist"
+        },
+        "actions": {
+          "more": {
+            "cmd": [
+              "albuminfo",
+              "items"
+            ],
+            "params": {
+              "album_id": "1",
+              "menu": 1
+            },
+            "player": 0,
+            "window": {
+              "isContextMenu": 1
+            }
+          },
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "album_id": "1",
+              "mode": "tracks",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "play": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "album_id": "1",
+              "menu": 1
+            },
+            "player": 0,
+            "nextWindow": "nowPlaying"
+          },
+          "add": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "album_id": "1",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "add-hold": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "album_id": "1",
+              "menu": 1
+            },
+            "player": 0
+          }
+        }
+      },
+      {
+        "type": "playlist",
+        "text": "Genre: Rock",
+        "presetParams": {
+          "favorites_url": "blabla",
+          "favorites_title": "Rock",
+          "favorites_type": "playlist"
+        },
+        "actions": {
+          "more": {
+            "cmd": [
+              "genreinfo",
+              "items"
+            ],
+            "params": {
+              "genre_id": "1",
+              "menu": 1
+            },
+            "player": 0,
+            "window": {
+              "isContextMenu": 1
+            }
+          },
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "genre_id": "1",
+              "mode": "artists",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "play": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "genre_id": "1",
+              "menu": 1
+            },
+            "player": 0,
+            "nextWindow": "nowPlaying"
+          },
+          "add": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "genre_id": "1",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "add-hold": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "genre_id": "1",
+              "menu": 1
+            },
+            "player": 0
+          }
+        }
+      },
+      {
+        "type": "playlist",
+        "text": "Year: 1999",
+        "actions": {
+          "more": {
+            "cmd": [
+              "yearinfo",
+              "items"
+            ],
+            "params": {
+              "year": "1999",
+              "menu": 1
+            },
+            "player": 0,
+            "window": {
+              "isContextMenu": 1
+            }
+          },
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "year": "1999",
+              "mode": "albums",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "play": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "load",
+              "year": "1999",
+              "menu": 1
+            },
+            "player": 0,
+            "nextWindow": "nowPlaying"
+          },
+          "add": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "add",
+              "year": "1999",
+              "menu": 1
+            },
+            "player": 0
+          },
+          "add-hold": {
+            "cmd": [
+              "playlistcontrol"
+            ],
+            "params": {
+              "cmd": "insert",
+              "year": "1999",
+              "menu": 1
+            },
+            "player": 0
+          }
+        }
+      },
+      {
+        "text": "More Info",
+        "actions": {
+          "go": {
+            "cmd": [
+              "trackinfo",
+              "items"
+            ],
+            "params": {
+              "menu": "trackinfo",
+              "track_id": "1",
+              "item_id": "9",
+              "isContextMenu": 1
+            }
+          }
+        },
+        "addAction": "go"
+      }
+    ],
+    "count": 10,
+    "base": {
+      "actions": {
+        "go": {
+          "cmd": [
+            "trackinfo",
+            "items"
+          ],
+          "params": {
+            "menu": "trackinfo",
+            "track_id": "1"
+          },
+          "itemsParams": "params"
+        },
+        "play": {
+          "player": 0,
+          "cmd": [
+            "trackinfo",
+            "playlist",
+            "play"
+          ],
+          "itemsParams": "params",
+          "params": {
+            "menu": "trackinfo",
+            "track_id": "1"
+          },
+          "nextWindow": "nowPlaying"
+        },
+        "add": {
+          "player": 0,
+          "cmd": [
+            "trackinfo",
+            "playlist",
+            "add"
+          ],
+          "itemsParams": "params",
+          "params": {
+            "menu": "trackinfo",
+            "track_id": "1"
+          }
+        },
+        "add-hold": {
+          "player": 0,
+          "cmd": [
+            "trackinfo",
+            "playlist",
+            "insert"
+          ],
+          "itemsParams": "params",
+          "params": {
+            "menu": "trackinfo",
+            "track_id": "1"
+          }
+        },
+        "more": {
+          "player": 0,
+          "cmd": [
+            "trackinfo",
+            "items"
+          ],
+          "itemsParams": "params",
+          "params": {
+            "menu": "trackinfo",
+            "track_id": "1"
+          },
+          "window": {
+            "isContextMenu": 1
+          }
+        },
+        "playControl": {
+          "player": 0,
+          "window": {
+            "isContextMenu": 1
+          },
+          "cmd": [
+            "trackinfo",
+            "items"
+          ],
+          "itemsParams": "playControlParams",
+          "params": {
+            "useContextMenu": "1",
+            "track_id": "1",
+            "album_id": "1",
+            "artist_id": "2",
+            "menu": "1"
+          }
+        },
+        "set-preset-0": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:0"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-1": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:1"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-2": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:2"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-3": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:3"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-4": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:4"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-5": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:5"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-6": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:6"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-7": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:7"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-8": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:8"
+          ],
+          "itemsParams": "presetParams"
+        },
+        "set-preset-9": {
+          "player": 0,
+          "cmd": [
+            "jivefavorites",
+            "set_preset",
+            "key:9"
+          ],
+          "itemsParams": "presetParams"
+        }
+      }
+    },
+    "window": {
+      "windowStyle": "text_list"
+    }
+  },
+  "cmd_power": {},
+  "cmd_volume": {},
+  "cmd_muting_toggle": {},
+  "cmd_muting_toggle_back": {},
+  "cmd_mode_stop": {},
+  "status_page": {
+    "player_name": "Kitchen",
+    "player_connected": 1,
+    "player_ip": "<volatile>",
+    "power": 1,
+    "signalstrength": 0,
+    "mode": "stop",
+    "mixer volume": 42,
+    "playlist repeat": 0,
+    "playlist shuffle": 0,
+    "playlist mode": "off",
+    "seq_no": "<volatile>",
+    "playlist_tracks": 0,
+    "digital_volume_control": 1,
+    "use_volume_control": 1,
+    "alarm_state": "none",
+    "alarm_next": 0,
+    "alarm_version": 2,
+    "alarm_snooze_seconds": 540,
+    "alarm_timeout_seconds": 3600,
+    "preset_loop": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "preset_data": [
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {}
+    ],
+    "count": 0,
+    "base": {
+      "actions": {
+        "more": {
+          "player": 0,
+          "cmd": [
+            "contextmenu"
+          ],
+          "params": {
+            "menu": "track",
+            "context": "playlist"
+          },
+          "itemsParams": "params",
+          "window": {
+            "isContextMenu": 1
+          }
+        }
+      }
+    }
+  }
+}

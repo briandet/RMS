@@ -117,6 +117,13 @@ pub fn register(t: &mut DispatchTable) {
         true,
         Handler::Sync(radios_query),
     );
+    t.add(
+        &["apps", "_index", "_quantity"],
+        0,
+        true,
+        true,
+        Handler::Sync(apps_query),
+    );
     for p in providers() {
         t.add(
             &[p.tag, "items", "_index", "_quantity"],
@@ -245,6 +252,30 @@ pub fn radios_query(server: &Arc<Server>, r: &mut Request) {
         r.add_result("offset", index);
     }
     let _ = s;
+    r.set_done();
+}
+
+/// `apps <index> <quantity>`: the music services, like LMS lists its app plugins (Home
+/// Assistant browses each one through `<cmd> items`).  Spotify, once signed in.
+pub fn apps_query(_server: &Arc<Server>, r: &mut Request) {
+    let quantity = r.param_i64("_quantity").unwrap_or(0);
+    let index = r.param_i64("_index").unwrap_or(0);
+    let mut entries: Vec<Value> = Vec::new();
+    if crate::plugins::spotify::get().is_some_and(|sp| sp.signed_in()) {
+        entries.push(
+            json!({ "cmd": "spotify", "name": "Spotify", "type": "xmlbrowser",
+            "icon": "html/images/spotify.png", "weight": 10 }),
+        );
+    }
+    r.add_result("count", entries.len());
+    let (valid, start, end) = normalize(Some(index), Some(quantity), entries.len());
+    if valid {
+        for e in entries.into_iter().take(end + 1).skip(start) {
+            if let Value::Object(m) = e {
+                r.add_loop_item("appss_loop", m);
+            }
+        }
+    }
     r.set_done();
 }
 
