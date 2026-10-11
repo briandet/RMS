@@ -140,6 +140,7 @@ const settings = {
   library_name: 'Mock Library', media_dirs: ['/srv/music', '/mnt/nas/flac'], watch_folders: true, upnp_players: false, chromecast_players: false, airplay_players: false, art_folder: '', online_artist_images: false,
   spotify_client_id: '', spotify_bitrate: 320, spotify_normalisation: false,
   musicbrainz: false, acoustid_key: '', musicbrainz_identified: 0, musicbrainz_pending: 0,
+  listenbrainz: false, discovered: 0, discovered_played: 0, discovered_rejected: 0,
 };
 const scan = { running: false, start: 0, total: tracks.length };
 let lastscan = Math.floor(Date.now() / 1000) - 3600 * 5;
@@ -332,7 +333,7 @@ function playerSettingsOut(p) {
   const r = {
     transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode,
     max_bitrate: s.max_bitrate, digital_volume_control: s.digital_volume_control,
-    dont_stop_the_music: choice(DSTM, s.dont_stop_the_music),
+    dont_stop_the_music: choice(DSTM, s.dont_stop_the_music), adventurous: s.adventurous ?? 15,
   };
   if (SCREEN_MODELS.has(p.model)) {
     r.display = Object.fromEntries(Object.entries(DISPLAY_CHOICES).map(([k, pairs]) => [k, choice(pairs, s[k])]));

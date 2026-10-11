@@ -322,7 +322,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 {"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true, "art_folder": "",
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
- "musicbrainz_identified": 0, "musicbrainz_pending": 0}
+ "musicbrainz_identified": 0, "musicbrainz_pending": 0, "listenbrainz": false,
+ "discovered": 0, "discovered_played": 0, "discovered_rejected": 0}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
@@ -341,6 +342,7 @@ events.
   "transition_type": 1, "transition_duration": 5, "replay_gain_mode": 0, "max_bitrate": 0,
   "digital_volume_control": true,
   "dont_stop_the_music": {"value": "0", "options": [{"value": "0", "label": "Disabled"}, "…"]},
+  "adventurous": 15,
   "display": {
     "playing_mode": {"value": "5", "options": [{"value": "0", "label": "Nothing"}, "…"]},
     "text_size": Choice, "text_size_off": Choice,
@@ -355,6 +357,8 @@ events.
   `transition_duration` 0–10 seconds.
 * `replay_gain_mode`: 0 off, 1 track gain, 2 album gain, 3 smart (album gain when playing
   a whole album).  `max_bitrate` in kbps, 0 for no limit.
+* `adventurous`: percent (0–40) of Similar Songs and Create Mix discovered with ListenBrainz
+  (when the server setting `listenbrainz` is on).
 * A choice (`dont_stop_the_music` and the display settings) is set to one of its options'
   `value`s.
 * `display` is there for players with a screen (Squeezebox 2/3, Transporter, Boom); the

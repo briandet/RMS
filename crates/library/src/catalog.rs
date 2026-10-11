@@ -196,7 +196,7 @@ fn ranked(
 }
 
 impl Library {
-    fn rules(&self) -> TextRules {
+    pub(crate) fn rules(&self) -> TextRules {
         let cfg = self.config();
         TextRules::new(&cfg.ignored_articles, &cfg.split_list)
     }

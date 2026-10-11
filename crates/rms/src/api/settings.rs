@@ -18,6 +18,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let prefs = &server.prefs.server;
     let bitrate = prefs.get_i64("spotifyBitrate");
     let mb = server.library.musicbrainz_totals();
+    let d = server.library.discovery_totals();
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
@@ -34,6 +35,10 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         acoustid_key: prefs.get_str(crate::plugins::musicbrainz::KEY_PREF),
         musicbrainz_identified: mb.identified,
         musicbrainz_pending: mb.pending,
+        listenbrainz: prefs.get_bool(crate::plugins::listenbrainz::PREF),
+        discovered: d.proposed,
+        discovered_played: d.played,
+        discovered_rejected: d.rejected,
     }
 }
 
@@ -113,6 +118,9 @@ pub async fn update_server_settings(
     if let Some(v) = patch.musicbrainz {
         changes.push((crate::plugins::musicbrainz::PREF, flag(v)));
     }
+    if let Some(v) = patch.listenbrainz {
+        changes.push((crate::plugins::listenbrainz::PREF, flag(v)));
+    }
     if let Some(v) = patch.acoustid_key {
         changes.push((crate::plugins::musicbrainz::KEY_PREF, v.trim().to_string()));
     }
@@ -168,6 +176,7 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
         max_bitrate: prefs.get_i64("maxBitrate"),
         digital_volume_control: prefs.get_bool("digitalVolumeControl"),
         dont_stop_the_music: Some(choice(dstm, providers)),
+        adventurous: crate::plugins::listenbrainz::adventurous(p),
         display: display_settings(p),
     }
 }
@@ -283,6 +292,17 @@ pub async fn update_player_settings(
     }
     if let Some(v) = patch.digital_volume_control {
         changes.push(("digitalVolumeControl", flag(v)));
+    }
+    if let Some(v) = patch.adventurous {
+        changes.push((
+            crate::plugins::listenbrainz::ADVENTUROUS,
+            within(
+                v,
+                0,
+                crate::plugins::listenbrainz::MAX_ADVENTUROUS,
+                "adventurous",
+            )?,
+        ));
     }
     if let Some(v) = patch.dont_stop_the_music {
         let v = pick(cur.dont_stop_the_music.as_ref(), "dont_stop_the_music", v)?;

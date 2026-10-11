@@ -548,6 +548,12 @@ pub struct ServerSettings {
     pub musicbrainz_identified: i64,
     /// Recordings waiting to be looked up.
     pub musicbrainz_pending: i64,
+    /// Mixes take some songs from outside what was played, found with ListenBrainz.
+    pub listenbrainz: bool,
+    /// Songs discovered so far, and of those played and rejected (skipped early).
+    pub discovered: i64,
+    pub discovered_played: i64,
+    pub discovered_rejected: i64,
 }
 
 /// `PATCH /api/v1/settings` body: the settings to change.
@@ -568,6 +574,7 @@ pub struct ServerSettingsPatch {
     pub spotify_normalisation: Option<bool>,
     pub musicbrainz: Option<bool>,
     pub acoustid_key: Option<String>,
+    pub listenbrainz: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -625,6 +632,8 @@ pub struct PlayerSettings {
     /// What plays when the queue runs out ("0": nothing).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dont_stop_the_music: Option<Choice>,
+    /// Percent of a mix discovered from outside what was played (0–40; with ListenBrainz on).
+    pub adventurous: i64,
     /// For players with a screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplaySettings>,
@@ -658,6 +667,7 @@ pub struct PlayerSettingsPatch {
     pub max_bitrate: Option<i64>,
     pub digital_volume_control: Option<bool>,
     pub dont_stop_the_music: Option<String>,
+    pub adventurous: Option<i64>,
     pub playing_mode: Option<String>,
     pub text_size: Option<String>,
     pub text_size_off: Option<String>,

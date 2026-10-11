@@ -1089,6 +1089,8 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TRIGGER artists_fts_update;
              DROP TABLE remote_tracks; DROP TABLE track_rhythm; DROP TABLE track_chromaprint;
              DROP TABLE track_musicbrainz;
+             DROP TABLE discovered; DROP TABLE web_cache;
+             ALTER TABLE track_stats DROP COLUMN skip_count;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
         )
@@ -1744,4 +1746,47 @@ fn a_streamed_track_is_recognised_as_a_library_file_by_its_sound() {
     let owned = f.lib.remote_with_local_copy(&ids);
     assert!(owned.contains(&ids[0]), "{owned:?}");
     assert!(!owned.contains(&ids[1]), "{owned:?}");
+}
+
+#[test]
+fn skipped_discoveries_are_rejected_and_their_artist_after_two() {
+    use rms_library::discover::Proposal;
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let url = |title: &str| all.iter().find(|t| t.title == title).unwrap().url.clone();
+    let (one, two) = (url("Song One"), url("Song Two"));
+    // nothing played yet: both are unplayed tracks by Artist A
+    assert_eq!(f.lib.unplayed_by_artist(None, "Artist A", 10).len(), 2);
+    for u in [&one, &two] {
+        assert!(!f.lib.heard(u));
+        f.lib.note_discovered(&Proposal {
+            url: u.clone(),
+            title: "x".into(),
+            artist: "Artist A".into(),
+            ..Default::default()
+        });
+    }
+    assert!(!f.lib.heard(&one), "proposed but not played yet");
+    f.lib.mark_started(&one);
+    assert!(f.lib.heard(&one));
+    f.lib.mark_skipped(&one);
+    assert!(!f.lib.artist_rejected("Artist A"), "one rejection");
+    f.lib.mark_skipped(&two);
+    assert!(f.lib.artist_rejected("Artist A"), "two");
+    assert!(f.lib.heard(&two));
+    assert!(f.lib.unplayed_by_artist(None, "Artist A", 10).is_empty());
+    let t = f.lib.discovery_totals();
+    assert_eq!((t.proposed, t.played, t.rejected), (2, 0, 2));
+    // skips count for any track
+    let c = raw_db(&f);
+    let skips: i64 = c
+        .query_row(
+            "SELECT skip_count FROM track_stats WHERE url = ?",
+            [&one],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(skips, 1);
 }

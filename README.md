@@ -247,6 +247,16 @@ Spotify tracks get their genres the same way, so mixes weigh them like your file
 are never written, and tags always win.  A large library takes some hours the first time;
 `--musicbrainz-url` points RMS at a local MusicBrainz mirror instead, without the rate limit.
 
+**Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
+by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
+setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners
+play in the same sessions as the seeds, and songs by artists it finds similar.  They play from
+your library when you have them (so music you own but never play turns up), else from Spotify
+when signed in.  Played to the end, a Spotify track is learned like any other; skipped within
+30 seconds, a discovery is rejected and not proposed again, nor is an artist rejected twice.
+The seeds need MusicBrainz ids (identification above, or tags).  ListenBrainz's public
+similarity data needs no account; answers are cached for a month.
+
 **Spotify in mixes** (Settings → Spotify, *Use what I play in mixes*, on by default): when a
 Spotify track plays to its end, RMS analyses the samples it was streaming anyway (sound,
 rhythm and key, fingerprint) and keeps that with the track's metadata; no audio is kept, and

@@ -5,6 +5,7 @@ pub mod alarm;
 pub mod artist_images;
 pub mod dstm;
 pub mod favorites;
+pub mod listenbrainz;
 pub mod musicbrainz;
 pub mod sonic;
 pub mod spotify;

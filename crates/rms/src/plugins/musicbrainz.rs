@@ -283,7 +283,7 @@ impl Client {
 }
 
 /// MusicBrainz wants to know who asks.
-fn user_agent() -> String {
+pub(crate) fn user_agent() -> String {
     format!(
         "RustyMusicServer/{} ( https://github.com/rustydc/RMS )",
         env!("CARGO_PKG_VERSION")
@@ -373,7 +373,7 @@ fn is_mbid(s: &str) -> bool {
 }
 
 /// Percent-encode a query parameter's value.
-fn percent(s: &str) -> String {
+pub(crate) fn percent(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {

@@ -13,6 +13,7 @@ export const cacheable = false;
 
 const TRANSITIONS = [[0, 'None'], [1, 'Crossfade'], [2, 'Fade in'], [3, 'Fade out'], [4, 'Fade in and out']];
 const REPLAY_GAIN = [[0, 'Off'], [1, 'Track gain'], [2, 'Album gain'], [3, 'Smart gain (album when playing whole album)']];
+const ADVENTUROUS = [[0, 'Off'], [5, 'A little (5%)'], [10, '10%'], [15, 'Some (15%)'], [25, '25%'], [40, 'A lot (40%)']];
 const BITRATES = [[0, 'No limit'], [320, '320 kbps'], [256, '256 kbps'], [192, '192 kbps'], [160, '160 kbps'], [128, '128 kbps'], [96, '96 kbps'], [64, '64 kbps']];
 
 let uid = 0;
@@ -116,6 +117,8 @@ export function render(node, { ctx }) {
       selectField('Transition', TRANSITIONS, pref.transition_type, (v) => setPref({ transition_type: v })),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
       dstmField,
+      pref.adventurous !== undefined && selectField('Adventurous', ADVENTUROUS, pref.adventurous, (v) => setPref({ adventurous: v }),
+        'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
       selectField('Replay gain', REPLAY_GAIN, pref.replay_gain_mode, (v) => setPref({ replay_gain_mode: v })),
       selectField('Maximum bitrate', BITRATES, pref.max_bitrate, (v) => setPref({ max_bitrate: v }), 'Higher bitrates are transcoded down when the player or network needs it.'),
       h('div', { class: 'field check' },
@@ -402,7 +405,20 @@ export function render(node, { ctx }) {
       h('a', { href: 'https://acoustid.org/new-application', target: '_blank', rel: 'noopener' }, 'acoustid.org'), '.'),
     h('div', { class: 'inline-row' }, keyInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm);
+    const lbId = fieldId();
+    const lbOn = !!settings.listenbrainz;
+    const lbField = h('div', { class: 'field check' },
+      h('input', { id: lbId, type: 'checkbox', checked: lbOn, onchange: async (e) => {
+        await saveServer({ listenbrainz: e.target.checked },
+          e.target.checked ? 'Mixes will include music you haven’t played' : 'Discovery off');
+        renderLibrary();
+      } }),
+      h('label', { for: lbId }, 'Discover music with ListenBrainz',
+        h('span', { class: 'muted small block' },
+          'Mixes include some songs you haven’t played (each player’s “Adventurous” setting): played alongside the seeds by ListenBrainz listeners, or by artists they find similar. From your library when you have them, else from Spotify. Skipping one within 30 seconds rejects it. Needs MusicBrainz identification (above) or MusicBrainz ids in your tags. ',
+          lbOn ? `${settings.discovered ?? 0} discovered, ${settings.discovered_played ?? 0} played, ${settings.discovered_rejected ?? 0} rejected.` : '')));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm, lbField);
   }
 
   // ---------------------------------------------------------------- scan
