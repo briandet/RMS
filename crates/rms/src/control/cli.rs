@@ -287,7 +287,7 @@ async fn process_line(
     if req.status == Status::NotDispatchable || req.status == Status::NeedsClient {
         debug!(
             "CLI: unknown or missing client -- echoing as is: {:?}",
-            tokens
+            super::request::mask_secrets(&tokens)
         );
     }
     if req.is_query && req.param("subscribe").is_some() {

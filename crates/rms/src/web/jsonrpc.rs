@@ -56,7 +56,11 @@ pub async fn execute_body(server: &Arc<Server>, body: &[u8]) -> Option<Value> {
         .dispatch
         .parse(p.as_ref().map(|p| p.id), raw, connected, &tokens);
     r.source = Source::JsonRpc;
-    debug!("jsonrpc {} {:?}", player, tokens);
+    debug!(
+        "jsonrpc {} {:?}",
+        player,
+        crate::control::request::mask_secrets(&tokens)
+    );
     let r = crate::control::dispatch::execute(server, r).await;
     if r.status != crate::control::request::Status::Done
         && r.status != crate::control::request::Status::Dispatchable

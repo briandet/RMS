@@ -79,7 +79,8 @@ impl Notifier {
 
     /// Notification of an executed command.
     pub fn notify_request(&self, req: &Request) {
-        let words = req.render_as_array();
+        // listeners must not see secrets either
+        let words = crate::control::request::mask_secrets(&req.render_as_array());
         tracing::debug!(
             "notify {} {:?}",
             req.client.map(|p| p.to_string()).unwrap_or_default(),
@@ -112,5 +113,26 @@ impl Notifier {
 
     pub fn subscribe(&self) -> broadcast::Receiver<Notification> {
         self.tx.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listeners_never_see_the_spotify_login_code() {
+        let n = Notifier::new();
+        let mut rx = n.subscribe();
+        let mut r = Request::blank();
+        r.terms = vec!["spotify".into(), "login".into()];
+        r.params.insert(
+            "code".into(),
+            Some("http://127.0.0.1:5588/login?code=AQDsecret".into()),
+        );
+        r.add_result("user", "someone");
+        n.notify_request(&r);
+        let words = rx.try_recv().unwrap().words;
+        assert_eq!(*words, ["spotify", "login", "code:******", "user:someone"]);
     }
 }
