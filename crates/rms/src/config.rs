@@ -30,6 +30,21 @@ pub struct Config {
     #[arg(long, env = "RMS_HTTP_PORT")]
     pub http_port: Option<u16>,
 
+    /// HTTPS port for the web UI and API (the same as on the HTTP port); 0 turns it off.
+    /// Browsers allow installing the web UI as an app, and its best audio, only over HTTPS.
+    #[arg(long, env = "RMS_HTTPS_PORT", default_value_t = 9443)]
+    pub https_port: u16,
+
+    /// Certificate chain (PEM) for HTTPS, e.g. from Let's Encrypt or `tailscale cert`.  Without
+    /// one the server issues its own from a local certificate authority, which devices trust
+    /// once its certificate (`/tls/rms-ca.crt`) is installed.  Reloaded when the file changes.
+    #[arg(long, env = "RMS_TLS_CERT", requires = "tls_key")]
+    pub tls_cert: Option<PathBuf>,
+
+    /// Private key (PEM) of `--tls-cert`.
+    #[arg(long, env = "RMS_TLS_KEY", requires = "tls_cert")]
+    pub tls_key: Option<PathBuf>,
+
     /// Telnet CLI port.  Overrides the saved preference when given.
     #[arg(long, env = "RMS_CLI_PORT")]
     pub cli_port: Option<u16>,

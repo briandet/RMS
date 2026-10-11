@@ -265,6 +265,10 @@ pub fn open_song(
     let abs_end = track.cue_end;
 
     let mut native = passthrough_target(src, &supported);
+    // a player that asks for Opus first (a browser on a slow network) gets it for everything
+    if prefers_opus(&supported) && src != "ops" {
+        native = None;
+    }
     // WiiM garbles 32-bit PCM; send it as 24-bit FLAC instead.
     if track.samplesize == Some(32) && players.iter().any(|p| p.state.lock().caps.is_wiim()) {
         native = None;
@@ -402,16 +406,25 @@ pub fn open_song(
     })
 }
 
+/// The group's formats put Opus first: a browser that saves bandwidth.  (Other players list
+/// it after their lossless formats, and get those.)
+fn prefers_opus(supported: &[String]) -> bool {
+    supported.first().is_some_and(|f| f == "ops")
+}
+
 fn choose_transcode_target(src: &str, supported: &[String], rate: u32) -> Result<String, String> {
     let has = |f: &str| supported.iter().any(|s| s == f);
+    if prefers_opus(supported) {
+        return Ok("ops".into());
+    }
     let order: &[&str] = if rate > 0 {
-        &["mp3", "flc", "pcm"]
+        &["mp3", "flc", "pcm", "ops"]
     } else if is_lossless(src) {
-        &["flc", "pcm", "mp3"]
+        &["flc", "pcm", "mp3", "ops"]
     } else {
         // LMS prefers the player's native ordering for lossy sources; a lossless container
         // avoids generation loss when the player supports it.
-        &["flc", "mp3", "pcm"]
+        &["flc", "mp3", "pcm", "ops"]
     };
     order
         .iter()
@@ -502,6 +515,14 @@ pub fn ffmpeg_args(
             }
             a.extend(["-ac", "2"].iter().map(|s| s.to_string()));
         }
+        "ops" => a.extend(
+            // (Opus runs at 48 kHz)
+            [
+                "-c:a", "libopus", "-b:a", "160k", "-ar", "48000", "-f", "ogg",
+            ]
+            .iter()
+            .map(|s| s.to_string()),
+        ),
         "aac" => a.extend(
             ["-c:a", "aac", "-b:a", "256k", "-f", "adts"]
                 .iter()
@@ -820,6 +841,16 @@ mod tests {
         assert_eq!(choose_transcode_target("flc", &sq, 192).unwrap(), "mp3");
         let mp3only = vec!["mp3".to_string()];
         assert_eq!(choose_transcode_target("flc", &mp3only, 0).unwrap(), "mp3");
+        // a browser saving bandwidth asks for Opus first, and gets it for everything
+        let opus: Vec<String> = ["ops", "flc", "pcm"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(choose_transcode_target("flc", &opus, 0).unwrap(), "ops");
+        assert_eq!(choose_transcode_target("mp3", &opus, 0).unwrap(), "ops");
+        // ...but a Squeezebox synced with it doesn't play Opus: FLAC for both
+        let both: Vec<String> = ["flc", "pcm"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(choose_transcode_target("flc", &both, 0).unwrap(), "flc");
     }
 
     #[test]

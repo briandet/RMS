@@ -17,6 +17,12 @@ pub struct ServerInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_scan: Option<i64>,
     pub library: LibraryTotals,
+    /// The port of the server's HTTPS address, when it has one (the same routes as HTTP).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub https_port: Option<u16>,
+    /// HTTPS uses a certificate from the server's own authority, which devices trust once
+    /// `/tls/rms-ca.crt` is installed on them.
+    pub local_ca: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]

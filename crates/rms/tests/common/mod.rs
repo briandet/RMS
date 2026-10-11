@@ -36,17 +36,22 @@ impl Drop for Server {
 }
 
 pub fn start_server(music: &Path) -> Server {
+    start_server_with(music, &["--https-port", "0"])
+}
+
+/// A server started with more arguments.
+pub fn start_server_with(music: &Path, args: &[&str]) -> Server {
     // A port from `free_port` can be taken by another test's server before this one binds
     // it; then rms exits and we try again on other ports.
     for _ in 0..5 {
-        if let Some(server) = try_start_server(music) {
+        if let Some(server) = try_start_server(music, args) {
             return server;
         }
     }
     panic!("server did not start");
 }
 
-fn try_start_server(music: &Path) -> Option<Server> {
+fn try_start_server(music: &Path, args: &[&str]) -> Option<Server> {
     let dir = tempfile::tempdir().unwrap();
     let (http, cli, slim) = (free_port(), free_port(), free_port());
     let mut child = Command::new(env!("CARGO_BIN_EXE_rms"))
@@ -66,6 +71,7 @@ fn try_start_server(music: &Path) -> Option<Server> {
             &slim.to_string(),
         ])
         .args(["--log", "warn"])
+        .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

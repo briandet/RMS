@@ -9,7 +9,16 @@ scan?: ScanProgress,
 /**
  * Unix time the last scan finished.
  */
-last_scan?: number, library: LibraryTotals, };
+last_scan?: number, library: LibraryTotals, 
+/**
+ * The port of the server's HTTPS address, when it has one (the same routes as HTTP).
+ */
+https_port?: number, 
+/**
+ * HTTPS uses a certificate from the server's own authority, which devices trust once
+ * `/tls/rms-ca.crt` is installed on them.
+ */
+local_ca: boolean, };
 
 export type ScanProgress = { 
 /**
