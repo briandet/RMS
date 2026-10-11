@@ -75,8 +75,8 @@ export function render(node, { ctx }) {
       e.preventDefault();
       const v = nameInput.value.trim();
       if (!v || v === p.name) return;
-      const r = await ctx.cmd('name', v);
-      if (r) { toast(`Player renamed to “${v}”`); ctx.refreshServer(); }
+      const r = await ctx.send({ command: 'rename', name: v });
+      if (r) toast(`Player renamed to “${v}”`);
     } },
     h('label', { for: nameId }, 'Name'),
     h('div', { class: 'inline-row' }, nameInput, h('button', { class: 'btn', type: 'submit' }, 'Rename')));
@@ -105,7 +105,7 @@ export function render(node, { ctx }) {
     const digitalId = fieldId();
     playerSection.replaceChildren(
       h('h2', { id: 'set-player' }, `Player: ${p.name}`),
-      h('p', { class: 'muted small' }, [p.modelname || p.model, p.ip, p.playerid].filter(Boolean).join(' · ')),
+      h('p', { class: 'muted small' }, [p.model_name || p.model, p.ip, p.id].filter(Boolean).join(' · ')),
       nameForm,
       selectField('Transition', TRANSITIONS, pref.transitionType, (v) => setPref('transitionType', v)),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
@@ -273,33 +273,31 @@ export function render(node, { ctx }) {
   let syncSig = '';
   function renderSync(force = false) {
     const pid = store.playerId;
-    const st = store.status || {};
-    const group = new Set([st.sync_master, ...String(st.sync_slaves || '').split(',')].filter(Boolean));
-    group.delete(pid);
-    const others = store.players.filter((p) => p.playerid !== pid);
-    const sig = `${pid}|${[...group].join(',')}|${others.map((p) => p.playerid + p.name).join(',')}`;
+    const group = new Set(currentPlayer()?.synced_with || []);
+    const others = store.players.filter((p) => p.id !== pid);
+    const sig = `${pid}|${[...group].join(',')}|${others.map((p) => p.id + p.name).join(',')}`;
     if (sig === syncSig && !force) return;
     syncSig = sig;
-    const nameOf = (id) => store.players.find((p) => p.playerid === id)?.name || id;
+    const nameOf = (id) => store.players.find((p) => p.id === id)?.name || id;
     const head = h('h2', { id: 'set-sync' }, 'Synchronization');
     if (!pid) { syncSection.replaceChildren(head, h('p', { class: 'muted' }, 'No player selected.')); return; }
     if (!others.length) { syncSection.replaceChildren(head, h('p', { class: 'muted' }, 'Connect another player to play in sync across rooms.')); return; }
 
     const selId = fieldId();
-    const candidates = others.filter((p) => !group.has(p.playerid));
-    const sel = h('select', { id: selId }, candidates.map((p) => h('option', { value: p.playerid }, p.name || p.playerid)));
+    const candidates = others.filter((p) => !group.has(p.id));
+    const sel = h('select', { id: selId }, candidates.map((p) => h('option', { value: p.id }, p.name || p.id)));
     syncSection.replaceChildren(...[head,
       group.size
         ? h('div', { class: 'sync-group' },
           h('p', {}, icon('link'), ' Synced with ', h('strong', {}, [...group].map(nameOf).join(', '))),
           h('button', { class: 'btn', type: 'button', onclick: async () => {
-            if (await ctx.cmd('sync', '-')) { toast('Player unsynced'); ctx.refreshServer(); }
+            if (await ctx.send({ command: 'unsync' })) toast('Player unsynced');
           } }, 'Unsync this player'))
         : h('p', { class: 'muted' }, 'This player is playing on its own.'),
       candidates.length ? h('form', { class: 'field inline', onsubmit: async (e) => {
         e.preventDefault();
         if (!sel.value) return;
-        if (await ctx.cmd('sync', sel.value)) { toast(`Synced with ${nameOf(sel.value)}`); ctx.refreshServer(); }
+        if (await ctx.send({ command: 'sync', with: sel.value })) toast(`Synced with ${nameOf(sel.value)}`);
       } },
       h('label', { for: selId }, 'Sync with another player'),
       h('div', { class: 'inline-row' }, sel, h('button', { class: 'btn', type: 'submit' }, icon('link'), 'Sync'))) : null].filter(Boolean));
@@ -377,7 +375,7 @@ export function render(node, { ctx }) {
   const scanBtn = (label, args, confirmMsg, primary) => h('button', { class: `btn${primary ? ' btn-primary' : ''}`, type: 'button', onclick: async () => {
     if (confirmMsg && !confirm(confirmMsg)) return;
     const r = await ctx.serverCmd(...args);
-    if (r) { toast(`${label} started`); ctx.fastServerPoll(20000); }
+    if (r) toast(`${label} started`);
   } }, label);
   scanSection.append(
     h('h2', { id: 'set-scan' }, 'Scan'),
@@ -389,20 +387,21 @@ export function render(node, { ctx }) {
 
   function renderScan() {
     const s = store.server || {};
-    const scanning = +s.rescan > 0;
-    const done = +s.progressdone || 0, total = +s.progresstotal || 0;
+    const lib = s.library || {};
+    const scanning = !!s.scan;
+    const done = s.scan?.done || 0, total = s.scan?.total || 0;
     const stats = h('dl', { class: 'stats' },
-      stat('Albums', s['info total albums']), stat('Artists', s['info total artists']),
-      stat('Tracks', s['info total songs']), stat('Genres', s['info total genres']));
+      stat('Albums', lib.albums), stat('Artists', lib.artists),
+      stat('Tracks', lib.tracks), stat('Genres', lib.genres));
     if (scanning) {
       const pct = total ? Math.round((done / total) * 100) : null;
       scanStatus.replaceChildren(
-        h('p', {}, h('span', { class: 'spinner inline' }), ' Scanning', s.progressname ? `: ${humanize(s.progressname)}` : '…'),
+        h('p', {}, h('span', { class: 'spinner inline' }), ' Scanning', s.scan.step ? `: ${humanize(s.scan.step)}` : '…'),
         h('progress', { max: total || 1, value: total ? done : null, 'aria-label': 'Scan progress' }),
         h('p', { class: 'muted small' }, total ? `${done.toLocaleString()} of ${total.toLocaleString()} (${pct}%)` : 'Preparing…'),
         stats);
     } else {
-      const last = +s.lastscan ? new Date(+s.lastscan * 1000).toLocaleString() : 'never';
+      const last = s.last_scan ? new Date(s.last_scan * 1000).toLocaleString() : 'never';
       scanStatus.replaceChildren(h('p', {}, 'Last scan: ', h('strong', {}, last)), stats);
     }
     aboutSection.replaceChildren(
@@ -427,7 +426,6 @@ export function render(node, { ctx }) {
     on('status', () => renderSync()),
     on('server', renderScan),
   );
-  ctx.refreshServer();
 
   return () => { alive = false; clearInterval(spotifyPoll); offs.forEach((f) => f()); };
 }

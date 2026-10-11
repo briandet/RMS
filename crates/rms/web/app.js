@@ -1,7 +1,7 @@
-// RMS web UI – application shell: polling, routing, header, theme, keyboard.
+// RMS web UI – application shell: live state, routing, header, theme, keyboard.
 
-import { rpc, playlistControl } from './api.js';
-import { store, on, emit, currentPlayer, elapsed, patchStatus } from './store.js';
+import { rpc, command, getPlayer, getQueue, connectEvents, itemFor } from './api.js';
+import { store, on, emit, currentPlayer, elapsed, patchPlayer } from './store.js';
 import { $, $$, h, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
 import * as NowPlaying from './views/nowplaying.js';
 import * as Queue from './views/queue.js';
@@ -9,30 +9,44 @@ import * as Library from './views/library.js';
 import * as Search from './views/search.js';
 import * as Settings from './views/settings.js';
 
-const STATUS_TAGS = 'tags:aAlcdegKjJNostuy';
-const QUEUE_TAGS = 'tags:aAlcdeKostu';
-const STATUS_INTERVAL = 1000;
-const SERVER_INTERVAL = 5000;
-const SERVER_FAST_INTERVAL = 1000;
 const mobile = matchMedia('(max-width: 899px)');
 
 // =============================================================== commands
 
-/** Send a command to the selected player; toasts on failure, resolves to result or null. */
+/**
+ * Send a native command to the selected player (`{command: 'pause'}`); toasts on failure,
+ * resolves to the result or null.  State changes arrive through the event stream.
+ */
+async function send(body, { quiet = false } = {}) {
+  const pid = store.playerId;
+  if (!pid) { if (!quiet) toast('No player selected', 'error'); return null; }
+  try {
+    return await command(pid, body);
+  } catch (e) {
+    if (!quiet) toast(`${body.command[0].toUpperCase()}${body.command.slice(1).replace(/_/g, ' ')} failed: ${e.message}`, 'error');
+    resync(pid);
+    return null;
+  }
+}
+
+/** Fetch a player's state again (e.g. after an optimistic change the server refused). */
+async function resync(pid) {
+  try { applyPlayer(await getPlayer(pid)); } catch { /* the event stream will catch up */ }
+}
+
+/** Send an LMS command to the selected player (settings that have no native command yet). */
 async function cmd(...args) {
   const pid = store.playerId;
   if (!pid) { toast('No player selected', 'error'); return null; }
   try {
-    const r = await rpc(args, pid);
-    refreshSoon();
-    return r;
+    return await rpc(args, pid);
   } catch (e) {
     toast(`Command “${args.slice(0, 2).join(' ')}” failed: ${e.message}`, 'error');
     return null;
   }
 }
 
-/** Send a server-level command (no player). */
+/** Send a server-level LMS command (no player). */
 async function serverCmd(...args) {
   try { return await rpc(args, ''); } catch (e) {
     toast(`Command “${args.slice(0, 2).join(' ')}” failed: ${e.message}`, 'error');
@@ -41,17 +55,17 @@ async function serverCmd(...args) {
 }
 
 const ACTION_VERB = { load: 'Playing', add: 'Added to queue', insert: 'Playing next' };
+const ENQUEUE_MODE = { load: 'play', add: 'add', insert: 'next' };
 
-/** playlistcontrol wrapper used by library views. action = load|add|insert */
-async function playItem(action, key, value, label = '') {
+/** Queue a library item.  action = load|add|insert; `start` = queue entry to start at. */
+async function playItem(action, key, value, label = '', { start } = {}) {
   const pid = store.playerId;
   if (!pid) { toast('Select a player first', 'error'); return false; }
+  const item = itemFor(key, value);
+  if (!item) { toast(`Cannot play ${label || 'this'}`, 'error'); return false; }
   try {
-    await playlistControl(pid, action, key, value);
-    if (action === 'load' && store.status && store.status.power === 0) await rpc(['power', 1], pid).catch(() => {});
+    await command(pid, { command: 'enqueue', item, mode: ENQUEUE_MODE[action], start });
     toast(label ? `${ACTION_VERB[action]}: ${label}` : ACTION_VERB[action]);
-    queueDirty = true;
-    refreshSoon();
     return true;
   } catch (e) {
     toast(`Could not ${action === 'load' ? 'play' : 'add'} ${label || 'item'}: ${e.message}`, 'error');
@@ -60,28 +74,22 @@ async function playItem(action, key, value, label = '') {
 }
 
 function togglePlay() {
-  const st = store.status;
-  if (!st) return;
-  if (st.mode === 'play') { patchStatus({ mode: 'pause', time: elapsed() }); cmd('pause', '1'); }
-  else if (st.mode === 'pause') { patchStatus({ mode: 'play', time: elapsed() }); cmd('pause', '0'); }
-  else cmd('play');
+  const p = currentPlayer();
+  if (!p) return;
+  if (p.mode === 'play') { patchPlayer({ elapsed: elapsed(), mode: 'pause' }); send({ command: 'pause' }); }
+  else { patchPlayer({ elapsed: elapsed(), mode: 'play' }); send({ command: 'play' }); }
 }
 
-// =============================================================== polling
+// =============================================================== live state
 
-let statusTimer = 0, statusBusy = false, statusAgain = false;
-let serverTimer = 0, serverBusy = false, fastServerUntil = 0;
-let queueKey = null, queueFetchedAt = 0, queueDirty = true;
 let lastError = '';
-
-const visible = () => document.visibilityState === 'visible';
 
 function setOnline(ok, err) {
   if (ok === store.online) return;
   store.online = ok;
   $('#offline-banner').hidden = ok;
   if (!ok) {
-    lastError = err?.message || 'unknown error';
+    lastError = err || 'connection lost';
     toast(`Lost connection to server: ${lastError}`, 'error');
   } else {
     toast('Reconnected to server');
@@ -89,108 +97,87 @@ function setOnline(ok, err) {
   emit('online', ok);
 }
 
-async function pollStatus() {
-  clearTimeout(statusTimer);
-  if (statusBusy) { statusAgain = true; return; }
-  const pid = store.playerId;
-  if (!pid) return;
-  statusBusy = true;
-  try {
-    const st = await rpc(['status', '-', 1, STATUS_TAGS], pid);
-    if (pid !== store.playerId) return;
-    store.status = st;
-    store.statusAt = performance.now();
-    setOnline(true);
-    const key = `${st.playlist_timestamp ?? ''}|${st.playlist_tracks ?? 0}`;
-    const stale = st.playlist_timestamp == null && Date.now() - queueFetchedAt > 5000;
-    if (queueDirty || key !== queueKey || stale) {
-      queueKey = key;
-      await refreshQueue();
-    }
-    emit('status', st);
-  } catch (e) {
-    if (e.network) setOnline(false, e);
-    else if (e.message !== lastError) { lastError = e.message; console.warn('status failed', e); }
-  } finally {
-    statusBusy = false;
-    if (statusAgain) { statusAgain = false; statusTimer = setTimeout(pollStatus, 0); }
-    else if (visible()) statusTimer = setTimeout(pollStatus, STATUS_INTERVAL);
+/** What the players list shows; the list re-renders only when this changes. */
+const summary = (list) => list.map((p) => [p.id, p.name, p.connected, p.power, p.model].join('|')).join(';');
+
+/** Take in a player's new state (from an event or a fetch). */
+function applyPlayer(p) {
+  const before = summary(store.players);
+  const i = store.players.findIndex((x) => x.id === p.id);
+  if (i >= 0) store.players[i] = p; else store.players.push(p);
+  store.receivedAt.set(p.id, performance.now());
+  if (summary(store.players) !== before) { emit('players', store.players); ensurePlayer(); }
+  if (p.id === store.playerId) {
+    emit('status', p);
+    checkQueue();
   }
 }
 
-async function refreshQueue() {
+/** Fetch the queue when its version or length differs from what we have. */
+function checkQueue() {
+  const p = currentPlayer();
+  if (!p) return;
+  const key = `${p.queue.version}|${p.queue.length}`;
+  if (key !== store.queueKey) refreshQueue(key);
+}
+
+let queueSeq = 0;
+async function refreshQueue(key = null) {
   const pid = store.playerId;
   if (!pid) return;
-  queueDirty = false;
+  const seq = ++queueSeq;
+  store.queueKey = key;
   try {
-    const r = await rpc(['status', 0, 999, QUEUE_TAGS], pid);
-    if (pid !== store.playerId) return;
-    store.queue = r.playlist_loop || [];
-    queueFetchedAt = Date.now();
+    const q = await getQueue(pid);
+    if (pid !== store.playerId || seq !== queueSeq) return;
+    store.queue = q.items;
+    store.queueKey = `${q.version}|${q.length}`;
     emit('queue', store.queue);
   } catch (e) {
-    queueDirty = true;
+    if (seq === queueSeq) store.queueKey = null;
     if (!e.network) toast(`Could not load queue: ${e.message}`, 'error');
   }
 }
 
-let soonTimer = 0;
-/** Re-poll status shortly after a command so the UI catches up quickly. */
-function refreshSoon(ms = 200, { queue = false } = {}) {
-  if (queue) queueDirty = true;
-  clearTimeout(soonTimer);
-  soonTimer = setTimeout(pollStatus, ms);
+function startEvents() {
+  connectEvents({
+    open: () => setOnline(true),
+    error: () => setOnline(false, 'reconnecting…'),
+    snapshot: ({ server, players }) => {
+      setOnline(true);
+      store.server = server;
+      const now = performance.now();
+      store.players = players;
+      for (const p of players) store.receivedAt.set(p.id, now);
+      emit('server', server);
+      emit('players', players);
+      ensurePlayer();
+      if (currentPlayer()) { emit('status', currentPlayer()); store.queueKey = null; checkQueue(); }
+    },
+    server: ({ server }) => { store.server = server; emit('server', server); },
+    player: ({ player }) => applyPlayer(player),
+    player_removed: ({ id }) => {
+      store.players = store.players.filter((p) => p.id !== id);
+      store.receivedAt.delete(id);
+      emit('players', store.players);
+      ensurePlayer();
+    },
+  });
 }
-
-async function pollServer() {
-  clearTimeout(serverTimer);
-  if (serverBusy) return;
-  serverBusy = true;
-  try {
-    const r = await rpc(['serverstatus', 0, 100]);
-    setOnline(true);
-    store.server = r;
-    const players = r.players_loop || [];
-    const sig = (list) => list.map((p) => [p.playerid, p.name, p.connected, p.power, p.model].join('|')).join(';');
-    const changed = sig(players) !== sig(store.players);
-    store.players = players;
-    if (changed) { emit('players', players); ensurePlayer(); }
-    emit('server', r);
-  } catch (e) {
-    if (e.network) setOnline(false, e);
-  } finally {
-    serverBusy = false;
-    if (visible()) {
-      const fast = Date.now() < fastServerUntil || +store.server?.rescan > 0;
-      serverTimer = setTimeout(pollServer, fast ? SERVER_FAST_INTERVAL : SERVER_INTERVAL);
-    }
-  }
-}
-
-/** Poll serverstatus every second for a while (e.g. after starting a rescan). */
-function fastServerPoll(ms = 15000) {
-  fastServerUntil = Date.now() + ms;
-  pollServer();
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (visible()) { pollServer(); pollStatus(); }
-  else { clearTimeout(statusTimer); clearTimeout(serverTimer); }
-});
 
 // =============================================================== players
 
 let autoPicked = false;
 
 function ensurePlayer() {
-  const ids = store.players.map((p) => p.playerid);
+  const ids = store.players.map((p) => p.id);
   const saved = storage.get('rms.player');
   if (store.playerId && ids.includes(store.playerId) && !(autoPicked && saved && ids.includes(saved) && saved !== store.playerId)) return;
   let pick = ids.includes(saved) ? saved : null;
   autoPicked = !pick;
   if (!pick) {
-    const p = store.players.find((x) => +x.isplaying) || store.players.find((x) => +x.connected) || store.players[0];
-    pick = p?.playerid || null;
+    const p = store.players.find((x) => x.mode === 'play') || store.players.find((x) => x.connected) || store.players[0];
+    pick = p?.id || null;
   }
   selectPlayer(pick);
 }
@@ -199,15 +186,13 @@ function selectPlayer(id, byUser = false) {
   if (byUser) { storage.set('rms.player', id); autoPicked = false; }
   if (id === store.playerId) return;
   store.playerId = id;
-  store.status = null;
   store.queue = [];
-  queueKey = null;
-  queueDirty = true;
+  store.queueKey = null;
   emit('player', id);
   emit('queue', store.queue);
-  emit('status', null);
+  emit('status', currentPlayer());
   renderPlayerSelect();
-  if (id) pollStatus();
+  checkQueue();
 }
 
 function renderPlayerSelect() {
@@ -219,17 +204,16 @@ function renderPlayerSelect() {
     return;
   }
   sel.disabled = false;
-  sel.replaceChildren(...players.map((p) => h('option', { value: p.playerid, selected: p.playerid === store.playerId },
-    `${p.name || p.playerid}${+p.connected === 0 ? ' (disconnected)' : ''}`)));
+  sel.replaceChildren(...players.map((p) => h('option', { value: p.id, selected: p.id === store.playerId },
+    `${p.name || p.id}${p.connected ? '' : ' (disconnected)'}`)));
   sel.value = store.playerId || '';
   const cur = currentPlayer();
-  sel.title = cur ? `${cur.modelname || cur.model || 'Player'} · ${cur.ip || ''} · ${cur.playerid}` : '';
+  sel.title = cur ? [cur.model_name || cur.model || 'Player', cur.ip, cur.id].filter(Boolean).join(' · ') : '';
 }
 
 function renderPower() {
   const btn = $('#power-btn');
-  const st = store.status;
-  const power = st ? +st.power === 1 : +currentPlayer()?.power === 1;
+  const power = !!currentPlayer()?.power;
   btn.disabled = !store.playerId;
   btn.setAttribute('aria-pressed', String(power));
   btn.setAttribute('aria-label', power ? 'Turn player off' : 'Turn player on');
@@ -401,17 +385,14 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-/** Play a mix of songs similar to a track / album / artist / genre / year (`createmix`). */
+/** Play a mix of songs similar to a track / album / artist / genre / year. */
 async function createMix(key, value, label = '') {
   const pid = store.playerId;
   if (!pid) { toast('Select a player first', 'error'); return false; }
   try {
-    const r = await rpc(['createmix', 'play', `${key}:${value}`], pid);
-    if (!+r.count) { toast(`No songs to mix with ${label || 'this'}`, 'error'); return false; }
-    if (store.status && store.status.power === 0) await rpc(['power', 1], pid).catch(() => {});
+    const r = await command(pid, { command: 'mix', seed: itemFor(key, value) });
+    if (!r?.count) { toast(`No songs to mix with ${label || 'this'}`, 'error'); return false; }
     toast(label ? `Playing a mix: ${label}` : 'Playing a mix');
-    queueDirty = true;
-    refreshSoon();
     return true;
   } catch (e) {
     toast(`Could not create a mix: ${e.message}`, 'error');
@@ -422,9 +403,8 @@ async function createMix(key, value, label = '') {
 // =============================================================== context passed to views
 
 export const ctx = {
-  cmd, serverCmd, playItem, createMix, togglePlay,
-  refreshSoon, refreshQueue: () => { queueDirty = true; return pollStatus(); },
-  refreshServer: pollServer, fastServerPoll,
+  send, cmd, serverCmd, playItem, createMix, togglePlay,
+  refreshQueue: () => refreshQueue(),
   selectPlayer, navigate, reload, invalidateViews,
   getTheme, setTheme,
 };
@@ -438,10 +418,10 @@ function boot() {
 
   $('#player-select').addEventListener('change', (e) => selectPlayer(e.target.value, true));
   $('#power-btn').addEventListener('click', () => {
-    const on = +store.status?.power === 1;
-    patchStatus({ power: on ? 0 : 1 });
+    const on = !!currentPlayer()?.power;
+    patchPlayer({ power: !on });
     renderPower();
-    cmd('power', on ? 0 : 1);
+    send({ command: 'power', on: !on });
   });
   $('#theme-btn').addEventListener('click', toggleTheme);
 
@@ -452,14 +432,14 @@ function boot() {
   on('status', renderPower);
   on('server', (r) => {
     // A finished rescan invalidates cached library pages.
-    const scanning = +r.rescan > 0;
+    const scanning = !!r.scan;
     if (wasScanning && !scanning) invalidateViews();
     wasScanning = scanning;
     if (!store.players.length) renderPlayerSelect();
   });
 
   route();
-  pollServer();
+  startEvents();
 }
 let wasScanning = false;
 

@@ -310,7 +310,7 @@ const ROUTES = {
     const favCmd = (action, itemId, label) => async () => {
       if (!store.playerId) { toast('Select a player first', 'error'); return; }
       const r = await v.ctx.cmd('favorites', 'playlist', action, `item_id:${itemId}`);
-      if (r) { toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`); v.ctx.refreshQueue(); }
+      if (r) toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`);
     };
     pager(v, ul, async (start, count) => {
       const cmd = ['favorites', 'items', start, count, 'want_url:1'];
@@ -353,7 +353,7 @@ const ROUTES = {
     const spCmd = (action, itemId, label) => async () => {
       if (!store.playerId) { toast('Select a player first', 'error'); return; }
       const r = await v.ctx.cmd('spotify', 'playlist', action, `item_id:${itemId}`);
-      if (r) { toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`); v.ctx.refreshQueue(); }
+      if (r) toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`);
     };
     pager(v, ul, async (start, count) => {
       const cmd = ['spotify', 'items', start, count, 'want_url:1'];
@@ -406,6 +406,5 @@ function albumsGrid(v, filters, onTotal, empty = 'No albums found.') {
 
 /** Load a whole container (album/playlist/folder) and jump to one of its tracks. */
 async function playFrom(ctx, key, id, index, label) {
-  const ok = await ctx.playItem('load', key, id, label);
-  if (ok && index > 0) await ctx.cmd('playlist', 'index', index);
+  await ctx.playItem('load', key, id, label, { start: index > 0 ? index : undefined });
 }

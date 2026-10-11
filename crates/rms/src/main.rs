@@ -1,6 +1,7 @@
 //! Rusty Music Server: a Rust implementation of the Lyrion Music Server (formerly Logitech
 //! Media Server / SqueezeCenter) protocols for Squeezebox-compatible players.
 
+mod api;
 mod config;
 mod control;
 mod discovery;
@@ -79,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
     spawn("cli", control::cli::listen(server.clone()));
     spawn("http", web::serve(server.clone()));
     tokio::spawn(control::subscribe::pump(server.clone()));
+    tokio::spawn(api::events::run(server.clone()));
     tokio::spawn(web::cometd::run(server.clone()));
     tokio::spawn(plugins::alarm::run(server.clone()));
     tokio::spawn(plugins::dstm::run(server.clone()));

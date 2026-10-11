@@ -1,5 +1,6 @@
-// LMS JSON-RPC client. Uses only standard Lyrion/Logitech Media Server commands,
-// so the UI works against RMS and against a stock LMS.
+// Server access: the native API (`/api/v1`, see docs/api.md) for player state, commands
+// and the pushed event stream; LMS JSON-RPC (`slim.request`) for library browsing and
+// settings that the native API does not cover yet.
 
 /**
  * Root URL of the server. The app may be served at "/" or under "/web/", while
@@ -57,9 +58,76 @@ export async function rpc(cmd, playerId = '', { timeout = 15000 } = {}) {
   return data?.result || {};
 }
 
-/** `["playlistcontrol","cmd:load","album_id:3"]` helper. action = load|add|insert */
-export function playlistControl(playerId, action, key, value) {
-  return rpc(['playlistcontrol', `cmd:${action}`, `${key}:${value}`], playerId);
+// ---------------------------------------------------------------- native API
+
+/** Call `/api/v1/<path>`; resolves to the decoded JSON, throws RpcError. */
+export async function api(path, { method = 'GET', body, timeout = 15000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  let res;
+  try {
+    res = await fetch(`${serverRoot}api/v1/${path}`, {
+      method,
+      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctrl.signal,
+      cache: 'no-store',
+    });
+  } catch (e) {
+    throw new RpcError(e.name === 'AbortError' ? 'Request timed out' : 'Cannot reach server', { network: true });
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try { data = await res.json(); } catch { /* empty or not JSON */ }
+  if (!res.ok) throw new RpcError(data?.error || `Server error (HTTP ${res.status})`, { network: res.status >= 500 });
+  return data;
+}
+
+const playerPath = (playerId) => `players/${encodeURIComponent(playerId)}`;
+
+/** Send a player command, e.g. `{command: 'volume', value: 30}`. */
+export function command(playerId, body) {
+  return api(`${playerPath(playerId)}/command`, { method: 'POST', body });
+}
+
+export function getPlayer(playerId) {
+  return api(playerPath(playerId));
+}
+
+export function getQueue(playerId) {
+  return api(`${playerPath(playerId)}/queue`);
+}
+
+/**
+ * Subscribe to the event stream.  `handlers` maps event names (`snapshot`, `server`,
+ * `player`, `player_removed`) to functions taking the decoded data; `open` / `error` are
+ * called when the connection comes up or drops (the browser reconnects by itself, and the
+ * server starts every connection with a snapshot).  Returns a function that closes it.
+ */
+export function connectEvents(handlers) {
+  const es = new EventSource(`${serverRoot}api/v1/events`);
+  for (const name of ['snapshot', 'server', 'player', 'player_removed']) {
+    es.addEventListener(name, (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      handlers[name]?.(data);
+    });
+  }
+  es.addEventListener('open', () => handlers.open?.());
+  es.addEventListener('error', () => handlers.error?.(es.readyState === EventSource.CLOSED));
+  return () => es.close();
+}
+
+/** Native API item for a library key used by the views (`album_id`, `year`, …). */
+const ITEM_TYPES = {
+  track_id: 'track', album_id: 'album', artist_id: 'artist', genre_id: 'genre',
+  playlist_id: 'playlist', folder_id: 'folder',
+};
+export function itemFor(key, value) {
+  if (key === 'year') return { type: 'year', year: +value };
+  const type = ITEM_TYPES[key];
+  return type ? { type, id: +value } : null;
 }
 
 // ---------------------------------------------------------------- artwork
@@ -89,6 +157,13 @@ export function itemArt(item, size = 300) {
   if (item.artwork_url) return resolveArtwork(item.artwork_url);
   if (item.image) return resolveArtwork(item.image);
   return coverUrl(item.coverid ?? item.artwork_track_id, size);
+}
+
+/** Native API artwork path (`music/<id>/cover`, `imageproxy/…/image`) at a given size. */
+export function sizedArtwork(path, size = 300) {
+  if (!path) return null;
+  const sized = /\/(cover|image)$/.test(path) ? `${path}_${size}x${size}_o` : path;
+  return resolveArtwork(sized);
 }
 
 /** Artwork for whatever the given player is playing right now. */

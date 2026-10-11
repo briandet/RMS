@@ -1,13 +1,14 @@
 // Now Playing panel (side column on desktop, own tab on mobile) and the mobile mini player.
 
-import { store, on, elapsed, currentTrack, currentPlayer, patchStatus } from '../store.js';
+import { store, on, elapsed, currentTrack, currentPlayer, patchPlayer } from '../store.js';
 import { h, icon, setIcon, fmtTime, throttle, toast } from '../util.js';
-import { resolveArtwork, currentArtUrl } from '../api.js';
+import { sizedArtwork, currentArtUrl } from '../api.js';
 import { connectHelp, enc } from './common.js';
 
-const SHUFFLE = ['off', 'by song', 'by album'];
-const REPEAT = ['off', 'one track', 'whole queue'];
-const REPEAT_NEXT = [2, 0, 1]; // off -> all -> one -> off
+const SHUFFLE = { off: 'off', songs: 'by song', albums: 'by album' };
+const SHUFFLE_NEXT = { off: 'songs', songs: 'albums', albums: 'off' };
+const REPEAT = { off: 'off', one: 'one track', all: 'whole queue' };
+const REPEAT_NEXT = { off: 'all', all: 'one', one: 'off' };
 
 let ctx;
 const el = {};
@@ -57,14 +58,14 @@ function buildPanel(root) {
   el.seek.addEventListener('change', () => {
     const t = +el.seek.value;
     seeking = false;
-    patchStatus({ time: t });
-    ctx.cmd('time', t);
+    patchPlayer({ elapsed: t });
+    ctx.send({ command: 'seek', position: t });
   });
 
   el.shuffle = btn('shuffle', 'Shuffle', cycleShuffle, 'toggle');
-  el.prev = btn('prev', 'Previous track', () => ctx.cmd('playlist', 'index', '-1'));
+  el.prev = btn('prev', 'Previous track', () => ctx.send({ command: 'previous' }));
   el.play = btn('play', 'Play', () => ctx.togglePlay(), 'play-btn');
-  el.next = btn('next', 'Next track', () => ctx.cmd('playlist', 'index', '+1'));
+  el.next = btn('next', 'Next track', () => ctx.send({ command: 'next' }));
   el.repeat = btn('repeat', 'Repeat', cycleRepeat, 'toggle');
   el.repeatBadge = h('span', { class: 'badge', hidden: true }, '1');
   el.repeat.append(el.repeatBadge);
@@ -72,13 +73,14 @@ function buildPanel(root) {
   el.mute = btn('volume', 'Mute', toggleMute);
   el.volume = h('input', { type: 'range', class: 'range volume', min: 0, max: 100, step: 1, value: 0, 'aria-label': 'Volume' });
   el.volValue = h('span', { class: 'vol-value', 'aria-hidden': 'true' }, '0');
-  const sendVolume = throttle((v) => ctx.cmd('mixer', 'volume', v), 150);
+  const sendVolume = throttle((v) => ctx.send({ command: 'volume', value: v }), 150);
   el.volume.addEventListener('input', () => {
     volumeHoldUntil = Date.now() + 2000;
     const v = +el.volume.value;
     el.volValue.textContent = v;
     fill(el.volume);
-    if (store.status) store.status['mixer volume'] = v;
+    const p = currentPlayer();
+    if (p) p.volume = v;
     sendVolume(v);
   });
   el.volume.addEventListener('change', () => { volumeHoldUntil = Date.now() + 1500; });
@@ -104,7 +106,7 @@ function buildMini(root) {
   mini.title = h('span', { class: 'mini-title' });
   mini.artist = h('span', { class: 'mini-artist' });
   mini.play = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Play', onclick: () => ctx.togglePlay() }, icon('play'));
-  mini.next = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Next track', onclick: () => ctx.cmd('playlist', 'index', '+1') }, icon('next'));
+  mini.next = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Next track', onclick: () => ctx.send({ command: 'next' }) }, icon('next'));
   root.append(mini.progress,
     h('a', { class: 'mini-main', href: '#/now', 'aria-label': 'Open now playing' },
       h('span', { class: 'art mini-art' }, icon('album', 'icon art-fallback'), mini.img),
@@ -114,40 +116,27 @@ function buildMini(root) {
 
 // ---------------------------------------------------------------- render
 
-/** Title / artist / album lines, handling radio streams. */
-function describe(st, tr) {
-  const remote = +st.remote === 1 || +tr?.remote === 1;
-  const meta = st.remoteMeta || {};
-  if (remote) {
-    const station = tr?.remote_title || meta.remote_title || '';
-    let title = meta.title || tr?.title || st.current_title || station || 'Stream';
-    let artist = meta.artist || tr?.artist || '';
-    // Many stations only send "Artist - Title" as the stream title.
-    if (!artist && st.current_title && / - /.test(st.current_title) && title === st.current_title) {
-      [artist, title] = st.current_title.split(/ - (.+)/);
-    }
-    let album = meta.album || tr?.album || '';
-    if (station && station !== title) album = album ? `${album} · ${station}` : station;
-    return { title, artist, album, remote };
-  }
-  return { title: tr?.title || st.current_title || '', artist: tr?.artist || '', album: tr?.album || '', remote };
+/** Title / artist / album lines; a radio station shows next to the album. */
+function describe(tr) {
+  if (!tr) return { title: '', artist: '', album: '', remote: false };
+  let album = tr.album || '';
+  if (tr.station && tr.station !== tr.title) album = album ? `${album} · ${tr.station}` : tr.station;
+  return { title: tr.title || '', artist: tr.artist || '', album, remote: tr.remote };
 }
 
-function artUrl(st, tr) {
-  const meta = st.remoteMeta || {};
-  const remoteArt = meta.artwork_url || (+st.remote === 1 && tr?.artwork_url);
-  if (remoteArt) return resolveArtwork(remoteArt);
-  return currentArtUrl(store.playerId, `${tr?.id ?? ''}-${tr?.coverid ?? ''}-${st.current_title || tr?.title || ''}`);
+function artUrl(p, tr, size = 600) {
+  if (tr?.artwork) return sizedArtwork(tr.artwork, size);
+  return currentArtUrl(p.id, `${tr?.id ?? ''}-${tr?.title || ''}`, size);
 }
 
 function render() {
-  const st = store.status;
+  const st = currentPlayer();
   if (!store.players.length) {
     showEmpty(store.server ? connectHelp() : h('p', { class: 'muted' }, 'Connecting to server…'));
     renderMini(null);
     return;
   }
-  if (!store.playerId || !st) {
+  if (!st) {
     showEmpty(h('p', { class: 'muted' }, store.playerId ? 'Loading player…' : 'Select a player.'));
     renderMini(null);
     return;
@@ -156,14 +145,13 @@ function render() {
   el.body.hidden = false;
 
   const tr = currentTrack();
-  const hasTrack = !!tr || (+st.playlist_tracks || 0) > 0 || +st.remote === 1;
-  const d = describe(st, tr);
+  const hasTrack = !!tr;
+  const d = describe(tr);
 
-  // Notices: player off / disconnected / empty queue
-  const player = currentPlayer();
+  // Notices: player off / disconnected
   let notice = null;
-  if (+st.player_connected === 0 || (player && +player.connected === 0)) notice = 'Player is disconnected.';
-  else if (+st.power === 0) notice = h('span', {}, 'Player is off. ', h('button', { class: 'btn btn-small', type: 'button', onclick: () => ctx.cmd('power', 1) }, 'Turn on'));
+  if (!st.connected) notice = 'Player is disconnected.';
+  else if (!st.power) notice = h('span', {}, 'Player is off. ', h('button', { class: 'btn btn-small', type: 'button', onclick: () => ctx.send({ command: 'power', on: true }) }, 'Turn on'));
   el.notice.replaceChildren(notice || '');
   el.notice.hidden = !notice;
 
@@ -196,32 +184,31 @@ function render() {
   el.play.title = playing ? 'Pause (space)' : 'Play (space)';
   for (const b of [el.prev, el.next, el.play]) b.disabled = !hasTrack;
 
-  const shuffle = +st['playlist shuffle'] || 0;
-  el.shuffle.setAttribute('aria-pressed', String(shuffle > 0));
+  const shuffle = st.shuffle;
+  el.shuffle.setAttribute('aria-pressed', String(shuffle !== 'off'));
   el.shuffle.setAttribute('aria-label', `Shuffle: ${SHUFFLE[shuffle]}`);
   el.shuffle.title = `Shuffle: ${SHUFFLE[shuffle]}`;
   el.shuffle.dataset.mode = shuffle;
 
-  const repeat = +st['playlist repeat'] || 0;
-  el.repeat.setAttribute('aria-pressed', String(repeat > 0));
+  const repeat = st.repeat;
+  el.repeat.setAttribute('aria-pressed', String(repeat !== 'off'));
   el.repeat.setAttribute('aria-label', `Repeat: ${REPEAT[repeat]}`);
   el.repeat.title = `Repeat: ${REPEAT[repeat]}`;
-  el.repeatBadge.hidden = repeat !== 1;
+  el.repeatBadge.hidden = repeat !== 'one';
 
   // Seek bar
-  const dur = +st.duration || 0;
-  const canSeek = dur > 0 && st.can_seek !== 0 && st.can_seek !== '0' && !d.remote;
+  const dur = st.duration || 0;
+  const canSeek = dur > 0 && st.can_seek && !d.remote;
   el.seek.max = dur || 0;
   el.seek.disabled = !canSeek;
   el.seek.style.visibility = d.remote && !dur ? 'hidden' : '';
   el.duration.textContent = dur ? fmtTime(dur) : d.remote ? 'Live' : '0:00';
 
-  // Volume (negative = muted)
-  const rawVol = +st['mixer volume'] || 0;
-  const muted = rawVol < 0 || st['mixer muting'] === 1;
+  // Volume
+  const muted = st.muted;
   if (Date.now() > volumeHoldUntil) {
-    el.volume.value = Math.abs(rawVol);
-    el.volValue.textContent = Math.abs(rawVol);
+    el.volume.value = st.volume;
+    el.volValue.textContent = st.volume;
     fill(el.volume);
   }
   setIcon(el.mute, muted ? 'mute' : 'volume');
@@ -229,7 +216,7 @@ function render() {
   el.mute.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
   el.mute.title = muted ? 'Unmute' : 'Mute';
   el.volume.classList.toggle('muted', muted);
-  const fixedVolume = +st.digital_volume_control === 0;
+  const fixedVolume = st.volume_fixed;
   el.volume.disabled = fixedVolume;
   el.volume.title = fixedVolume ? 'Volume is fixed (digital volume control disabled)' : '';
 
@@ -263,7 +250,7 @@ function renderMini(info) {
   document.body.classList.add('has-mini');
   mini.title.textContent = d.title || 'Unknown title';
   mini.artist.textContent = [d.artist, d.album].filter(Boolean).join(' · ');
-  const src = artUrl(st, tr).replace(/size=600/, 'size=100');
+  const src = artUrl(st, tr, 100);
   if (mini.img.dataset.src !== src) { mini.img.dataset.src = src; mini.img.src = src; }
   const playing = st.mode === 'play';
   setIcon(mini.play, playing ? 'pause' : 'play');
@@ -272,9 +259,9 @@ function renderMini(info) {
 
 /** Runs 4x per second: interpolates elapsed time while playing. */
 function tick() {
-  const st = store.status;
+  const st = currentPlayer();
   if (!st || document.hidden) return;
-  const dur = +st.duration || 0;
+  const dur = st.duration || 0;
   const t = elapsed();
   if (!seeking) {
     el.seek.value = t;
@@ -294,30 +281,31 @@ function fill(input) {
 // ---------------------------------------------------------------- actions
 
 function cycleShuffle() {
-  const next = ((+store.status?.['playlist shuffle'] || 0) + 1) % 3;
-  patchStatus({ 'playlist shuffle': next });
-  ctx.cmd('playlist', 'shuffle', next).then(() => ctx.refreshSoon(300, { queue: true }));
+  const next = SHUFFLE_NEXT[currentPlayer()?.shuffle || 'off'];
+  patchPlayer({ shuffle: next });
+  ctx.send({ command: 'shuffle', mode: next });
   toast(`Shuffle ${SHUFFLE[next]}`);
 }
 
 function cycleRepeat() {
-  const next = REPEAT_NEXT[+store.status?.['playlist repeat'] || 0];
-  patchStatus({ 'playlist repeat': next });
-  ctx.cmd('playlist', 'repeat', next);
+  const next = REPEAT_NEXT[currentPlayer()?.repeat || 'off'];
+  patchPlayer({ repeat: next });
+  ctx.send({ command: 'repeat', mode: next });
   toast(`Repeat ${REPEAT[next]}`);
 }
 
 function toggleMute() {
-  const v = +store.status?.['mixer volume'] || 0;
-  patchStatus({ 'mixer volume': -v });
-  ctx.cmd('mixer', 'muting', 'toggle');
+  const p = currentPlayer();
+  if (!p) return;
+  patchPlayer({ muted: !p.muted });
+  ctx.send({ command: 'mute', muted: p.muted });
 }
 
 async function addFavorite() {
-  const st = store.status, tr = currentTrack();
+  const tr = currentTrack();
   if (!tr?.url) { toast('Nothing to add to favorites', 'error'); return; }
-  const d = describe(st, tr);
-  const title = d.remote ? (tr.remote_title || d.album || d.title) : [d.title, d.artist].filter(Boolean).join(' – ');
+  const d = describe(tr);
+  const title = d.remote ? (tr.station || tr.album || d.title) : [d.title, d.artist].filter(Boolean).join(' – ');
   const r = await ctx.serverCmd('favorites', 'add', `url:${tr.url}`, `title:${title}`);
   if (r) toast(`Added “${title}” to favorites`);
 }

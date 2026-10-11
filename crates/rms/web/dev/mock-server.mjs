@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Development-only mock of the LMS JSON-RPC API. NOT loaded by the web app.
+// Development-only mock of the RMS native API and LMS JSON-RPC. NOT loaded by the web app.
 //
 //   node crates/rms/web/dev/mock-server.mjs            # http://localhost:9000/
 //   PORT=9001 PLAYERS=0 node .../mock-server.mjs        # no players (empty state)
 //
-// Serves the web directory at / and /web/, answers POST /jsonrpc.js with fake but
-// plausible data, simulates playback progress, and renders SVG cover art for /music/*.
+// Serves the web directory at / and /web/, answers /api/v1/* (including the event stream)
+// and POST /jsonrpc.js with fake but plausible data, simulates playback progress, and
+// renders SVG cover art for /music/*.
 
 import http from 'node:http';
 import fs from 'node:fs';
@@ -187,9 +188,9 @@ function radioTrack(url, name) {
   return { id: -Date.now(), title: name || 'Stream', url, remote: 1, duration: 0, artwork_url: 'imageproxy/radio.png', remote_title: name };
 }
 
-function loadInto(p, list, action) {
+function loadInto(p, list, action, start = 0) {
   const items = list.map((t) => ({ ...t }));
-  if (action === 'load') { p.queue = items; p.index = 0; if (items.length) play(p, 0); else p.mode = 'stop'; }
+  if (action === 'load') { p.queue = items; p.index = Math.min(+start || 0, Math.max(0, items.length - 1)); if (items.length) play(p, 0); else p.mode = 'stop'; }
   else if (action === 'add') { p.queue.push(...items); if (p.mode === 'stop' && p.queue.length === items.length) { p.index = 0; } }
   else if (action === 'insert') p.queue.splice(p.index + 1, 0, ...items);
   touch(p);
@@ -330,7 +331,7 @@ function handle(pid, cmd) {
     case 'playlistcontrol': {
       if (!p) return {};
       const list = tracksFor(kv);
-      loadInto(p, list, kv.cmd || 'load');
+      loadInto(p, list, kv.cmd || 'load', kv.play_index);
       return { count: list.length };
     }
     case 'artists': {
@@ -417,6 +418,163 @@ function handle(pid, cmd) {
   }
 }
 
+// ------------------------------------------------------------------ native API (/api/v1)
+function serverOut() {
+  if (scan.running && Date.now() - scan.start > 12000) { scan.running = false; lastscan = Math.floor(Date.now() / 1000); }
+  const r = {
+    name: prefs.libraryname, version: '0.1.0-mock', uuid: 'mock', last_scan: lastscan,
+    library: { albums: albums.length, artists: artists.length, genres: genres.length, tracks: tracks.length, duration: tracks.reduce((s, t) => s + t.duration, 0) },
+  };
+  if (scan.running) {
+    const frac = Math.min(1, (Date.now() - scan.start) / 12000);
+    r.scan = { step: frac < .7 ? 'directory' : 'discovering_files', done: Math.floor(frac * scan.total), total: scan.total };
+  }
+  return r;
+}
+
+function trackNative(t) {
+  if (t.remote) {
+    const songs = ['Northern Lights', 'Signal Fire', 'Paper Moon'];
+    const song = songs[Math.floor(Date.now() / 30000) % songs.length];
+    return { url: t.url, title: song, artist: 'DJ Mock', artwork: 'imageproxy/radio/image', remote: true, station: t.remote_title };
+  }
+  return {
+    id: t.id, url: t.url, title: t.title, artist: t.artist, artist_id: t.artist_id, album: t.album, album_id: t.album_id,
+    duration: t.duration, track_number: t.tracknum, year: t.year, artwork: `music/${t.coverid}/cover`, remote: false, format: t.type,
+  };
+}
+
+function playerOut(p) {
+  advance(p);
+  const cur = p.queue[p.index];
+  return {
+    id: p.playerid, name: p.name, model: p.model, model_name: p.modelname, ip: p.ip.split(':')[0], firmware: 'mock',
+    connected: !!p.connected, power: !!p.power, mode: p.mode, buffering: false,
+    elapsed: cur ? Math.round(elapsedOf(p) * 1000) / 1000 : 0,
+    duration: cur?.duration || undefined, can_seek: !!cur && !cur.remote,
+    volume: p.volume, muted: p.muted, volume_fixed: !p.prefs.digitalVolumeControl,
+    shuffle: ['off', 'songs', 'albums'][p.shuffle], repeat: ['off', 'one', 'all'][p.repeat],
+    queue: { version: p.timestamp, length: p.queue.length, index: p.queue.length ? p.index : undefined },
+    now_playing: cur ? trackNative(cur) : undefined,
+    synced_with: p.syncGroup ? players.filter((x) => x !== p && x.syncGroup === p.syncGroup).map((x) => x.playerid) : [],
+  };
+}
+
+const ITEM_KEYS = { track: 'track_id', album: 'album_id', artist: 'artist_id', genre: 'genre_id', playlist: 'playlist_id', folder: 'folder_id' };
+const itemParam = (it) => (it.type === 'year' ? `year:${it.year}` : `${ITEM_KEYS[it.type]}:${it.id}`);
+
+/** Native command → the equivalent LMS command(s) on the mock. */
+function nativeCommand(p, b) {
+  const id = p.playerid;
+  const lms = (...cmd) => handle(id, cmd.map(String));
+  const inQueue = (i) => { if (!(i >= 0 && i < p.queue.length)) throw Object.assign(new Error(`index ${i} is out of range`), { status: 400 }); };
+  switch (b.command) {
+    case 'play': p.power = 1; return lms(p.mode === 'pause' ? 'pause' : 'play', ...(p.mode === 'pause' ? [0] : []));
+    case 'pause': return lms('pause', 1);
+    case 'toggle_pause': return lms('pause');
+    case 'stop': return lms('stop');
+    case 'next': return lms('playlist', 'index', '+1');
+    case 'previous': return lms('playlist', 'index', '-1');
+    case 'seek': return lms('time', b.position);
+    case 'volume': return lms('mixer', 'volume', b.value);
+    case 'mute': return lms('mixer', 'muting', b.muted == null ? 'toggle' : b.muted ? 1 : 0);
+    case 'power': return lms('power', b.on ? 1 : 0);
+    case 'shuffle': return lms('playlist', 'shuffle', ['off', 'songs', 'albums'].indexOf(b.mode));
+    case 'repeat': return lms('playlist', 'repeat', ['off', 'one', 'all'].indexOf(b.mode));
+    case 'jump': inQueue(b.index); return lms('playlist', 'index', b.index);
+    case 'move': inQueue(b.from); inQueue(b.to); return lms('playlist', 'move', b.from, b.to);
+    case 'remove': inQueue(b.index); return lms('playlist', 'delete', b.index);
+    case 'clear': return lms('playlist', 'clear');
+    case 'enqueue': {
+      const mode = b.mode || 'play';
+      if (mode === 'play') p.power = 1;
+      if (b.item.type === 'url') return lms('playlist', { play: 'play', add: 'add', next: 'insert' }[mode], b.item.url);
+      const action = { play: 'load', add: 'add', next: 'insert' }[mode];
+      return lms('playlistcontrol', `cmd:${action}`, itemParam(b.item), ...(b.start != null ? [`play_index:${b.start}`] : []));
+    }
+    case 'mix': {
+      const seed = tracksFor({ [ITEM_KEYS[b.seed.type] || 'year']: b.seed.id ?? b.seed.year });
+      const genre = seed[0]?.genre;
+      const list = [...seed.slice(0, 1), ...tracks.filter((t) => t.genre === genre && t !== seed[0]).slice(0, 19)];
+      p.power = 1;
+      loadInto(p, list, 'load');
+      return { count: list.length };
+    }
+    case 'sync': return lms('sync', b.with);
+    case 'unsync': return lms('sync', '-');
+    case 'rename': return lms('name', b.name);
+    default: throw Object.assign(new Error(`unknown command ${b.command}`), { status: 400 });
+  }
+}
+
+// Event stream: push what changed, like the real server (position only when it jumps).
+const sseClients = new Set();
+const sent = new Map(); // player id -> {json without elapsed, elapsed, at, mode}
+let sentServer = '';
+
+function sse(res, name, data) { res.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`); }
+function broadcast(name, data) { for (const res of sseClients) sse(res, name, data); }
+
+function publishChanges() {
+  if (!sseClients.size) return;
+  const srv = serverOut();
+  const sj = JSON.stringify(srv);
+  if (sj !== sentServer) { sentServer = sj; broadcast('server', { type: 'server', server: srv }); }
+  const now = Date.now();
+  for (const p of players) {
+    const out = playerOut(p);
+    const { elapsed, ...rest } = out;
+    const key = JSON.stringify(rest);
+    const old = sent.get(out.id);
+    const expected = old ? old.elapsed + (old.mode === 'play' ? (now - old.at) / 1000 : 0) : 0;
+    if (!old || old.key !== key || Math.abs(elapsed - expected) > 1) {
+      sent.set(out.id, { key, elapsed, at: now, mode: out.mode });
+      broadcast('player', { type: 'player', player: out });
+    }
+  }
+}
+setInterval(publishChanges, 1000);
+
+function serveEvents(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+  sse(res, 'snapshot', { type: 'snapshot', server: serverOut(), players: players.map(playerOut) });
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
+}
+
+function serveApi(req, res, url) {
+  const json = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+  const parts = url.pathname.split('/').slice(3).map(decodeURIComponent); // after /api/v1/
+  if (parts[0] === 'events') return serveEvents(req, res);
+  if (parts[0] === 'server') return json(200, serverOut());
+  if (parts[0] !== 'players') return json(404, { error: 'no such resource' });
+  if (!parts[1]) return json(200, players.map(playerOut));
+  const p = players.find((x) => x.playerid === parts[1]);
+  if (!p) return json(404, { error: `unknown player ${parts[1]}` });
+  if (!parts[2]) return json(200, playerOut(p));
+  if (parts[2] === 'queue') {
+    const offset = +url.searchParams.get('offset') || 0;
+    const limit = url.searchParams.has('limit') ? +url.searchParams.get('limit') : Infinity;
+    return json(200, { version: p.timestamp, length: p.queue.length, index: p.queue.length ? p.index : undefined, offset, items: p.queue.slice(offset, offset + limit).map(trackNative) });
+  }
+  if (parts[2] === 'command' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      try {
+        const r = nativeCommand(p, JSON.parse(body));
+        if (VERBOSE) console.log(p.playerid, body);
+        json(200, r?.count != null ? { count: r.count } : {});
+        setTimeout(publishChanges, 20);
+      } catch (e) {
+        json(e.status || 422, { error: e.message });
+      }
+    });
+    return;
+  }
+  json(404, { error: 'no such resource' });
+}
+
 // ------------------------------------------------------------------ http
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json' };
 
@@ -480,9 +638,11 @@ const server = http.createServer((req, res) => {
       if (VERBOSE) console.log(pid || '-', JSON.stringify(cmd), out.error ? 'ERR ' + out.error.message : '');
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(out));
+      setTimeout(publishChanges, 20);
     });
     return;
   }
+  if (url.pathname.startsWith('/api/v1/')) return serveApi(req, res, url);
   if (url.pathname.startsWith('/music/')) return serveMusic(url, res);
   if (url.pathname.startsWith('/contributor/')) {
     const ar = artists.find((a) => a.portraitid === decodeURIComponent(url.pathname.split('/')[2]));

@@ -11,6 +11,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
+| New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, playback, queue ([docs/api.md](docs/api.md)) |
 
 ## Quick start
 
@@ -102,6 +103,10 @@ The script builds a release binary (the web UI is built in), installs it as
   `favorites`, `alarm`, … with LMS result shapes; subscriptions (`subscribe:N`) re-executed
   on relevant notifications with LMS's filters and coalescing delays; CLI `listen` /
   `subscribe`; Cometd streaming and long-polling transports.
+* **Native API** (`/api/v1`, [docs/api.md](docs/api.md)): players, the queue and the
+  library status as plain JSON, playback and queue commands as typed requests, and a
+  Server-Sent Events stream that pushes each change as it happens (no polling).  The web UI
+  runs on it; library browsing and settings still go through JSON-RPC.
 * **Library** (crate `rms-library`): SQLite database with Lyrion's schema, scanner using
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
   WavPack, DSF), cue sheets, compilations, multi-artist/genre splitting, artwork
@@ -236,6 +241,7 @@ Layout:
 crates/slimproto   wire protocol codec + discovery packets
 crates/library     SQLite schema, scanner, artwork, library queries
 crates/rms         the server: players, controller, streaming, control API, web UI
+crates/rms/src/api the native API (/api/v1) and its event stream
 crates/rms/web     the web UI (plain HTML/JS/CSS, embedded into the binary)
 ```
 

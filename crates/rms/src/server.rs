@@ -82,6 +82,8 @@ pub struct Server {
     pub favorites: crate::plugins::favorites::Favorites,
     pub cometd: crate::web::cometd::Manager,
     pub subscriptions: crate::control::subscribe::Subscriptions,
+    /// Native API event stream.
+    pub events: crate::api::events::Hub,
 }
 
 impl Server {
@@ -143,6 +145,7 @@ impl Server {
             favorites,
             cometd: crate::web::cometd::Manager::default(),
             subscriptions: Default::default(),
+            events: Default::default(),
             config,
         });
         server.apply_library_config();
