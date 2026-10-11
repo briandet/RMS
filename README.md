@@ -11,7 +11,7 @@ as Lyrion 9.2 so existing players and controllers work unchanged:
 | **Squeezer** (Android), Material skin, iPeng, SqueezePlay/Jive | Cometd (`/cometd`), JSON-RPC (`/jsonrpc.js`), Jive menus | ✔ |
 | Scripts, home automation | Telnet CLI (port 9090), JSON-RPC | ✔ |
 | Browser | built-in web UI at `http://<server>:9000/` | ✔ new responsive UI |
-| New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, playback, queue ([docs/api.md](docs/api.md)) |
+| New clients | native API (`/api/v1`): JSON resources, typed commands, pushed events | ✔ players, library, favorites, settings ([docs/api.md](docs/api.md)) |
 
 ## Quick start
 
@@ -103,10 +103,11 @@ The script builds a release binary (the web UI is built in), installs it as
   `favorites`, `alarm`, … with LMS result shapes; subscriptions (`subscribe:N`) re-executed
   on relevant notifications with LMS's filters and coalescing delays; CLI `listen` /
   `subscribe`; Cometd streaming and long-polling transports.
-* **Native API** (`/api/v1`, [docs/api.md](docs/api.md)): players, the queue and the
-  library status as plain JSON, playback and queue commands as typed requests, and a
+* **Native API** (`/api/v1`, [docs/api.md](docs/api.md)): players, the queue, the
+  library, favorites, Spotify and settings as plain JSON, commands as typed requests, and a
   Server-Sent Events stream that pushes each change as it happens (no polling).  The web UI
-  runs on it; library browsing and settings still go through JSON-RPC.
+  runs on it alone; TypeScript declarations of its types are generated from the server's
+  (`crates/rms/web/api-types.d.ts`).
 * **Library** (crate `rms-library`): SQLite database in RMS's own schema
   ([docs/library-schema.md](docs/library-schema.md)), scanner using
   [lofty](https://crates.io/crates/lofty) (FLAC, MP3, AAC/ALAC, Ogg, Opus, WAV, AIFF, APE,
@@ -233,11 +234,15 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 ## Development
 
 ```sh
-cargo test --workspace           # unit tests + an end-to-end test with a fake player
+cargo test --workspace           # unit tests, end-to-end tests and client conformance
 ```
 
 `crates/rms/tests/fake_player.rs` runs the server binary and drives it through
-slimproto, HTTP streaming, the CLI and JSON-RPC.  For manual testing, squeezelite with
+slimproto, HTTP streaming, the CLI and JSON-RPC.  `crates/rms/tests/conformance.rs` makes
+the requests real clients make (Home Assistant, SqueezePlay, Squeezer, a Squeezebox 3's
+screens, the web UI) against a generated library and compares the answers with
+`crates/rms/tests/golden/`; after an intended change, `UPDATE_GOLDEN=1 cargo test -p rms
+--test conformance` rewrites them (review the diff).  For manual testing, squeezelite with
 `-o -` (audio to stdout) works without a sound card.
 
 Layout:
