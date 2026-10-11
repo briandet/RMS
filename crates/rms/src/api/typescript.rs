@@ -1,0 +1,81 @@
+//! `web/api-types.d.ts`: the native API's types for the web UI, generated from `model`.
+//! A test, so a stale file fails CI; `UPDATE_TYPES=1 cargo test -p rms typescript` rewrites it.
+
+use super::model::*;
+use ts_rs::{Config, TS};
+
+fn declarations() -> String {
+    let cfg = Config::new().with_large_int("number");
+    let mut out = String::from(
+        "// Generated from crates/rms/src/api/model.rs by `UPDATE_TYPES=1 cargo test -p rms \\\n\
+         // typescript`.  Do not edit.  The API is described in docs/api.md.\n",
+    );
+    macro_rules! decl {
+        ($($t:ty),* $(,)?) => {$(
+            out.push_str("\nexport ");
+            out.push_str(&<$t>::decl(&cfg));
+            out.push('\n');
+        )*};
+    }
+    decl!(
+        ServerInfo,
+        ScanProgress,
+        LibraryTotals,
+        Player,
+        PlayMode,
+        Shuffle,
+        Repeat,
+        QueueInfo,
+        Track,
+        Queue,
+        Item,
+        EnqueueMode,
+        Command,
+        CommandResult,
+        Event,
+        ApiError,
+        Page<()>,
+        Artist,
+        Album,
+        AlbumDetail,
+        Genre,
+        Year,
+        Playlist,
+        FolderEntryType,
+        FolderEntry,
+        SearchResults,
+        BrowseItemType,
+        BrowseItem,
+        NewFavorite,
+        SpotifyStatus,
+        SpotifyLogin,
+        SpotifyLoginResult,
+        ServerSettings,
+        ServerSettingsPatch,
+        ScanMode,
+        ScanRequest,
+        Choice,
+        ChoiceOption,
+        Range,
+        PlayerSettings,
+        DisplaySettings,
+        PlayerSettingsPatch,
+    );
+    out
+}
+
+#[test]
+fn web_types_are_up_to_date() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/api-types.d.ts");
+    let want = declarations();
+    if std::env::var_os("UPDATE_TYPES").is_some() {
+        std::fs::write(&path, &want).unwrap();
+        return;
+    }
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        have == want,
+        "{} is out of date: run UPDATE_TYPES=1 cargo test -p rms typescript",
+        path.display()
+    );
+}

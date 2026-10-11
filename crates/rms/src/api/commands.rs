@@ -89,6 +89,25 @@ pub async fn run(
                 power_on(server, p).await?;
             }
             let r = match &item {
+                Item::Favorite { id } | Item::Spotify { id } => {
+                    let service = if matches!(item, Item::Favorite { .. }) {
+                        "favorites"
+                    } else {
+                        "spotify"
+                    };
+                    let verb = match mode {
+                        EnqueueMode::Play => "play",
+                        EnqueueMode::Add => "add",
+                        EnqueueMode::Next => "insert",
+                    };
+                    let args = vec![
+                        service.to_string(),
+                        "playlist".into(),
+                        verb.into(),
+                        format!("item_id:{}", id),
+                    ];
+                    exec_owned(server, p, args).await?
+                }
                 Item::Url { url } => {
                     let verb = match mode {
                         EnqueueMode::Play => "play",
@@ -115,7 +134,11 @@ pub async fn run(
         Command::Mix { seed } => {
             if matches!(
                 seed,
-                Item::Playlist { .. } | Item::Folder { .. } | Item::Url { .. }
+                Item::Playlist { .. }
+                    | Item::Folder { .. }
+                    | Item::Url { .. }
+                    | Item::Favorite { .. }
+                    | Item::Spotify { .. }
             ) {
                 return Err(CommandError::Invalid(
                     "mixes start from a track, album, artist, genre or year".into(),
@@ -160,6 +183,7 @@ fn param(item: &Item) -> String {
         Item::Playlist { id } => format!("playlist_id:{}", id),
         Item::Folder { id } => format!("folder_id:{}", id),
         Item::Url { url } => format!("url:{}", url),
+        Item::Favorite { id } | Item::Spotify { id } => format!("item_id:{}", id),
     }
 }
 
@@ -201,8 +225,17 @@ async fn exec_owned(
     p: &Arc<Player>,
     words: Vec<String>,
 ) -> Result<Request, CommandError> {
+    exec_for(server, Some(p), words).await
+}
+
+/// Run an LMS command for a player, or for the server without one.
+pub async fn exec_for(
+    server: &Arc<Server>,
+    p: Option<&Arc<Player>>,
+    words: Vec<String>,
+) -> Result<Request, CommandError> {
     let summary = words.first().cloned().unwrap_or_default();
-    let r = execute_tokens(server, Some(p.id), words, Source::Web).await;
+    let r = execute_tokens(server, p.map(|p| p.id), words, Source::Web).await;
     match r.status {
         Status::Done | Status::Dispatchable => Ok(r),
         Status::NeedsClient => Err(CommandError::Failed("player is not connected".into())),

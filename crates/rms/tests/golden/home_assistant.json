@@ -1,7 +1,7 @@
 {
   "serverstatus_libraryname": {
     "lastscan": "<volatile>",
-    "version": "9.2.0",
+    "version": "<volatile>",
     "uuid": "<volatile>",
     "ip": "<volatile>",
     "httpport": "<volatile>",
@@ -16,7 +16,7 @@
   },
   "serverstatus_bare": {
     "lastscan": "<volatile>",
-    "version": "9.2.0",
+    "version": "<volatile>",
     "uuid": "<volatile>",
     "ip": "<volatile>",
     "httpport": "<volatile>",
@@ -30,7 +30,7 @@
   },
   "serverstatus_poll": {
     "lastscan": "<volatile>",
-    "version": "9.2.0",
+    "version": "<volatile>",
     "uuid": "<volatile>",
     "ip": "<volatile>",
     "httpport": "<volatile>",

@@ -73,6 +73,7 @@ protobuf-json-mapping = "3"
 sha2 = "0.10"
 sha1 = "0.10"
 flacenc = { version = "0.5", default-features = false }
+ts-rs = { version = "12", default-features = false, features = ["serde-compat"] }
 
 [dev-dependencies]
 claxon = "0.4"

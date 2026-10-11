@@ -1,7 +1,7 @@
 // Building blocks shared by library, search and settings views.
 
 import { h, icon, fmtTime } from '../util.js';
-import { itemArt } from '../api.js';
+import { sizedArtwork } from '../api.js';
 
 export const enc = encodeURIComponent;
 
@@ -74,7 +74,10 @@ export function pager(v, container, fetchPage, renderItem, { pageSize = 100, emp
       else { io.unobserve(sentinel); io.observe(sentinel); } // re-check: still visible -> load more
     } catch (e) {
       if (!v.alive) return;
-      finish();
+      // stop paging, but show the error rather than the "empty" placeholder
+      done = true;
+      io.disconnect();
+      sentinel.remove();
       container.after(errorBox(e, () => v.ctx.reload()));
     } finally {
       loading = false;
@@ -124,10 +127,10 @@ export function connectHelp() {
 
 // ---------------------------------------------------------------- actions
 
-/** Library items a mix can start from (`createmix`). */
+/** Library items a mix can start from (the `mix` command). */
 const MIXABLE = new Set(['track_id', 'album_id', 'artist_id', 'genre_id', 'year']);
 
-/** Play / Play next / Add buttons for something playlistcontrol understands (+ Mix). */
+/** Play / Play next / Add buttons for something `itemFor()` understands (+ Mix). */
 export function actionButtons(ctx, key, value, label, { run, compact = false } = {}) {
   const go = (action) => (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -158,12 +161,13 @@ export function row({ href, onActivate, title, sub, meta, art, iconName = 'note'
   return h('li', { class: `row ${cls}`.trim() }, main, meta != null && h('span', { class: 'row-meta' }, meta), actions);
 }
 
+/** A row for a native `Track`. */
 export function trackRow(ctx, t, { onPlay, showArtist = true, showAlbum = false, number, cls = '' } = {}) {
-  const title = t.title || t.track || t.filename || 'Untitled';
+  const title = t.title || 'Untitled';
   const subParts = [];
   if (showArtist && t.artist) subParts.push(t.artist);
   if (showAlbum && t.album) subParts.push(t.album);
-  const id = t.id ?? t.track_id;
+  const id = t.id;
   const numEl = number != null ? h('span', { class: 'track-no' }, number) : null;
   const r = row({
     title, sub: subParts.join(' · ') || null,
@@ -178,14 +182,15 @@ export function trackRow(ctx, t, { onPlay, showArtist = true, showAlbum = false,
   return r;
 }
 
+/** A grid card for a native `Album`. */
 export function albumCard(ctx, a) {
-  const id = a.id ?? a.album_id;
-  const title = a.album || 'Unknown album';
+  const id = a.id;
+  const title = a.title || 'Unknown album';
   const sub = [a.artist, +a.year ? a.year : null].filter(Boolean).join(' · ');
   const href = `#/library/album/${enc(id)}?name=${enc(title)}`;
   return h('div', { class: 'card', role: 'listitem' },
     h('a', { class: 'card-link', href, 'aria-label': `${title}${a.artist ? ' by ' + a.artist : ''}` },
-      lazyArt(itemArt(a, 300), { fallback: 'album' }),
+      lazyArt(sizedArtwork(a.artwork, 300), { fallback: 'album' }),
       h('span', { class: 'card-title' }, title),
       h('span', { class: 'card-sub' }, sub || ' ')),
     actionButtons(ctx, 'album_id', id, title));

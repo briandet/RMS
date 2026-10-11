@@ -35,9 +35,20 @@ impl Drop for Server {
 }
 
 pub fn start_server(music: &Path) -> Server {
+    // A port from `free_port` can be taken by another test's server before this one binds
+    // it; then rms exits and we try again on other ports.
+    for _ in 0..5 {
+        if let Some(server) = try_start_server(music) {
+            return server;
+        }
+    }
+    panic!("server did not start");
+}
+
+fn try_start_server(music: &Path) -> Option<Server> {
     let dir = tempfile::tempdir().unwrap();
     let (http, cli, slim) = (free_port(), free_port(), free_port());
-    let child = Command::new(env!("CARGO_BIN_EXE_rms"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_rms"))
         .args([
             "--data-dir",
             dir.path().to_str().unwrap(),
@@ -60,20 +71,25 @@ pub fn start_server(music: &Path) -> Server {
         .expect("start rms");
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
-        if TcpStream::connect(("127.0.0.1", cli)).is_ok()
+        if let Ok(Some(_)) = child.try_wait() {
+            return None;
+        }
+        if TcpStream::connect(("127.0.0.1", http)).is_ok()
+            && TcpStream::connect(("127.0.0.1", cli)).is_ok()
             && TcpStream::connect(("127.0.0.1", slim)).is_ok()
         {
-            return Server {
+            return Some(Server {
                 child,
                 http,
                 cli,
                 slim,
                 _dir: dir,
-            };
+            });
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    panic!("server did not start");
+    let _ = child.kill();
+    None
 }
 
 /// One CLI round trip; returns the unescaped response tokens.
@@ -292,3 +308,4 @@ pub fn http_json(port: u16, method: &str, path: &str, body: Option<&str>) -> (u1
     let body = resp[resp.find("\r\n\r\n").unwrap() + 4..].to_string();
     (status, body)
 }
+

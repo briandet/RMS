@@ -1,0 +1,1528 @@
+{
+  "GET /api/v1/artists (artists)": {
+    "status": 200,
+    "body": {
+      "total": 5,
+      "offset": 0,
+      "items": [
+        {
+          "id": 2,
+          "name": "Alpha Band",
+          "letter": "A"
+        },
+        {
+          "id": 3,
+          "name": "Beta Singer",
+          "letter": "B"
+        },
+        {
+          "id": 5,
+          "name": "Delta",
+          "letter": "D"
+        },
+        {
+          "id": 6,
+          "name": "Epsilon",
+          "letter": "E"
+        },
+        {
+          "id": 4,
+          "name": "Gamma Writer",
+          "letter": "G"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/artists?offset=1&limit=2 (artists page)": {
+    "status": 200,
+    "body": {
+      "total": 5,
+      "offset": 1,
+      "items": [
+        {
+          "id": 3,
+          "name": "Beta Singer",
+          "letter": "B"
+        },
+        {
+          "id": 5,
+          "name": "Delta",
+          "letter": "D"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/artists/2 (artist)": {
+    "status": 200,
+    "body": {
+      "id": 2,
+      "name": "Alpha Band",
+      "letter": "A"
+    }
+  },
+  "GET /api/v1/artists/999 (unknown artist)": {
+    "status": 404,
+    "body": {
+      "error": "no such artist"
+    }
+  },
+  "GET /api/v1/albums (albums)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "title": "First Light",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "year": 1999,
+          "compilation": false
+        },
+        {
+          "id": 3,
+          "title": "Mixed Bag",
+          "artist": "Various Artists",
+          "artist_id": 1,
+          "compilation": true
+        },
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?sort=artist (albums by artist)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "title": "First Light",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "year": 1999,
+          "compilation": false
+        },
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        },
+        {
+          "id": 3,
+          "title": "Mixed Bag",
+          "artist": "Various Artists",
+          "artist_id": 1,
+          "compilation": true
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?sort=added (recently added)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "title": "Mixed Bag",
+          "artist": "Various Artists",
+          "artist_id": 1,
+          "compilation": true
+        },
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        },
+        {
+          "id": 1,
+          "title": "First Light",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "year": 1999,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?sort=size (bad sort)": {
+    "status": 400,
+    "body": {
+      "error": "unknown sort \"size\" (title, artist, year or added)"
+    }
+  },
+  "GET /api/v1/albums?artist=3 (albums of artist)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?genre=1 (albums of genre)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "title": "First Light",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "year": 1999,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?year=2005 (albums of year)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?offset=1&limit=1&sort=artist (albums page)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 1,
+      "items": [
+        {
+          "id": 2,
+          "title": "Second Wind",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "year": 2005,
+          "compilation": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums?limit=many (bad limit)": {
+    "status": 400,
+    "body": {
+      "error": "Failed to deserialize query string: limit: invalid digit found in string"
+    }
+  },
+  "GET /api/v1/albums/first (bad id)": {
+    "status": 404,
+    "body": {
+      "error": "Invalid URL: Cannot parse `first` to a `i64`"
+    }
+  },
+  "GET /api/v1/albums/1 (album)": {
+    "status": 200,
+    "body": {
+      "id": 1,
+      "title": "First Light",
+      "artist": "Alpha Band",
+      "artist_id": 2,
+      "year": 1999,
+      "compilation": false,
+      "duration": 4.0,
+      "tracks": [
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        },
+        {
+          "id": 2,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+          "title": "Noon",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 2,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums/3 (compilation)": {
+    "status": 200,
+    "body": {
+      "id": 3,
+      "title": "Mixed Bag",
+      "artist": "Various Artists",
+      "artist_id": 1,
+      "compilation": true,
+      "duration": 4.076,
+      "tracks": [
+        {
+          "id": 4,
+          "url": "file:///<music>/Various/Mixed%20Bag/01%20One.mp3",
+          "title": "One",
+          "artist": "Delta",
+          "artist_id": 5,
+          "album": "Mixed Bag",
+          "album_id": 3,
+          "duration": 2.038,
+          "track_number": 1,
+          "remote": false,
+          "format": "mp3"
+        },
+        {
+          "id": 5,
+          "url": "file:///<music>/Various/Mixed%20Bag/02%20Two.mp3",
+          "title": "Two",
+          "artist": "Epsilon",
+          "artist_id": 6,
+          "album": "Mixed Bag",
+          "album_id": 3,
+          "duration": 2.038,
+          "track_number": 2,
+          "remote": false,
+          "format": "mp3"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/albums/999 (unknown album)": {
+    "status": 404,
+    "body": {
+      "error": "no such album"
+    }
+  },
+  "GET /api/v1/genres (genres)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": 2,
+          "name": "Jazz"
+        },
+        {
+          "id": 3,
+          "name": "Pop"
+        },
+        {
+          "id": 1,
+          "name": "Rock"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/years (years)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "year": 2005
+        },
+        {
+          "year": 1999
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks?limit=2 (tracks)": {
+    "status": 200,
+    "body": {
+      "total": 5,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+          "title": "Breeze",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "album": "Second Wind",
+          "album_id": 2,
+          "duration": 2.038,
+          "track_number": 1,
+          "year": 2005,
+          "remote": false,
+          "format": "mp3"
+        },
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/folders (top folder)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "type": "folder",
+          "id": 7,
+          "name": "Alpha Band"
+        },
+        {
+          "type": "folder",
+          "id": 8,
+          "name": "Beta Singer"
+        },
+        {
+          "type": "folder",
+          "id": 9,
+          "name": "Various"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/folders?id=7 (artist folder)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "type": "folder",
+          "id": 10,
+          "name": "First Light"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/folders?id=10 (album folder)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "type": "track",
+          "id": 1,
+          "name": "01 Morning.flac",
+          "track": {
+            "id": 1,
+            "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+            "title": "Morning",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "album": "First Light",
+            "album_id": 1,
+            "duration": 2.0,
+            "track_number": 1,
+            "year": 1999,
+            "remote": false,
+            "format": "flc"
+          }
+        },
+        {
+          "type": "track",
+          "id": 2,
+          "name": "02 Noon.flac",
+          "track": {
+            "id": 2,
+            "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+            "title": "Noon",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "album": "First Light",
+            "album_id": 1,
+            "duration": 2.0,
+            "track_number": 2,
+            "year": 1999,
+            "remote": false,
+            "format": "flc"
+          }
+        }
+      ]
+    }
+  },
+  "GET /api/v1/search?q=light (search)": {
+    "status": 200,
+    "body": {
+      "artists": {
+        "total": 0,
+        "offset": 0,
+        "items": []
+      },
+      "albums": {
+        "total": 1,
+        "offset": 0,
+        "items": [
+          {
+            "id": 1,
+            "title": "First Light",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "year": 1999,
+            "compilation": false
+          }
+        ]
+      },
+      "tracks": {
+        "total": 2,
+        "offset": 0,
+        "items": [
+          {
+            "id": 1,
+            "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+            "title": "Morning",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "album": "First Light",
+            "album_id": 1,
+            "duration": 2.0,
+            "track_number": 1,
+            "year": 1999,
+            "remote": false,
+            "format": "flc"
+          },
+          {
+            "id": 2,
+            "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+            "title": "Noon",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "album": "First Light",
+            "album_id": 1,
+            "duration": 2.0,
+            "track_number": 2,
+            "year": 1999,
+            "remote": false,
+            "format": "flc"
+          }
+        ]
+      },
+      "genres": {
+        "total": 0,
+        "offset": 0,
+        "items": []
+      }
+    }
+  },
+  "GET /api/v1/search?q=beta%20wind (search two words)": {
+    "status": 200,
+    "body": {
+      "artists": {
+        "total": 0,
+        "offset": 0,
+        "items": []
+      },
+      "albums": {
+        "total": 1,
+        "offset": 0,
+        "items": [
+          {
+            "id": 2,
+            "title": "Second Wind",
+            "artist": "Beta Singer",
+            "artist_id": 3,
+            "year": 2005,
+            "compilation": false
+          }
+        ]
+      },
+      "tracks": {
+        "total": 1,
+        "offset": 0,
+        "items": [
+          {
+            "id": 3,
+            "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+            "title": "Breeze",
+            "artist": "Beta Singer",
+            "artist_id": 3,
+            "album": "Second Wind",
+            "album_id": 2,
+            "duration": 2.038,
+            "track_number": 1,
+            "year": 2005,
+            "remote": false,
+            "format": "mp3"
+          }
+        ]
+      },
+      "genres": {
+        "total": 0,
+        "offset": 0,
+        "items": []
+      }
+    }
+  },
+  "GET /api/v1/search (search without words)": {
+    "status": 400,
+    "body": {
+      "error": "q is missing"
+    }
+  },
+  "GET /api/v1/favorites (favorites)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "id": "0",
+          "name": "Stations",
+          "type": "folder",
+          "playable": false
+        },
+        {
+          "id": "1",
+          "name": "First Light",
+          "type": "audio",
+          "playable": true,
+          "url": "db:album.title=First%20Light"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/favorites?id=0 (favorites folder)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": "0.0",
+          "name": "Example FM",
+          "type": "audio",
+          "playable": true,
+          "url": "http://radio.example.com/live.mp3"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/favorites?offset=1&limit=1 (favorites page)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 1,
+      "items": [
+        {
+          "id": "1",
+          "name": "First Light",
+          "type": "audio",
+          "playable": true,
+          "url": "db:album.title=First%20Light"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/folders?offset=1&limit=1 (folder page)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 1,
+      "items": [
+        {
+          "type": "folder",
+          "id": 8,
+          "name": "Beta Singer"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/search?q=a&offset=0&limit=1 (search page)": {
+    "status": 200,
+    "body": {
+      "artists": {
+        "total": 2,
+        "offset": 0,
+        "items": [
+          {
+            "id": 2,
+            "name": "Alpha Band",
+            "letter": "A"
+          }
+        ]
+      },
+      "albums": {
+        "total": 1,
+        "offset": 0,
+        "items": [
+          {
+            "id": 1,
+            "title": "First Light",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "year": 1999,
+            "compilation": false
+          }
+        ]
+      },
+      "tracks": {
+        "total": 2,
+        "offset": 0,
+        "items": [
+          {
+            "id": 1,
+            "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+            "title": "Morning",
+            "artist": "Alpha Band",
+            "artist_id": 2,
+            "album": "First Light",
+            "album_id": 1,
+            "duration": 2.0,
+            "track_number": 1,
+            "year": 1999,
+            "remote": false,
+            "format": "flc"
+          }
+        ]
+      },
+      "genres": {
+        "total": 0,
+        "offset": 0,
+        "items": []
+      }
+    }
+  },
+  "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (queue an album)": {
+    "status": 200,
+    "body": {
+      "count": 2
+    }
+  },
+  "GET /api/v1/playlists (playlists)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "name": "Evening"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/playlists/1 (playlist)": {
+    "status": 200,
+    "body": {
+      "id": 1,
+      "name": "Evening"
+    }
+  },
+  "GET /api/v1/playlists/1/tracks (playlist tracks)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        },
+        {
+          "id": 2,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+          "title": "Noon",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 2,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/playlists/999/tracks (unknown playlist)": {
+    "status": 404,
+    "body": {
+      "error": "no such playlist"
+    }
+  },
+  "POST /api/v1/favorites (add favorite)": {
+    "status": 200,
+    "body": {}
+  },
+  "POST /api/v1/favorites (add favorite without url)": {
+    "status": 400,
+    "body": {
+      "error": "url must not be empty"
+    }
+  },
+  "GET /api/v1/favorites (favorites after add)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": "0",
+          "name": "Stations",
+          "type": "folder",
+          "playable": false
+        },
+        {
+          "id": "1",
+          "name": "First Light",
+          "type": "audio",
+          "playable": true,
+          "url": "db:album.title=First%20Light"
+        },
+        {
+          "id": "2",
+          "name": "Other FM",
+          "type": "audio",
+          "playable": true,
+          "url": "http://radio.example.com/other.mp3"
+        }
+      ]
+    }
+  },
+  "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (clear)": {
+    "status": 200,
+    "body": {}
+  },
+  "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (queue a favorite)": {
+    "status": 200,
+    "body": {}
+  },
+  "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/queue (queue)": {
+    "status": 200,
+    "body": {
+      "version": "<volatile>",
+      "length": 2,
+      "index": 0,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        },
+        {
+          "id": 2,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+          "title": "Noon",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 2,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "DELETE /api/v1/favorites/2 (delete favorite)": {
+    "status": 200,
+    "body": {}
+  },
+  "GET /api/v1/favorites (favorites after delete)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "id": "0",
+          "name": "Stations",
+          "type": "folder",
+          "playable": false
+        },
+        {
+          "id": "1",
+          "name": "First Light",
+          "type": "audio",
+          "playable": true,
+          "url": "db:album.title=First%20Light"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/settings (settings)": {
+    "status": 200,
+    "body": {
+      "library_name": "",
+      "media_dirs": [
+        "/<music>"
+      ],
+      "art_folder": "",
+      "online_artist_images": false,
+      "spotify_client_id": "",
+      "spotify_bitrate": 320,
+      "spotify_normalisation": false
+    }
+  },
+  "PATCH /api/v1/settings (change settings)": {
+    "status": 200,
+    "body": {
+      "library_name": "Test Library",
+      "media_dirs": [
+        "/<music>"
+      ],
+      "art_folder": "",
+      "online_artist_images": false,
+      "spotify_client_id": "",
+      "spotify_bitrate": 320,
+      "spotify_normalisation": false
+    }
+  },
+  "PATCH /api/v1/settings (bad bitrate)": {
+    "status": 400,
+    "body": {
+      "error": "spotify_bitrate must be 96, 160 or 320"
+    }
+  },
+  "PATCH /api/v1/settings (unknown setting)": {
+    "status": 400,
+    "body": {
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation` at line 1 column 9"
+    }
+  },
+  "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {
+    "status": 200,
+    "body": {
+      "transition_type": 0,
+      "transition_duration": 10,
+      "replay_gain_mode": 0,
+      "max_bitrate": 0,
+      "digital_volume_control": true,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      }
+    }
+  },
+  "GET /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (squeezebox settings)": {
+    "status": 200,
+    "body": {
+      "transition_type": 0,
+      "transition_duration": 10,
+      "replay_gain_mode": 0,
+      "max_bitrate": 0,
+      "digital_volume_control": true,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      },
+      "display": {
+        "playing_mode": {
+          "value": "5",
+          "options": [
+            {
+              "value": "0",
+              "label": "Nothing"
+            },
+            {
+              "value": "1",
+              "label": "Elapsed Time"
+            },
+            {
+              "value": "2",
+              "label": "Remaining Time"
+            },
+            {
+              "value": "3",
+              "label": "Small VU"
+            },
+            {
+              "value": "4",
+              "label": "Small VU and Elapsed Time"
+            },
+            {
+              "value": "5",
+              "label": "Small VU and Remaining Time"
+            },
+            {
+              "value": "6",
+              "label": "Small Spectrum"
+            },
+            {
+              "value": "7",
+              "label": "Small Spectrum and Elapsed Time"
+            },
+            {
+              "value": "8",
+              "label": "Small Spectrum and Remaining Time"
+            },
+            {
+              "value": "9",
+              "label": "Spectrum Analyzer"
+            },
+            {
+              "value": "10",
+              "label": "Spectrum Analyzer and Elapsed Time"
+            },
+            {
+              "value": "11",
+              "label": "Spectrum Analyzer and Remaining Time"
+            }
+          ]
+        },
+        "text_size": {
+          "value": "1",
+          "options": [
+            {
+              "value": "0",
+              "label": "Light"
+            },
+            {
+              "value": "1",
+              "label": "Standard"
+            },
+            {
+              "value": "2",
+              "label": "Full"
+            }
+          ]
+        },
+        "text_size_off": {
+          "value": "1",
+          "options": [
+            {
+              "value": "0",
+              "label": "Light"
+            },
+            {
+              "value": "1",
+              "label": "Standard"
+            },
+            {
+              "value": "2",
+              "label": "Full"
+            }
+          ]
+        },
+        "brightness_on": {
+          "value": "4",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        },
+        "brightness_off": {
+          "value": "1",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        },
+        "brightness_idle": {
+          "value": "2",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (change player settings)": {
+    "status": 200,
+    "body": {
+      "transition_type": 1,
+      "transition_duration": 5,
+      "replay_gain_mode": 0,
+      "max_bitrate": 0,
+      "digital_volume_control": true,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      }
+    }
+  },
+  "PATCH /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (change display settings)": {
+    "status": 200,
+    "body": {
+      "transition_type": 0,
+      "transition_duration": 10,
+      "replay_gain_mode": 0,
+      "max_bitrate": 0,
+      "digital_volume_control": true,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      },
+      "display": {
+        "playing_mode": {
+          "value": "2",
+          "options": [
+            {
+              "value": "0",
+              "label": "Nothing"
+            },
+            {
+              "value": "1",
+              "label": "Elapsed Time"
+            },
+            {
+              "value": "2",
+              "label": "Remaining Time"
+            },
+            {
+              "value": "3",
+              "label": "Small VU"
+            },
+            {
+              "value": "4",
+              "label": "Small VU and Elapsed Time"
+            },
+            {
+              "value": "5",
+              "label": "Small VU and Remaining Time"
+            },
+            {
+              "value": "6",
+              "label": "Small Spectrum"
+            },
+            {
+              "value": "7",
+              "label": "Small Spectrum and Elapsed Time"
+            },
+            {
+              "value": "8",
+              "label": "Small Spectrum and Remaining Time"
+            },
+            {
+              "value": "9",
+              "label": "Spectrum Analyzer"
+            },
+            {
+              "value": "10",
+              "label": "Spectrum Analyzer and Elapsed Time"
+            },
+            {
+              "value": "11",
+              "label": "Spectrum Analyzer and Remaining Time"
+            }
+          ]
+        },
+        "text_size": {
+          "value": "0",
+          "options": [
+            {
+              "value": "0",
+              "label": "Light"
+            },
+            {
+              "value": "1",
+              "label": "Standard"
+            },
+            {
+              "value": "2",
+              "label": "Full"
+            }
+          ]
+        },
+        "text_size_off": {
+          "value": "1",
+          "options": [
+            {
+              "value": "0",
+              "label": "Light"
+            },
+            {
+              "value": "1",
+              "label": "Standard"
+            },
+            {
+              "value": "2",
+              "label": "Full"
+            }
+          ]
+        },
+        "brightness_on": {
+          "value": "3",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        },
+        "brightness_off": {
+          "value": "1",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        },
+        "brightness_idle": {
+          "value": "2",
+          "options": [
+            {
+              "value": "4",
+              "label": "4 (Brightest)"
+            },
+            {
+              "value": "3",
+              "label": "3"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            },
+            {
+              "value": "1",
+              "label": "1 (Dimmest)"
+            },
+            {
+              "value": "0",
+              "label": "0 (Dark)"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (no display)": {
+    "status": 400,
+    "body": {
+      "error": "this player has no text_size"
+    }
+  },
+  "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (bad transition)": {
+    "status": 400,
+    "body": {
+      "error": "transition_type must be 0–4"
+    }
+  },
+  "POST /api/v1/library/scan (rescan playlists)": {
+    "status": 200,
+    "body": {}
+  },
+  "GET /api/v1/spotify (no spotify)": {
+    "status": 200,
+    "body": {
+      "signed_in": false
+    }
+  }
+}

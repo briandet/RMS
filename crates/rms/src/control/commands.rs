@@ -883,6 +883,27 @@ pub async fn expand_item(server: &Arc<Server>, item: &str) -> Vec<Entry> {
     if crate::util::is_remote_url(&url) {
         return vec![Entry::new(url)];
     }
+    // a library album, artist, genre or year saved as a favorite
+    if url.starts_with("db:") {
+        use crate::control::jive::favorites::{resolve_db, DbObject};
+        let lib_server = server.clone();
+        let db_url = url.clone();
+        let tracks = tokio::task::spawn_blocking(move || {
+            let mut f = rms_library::TrackFilter::default();
+            match resolve_db(&lib_server, &db_url)? {
+                DbObject::Album(id) => f.album_id = Some(id),
+                DbObject::Artist(id) => f.artist_id = id.parse().ok(),
+                DbObject::Genre(id) => f.genre_id = Some(id),
+                DbObject::Year(y) => f.year = y.parse().ok(),
+            }
+            lib_server.library.tracks_for(&f).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+        return tracks.iter().map(|t| server.entry_for_track(t)).collect();
+    }
     if let Some(path) = crate::util::path_from_file_url(&url) {
         if path.is_dir() {
             let lib_tracks = server.library.tracks_for(&rms_library::TrackFilter {

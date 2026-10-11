@@ -12,8 +12,10 @@
 //   #/library/favorites/<id>?name=  favorites sub-folder
 //   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
 
-import { rpc, itemArt, coverUrl, portraitUrl } from '../api.js';
-import { store } from '../store.js';
+import {
+  getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
+  getPlaylist, getPlaylistTracks, getFavorites, getSpotify, getSpotifyItems, sizedArtwork,
+} from '../api.js';
 import { h, fmtDuration, plural, storage, toast } from '../util.js';
 import {
   enc, pager, list, row, trackRow, albumCard, albumGrid, actionButtons, bigActions,
@@ -25,8 +27,6 @@ const TABS = [
   ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['spotify', 'Spotify'],
 ];
 const TAB_OF = { artist: 'artists', album: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
-const ALBUM_TAGS = 'tags:ljaysSKw';
-const TRACK_TAGS = 'tags:aAdlntuKceis';
 
 const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
@@ -80,62 +80,54 @@ const ROUTES = {
     const ul = list('Artists');
     v.body.append(ul);
     let lastKey = null;
-    pager(v, ul, async (start, count) => {
-      const r = await rpc(['artists', start, count, 'tags:s4']);
-      return { items: r.artists_loop || [], total: r.count };
-    }, (a) => {
+    pager(v, ul, (offset, limit) => getArtists({ offset, limit }), (a) => {
       const out = [];
-      if (a.textkey && a.textkey !== lastKey) {
-        lastKey = a.textkey;
-        out.push(h('li', { class: 'letter', 'aria-hidden': 'true' }, a.textkey));
+      if (a.letter && a.letter !== lastKey) {
+        lastKey = a.letter;
+        out.push(h('li', { class: 'letter', 'aria-hidden': 'true' }, a.letter));
       }
       out.push(row({
-        href: `#/library/artist/${enc(a.id)}?name=${enc(a.artist)}`,
-        title: a.artist, iconName: 'person', art: portraitUrl(a.portraitid, 80) ?? undefined, cls: 'artist',
-        actions: actionButtons(v.ctx, 'artist_id', a.id, a.artist, { compact: true }),
+        href: `#/library/artist/${enc(a.id)}?name=${enc(a.name)}`,
+        title: a.name, iconName: 'person', art: sizedArtwork(a.portrait, 80) ?? undefined, cls: 'artist',
+        actions: actionButtons(v.ctx, 'artist_id', a.id, a.name, { compact: true }),
       }));
       return out;
     }, { empty: NO_MUSIC() });
   },
 
   async artist(v, id) {
-    const r = await rpc(['artists', 0, 1, `artist_id:${id}`, 'tags:4']).catch(() => ({}));
+    const a = await getArtist(id).catch(() => ({}));
     if (!v.alive) return;
-    const a = r.artists_loop?.[0] || {};
-    const name = v.query.get('name') || a.artist || 'Artist';
+    const name = v.query.get('name') || a.name || 'Artist';
     v.crumbs([crumbRoot('artists'), { label: name }]);
     const countEl = h('span');
-    const art = a.portraitid ? portraitUrl(a.portraitid, 400) : undefined;
+    const art = a.portrait ? sizedArtwork(a.portrait, 400) : undefined;
     const head = pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'artist_id', id, name), art, iconName: 'person' });
     head.classList.add('artist');
     v.body.append(head);
-    albumsGrid(v, [`artist_id:${id}`], (total) => { countEl.textContent = plural(total, 'album'); });
+    albumsGrid(v, { artist: id }, (total) => { countEl.textContent = plural(total, 'album'); });
   },
 
   // ------------------------------------------------------------ albums
   albums(v) {
     v.crumbs([crumbRoot('albums')]);
-    const sorts = [['album', 'Title'], ['artflow', 'Artist'], ['new', 'Recently added']];
-    let sort = storage.get('rms.albumSort', 'album');
-    if (!sorts.some(([k]) => k === sort)) sort = 'album';
+    const sorts = [['title', 'Title'], ['artist', 'Artist'], ['added', 'Recently added']];
+    let sort = storage.get('rms.albumSort', 'title');
+    if (!sorts.some(([k]) => k === sort)) sort = 'title';
     const countEl = h('span', { class: 'muted' });
     const select = h('select', { 'aria-label': 'Sort albums', onchange: (e) => { storage.set('rms.albumSort', e.target.value); v.ctx.reload(); } },
       sorts.map(([k, l]) => h('option', { value: k, selected: k === sort }, l)));
     v.body.append(h('div', { class: 'toolbar' }, countEl, h('label', { class: 'sort' }, 'Sort ', select)));
-    albumsGrid(v, [`sort:${sort}`], (total) => { countEl.textContent = plural(total, 'album'); }, NO_MUSIC());
+    albumsGrid(v, { sort }, (total) => { countEl.textContent = plural(total, 'album'); }, NO_MUSIC());
   },
 
   async album(v, id) {
     v.crumbs([crumbRoot('albums'), { label: v.query.get('name') || 'Album' }]);
     v.body.append(loadingBox());
-    const [info, tr] = await Promise.all([
-      rpc(['albums', 0, 1, ALBUM_TAGS, `album_id:${id}`]).catch(() => ({})),
-      rpc(['titles', 0, 500, TRACK_TAGS, `album_id:${id}`, 'sort:tracknum']),
-    ]);
+    const a = await getAlbum(id);
     if (!v.alive) return;
-    const tracks = tr.titles_loop || [];
-    const a = info.albums_loop?.[0] || {};
-    const title = a.album || tracks[0]?.album || v.query.get('name') || 'Album';
+    const tracks = a.tracks || [];
+    const title = a.title || tracks[0]?.album || v.query.get('name') || 'Album';
     const artist = a.artist || tracks[0]?.artist || '';
     const artistId = a.artist_id ?? tracks[0]?.artist_id;
     const crumbs = [];
@@ -144,8 +136,8 @@ const ROUTES = {
     crumbs.push({ label: title });
     v.crumbs(crumbs);
 
-    const total = tracks.reduce((s, t) => s + (+t.duration || 0), 0);
-    const art = itemArt(a, 600) || coverUrl(tracks[0]?.coverid, 600);
+    const total = a.duration || tracks.reduce((s, t) => s + (+t.duration || 0), 0);
+    const art = sizedArtwork(a.artwork || tracks.find((t) => t.artwork)?.artwork, 600);
     const sub = h('div', {},
       artist && (artistId != null
         ? h('a', { href: `#/library/artist/${enc(artistId)}?name=${enc(artist)}` }, artist)
@@ -162,7 +154,7 @@ const ROUTES = {
         ul.append(h('li', { class: 'letter' }, `Disc ${t.disc}`));
       }
       ul.append(trackRow(v.ctx, t, {
-        number: t.tracknum || i + 1,
+        number: t.track_number || i + 1,
         showArtist: t.artist && t.artist !== artist,
         onPlay: () => playFrom(v.ctx, 'album_id', id, i, t.title),
       }));
@@ -177,12 +169,9 @@ const ROUTES = {
     v.crumbs([crumbRoot('genres')]);
     const ul = list('Genres');
     v.body.append(ul);
-    pager(v, ul, async (start, count) => {
-      const r = await rpc(['genres', start, count]);
-      return { items: r.genres_loop || [], total: r.count };
-    }, (g) => row({
-      href: `#/library/genre/${enc(g.id)}?name=${enc(g.genre)}`, title: g.genre, iconName: 'genre',
-      actions: actionButtons(v.ctx, 'genre_id', g.id, g.genre, { compact: true }),
+    pager(v, ul, (offset, limit) => getGenres({ offset, limit }), (g) => row({
+      href: `#/library/genre/${enc(g.id)}?name=${enc(g.name)}`, title: g.name, iconName: 'genre',
+      actions: actionButtons(v.ctx, 'genre_id', g.id, g.name, { compact: true }),
     }), { empty: NO_MUSIC() });
   },
 
@@ -191,7 +180,7 @@ const ROUTES = {
     v.crumbs([crumbRoot('genres'), { label: name }]);
     const countEl = h('span');
     v.body.append(pageHeader({ title: name, sub: countEl, actions: bigActions(v.ctx, 'genre_id', id, name) }));
-    albumsGrid(v, [`genre_id:${id}`], (t) => { countEl.textContent = plural(t, 'album'); });
+    albumsGrid(v, { genre: id }, (t) => { countEl.textContent = plural(t, 'album'); });
   },
 
   // ------------------------------------------------------------ years
@@ -199,10 +188,7 @@ const ROUTES = {
     v.crumbs([crumbRoot('years')]);
     const ul = list('Years');
     v.body.append(ul);
-    pager(v, ul, async (start, count) => {
-      const r = await rpc(['years', start, count]);
-      return { items: r.years_loop || [], total: r.count };
-    }, (y) => {
+    pager(v, ul, (offset, limit) => getYears({ offset, limit }), (y) => {
       const label = +y.year ? String(y.year) : 'Unknown year';
       return row({
         href: `#/library/year/${enc(y.year)}`, title: label, iconName: 'calendar',
@@ -216,7 +202,7 @@ const ROUTES = {
     v.crumbs([crumbRoot('years'), { label }]);
     const countEl = h('span');
     v.body.append(pageHeader({ title: label, sub: countEl, actions: bigActions(v.ctx, 'year', year, label) }));
-    albumsGrid(v, [`year:${year}`], (t) => { countEl.textContent = plural(t, 'album'); });
+    albumsGrid(v, { year }, (t) => { countEl.textContent = plural(t, 'album'); });
   },
 
   // ------------------------------------------------------------ folders
@@ -231,13 +217,8 @@ const ROUTES = {
     v.body.append(ul);
     const items = [];
     let subfolders = false;
-    pager(v, ul, async (start, count) => {
-      const cmd = ['musicfolder', start, count, 'tags:dutcJK'];
-      if (id) cmd.push(`folder_id:${id}`);
-      const r = await rpc(cmd);
-      return { items: r.folder_loop || [], total: r.count };
-    }, (f) => {
-      const name = f.filename || f.title || '—';
+    pager(v, ul, (offset, limit) => getFolder(id, { offset, limit }), (f) => {
+      const name = f.name || '—';
       if (f.type === 'folder') {
         subfolders = true;
         trails.folders.set(String(f.id), [...trail, { id: f.id, name }]);
@@ -248,7 +229,7 @@ const ROUTES = {
       }
       if (f.type === 'track') {
         const idx = items.push(f) - 1;
-        return trackRow(v.ctx, { ...f, title: f.title || name }, {
+        return trackRow(v.ctx, { ...f.track, id: f.id, title: f.track?.title || name }, {
           showArtist: false,
           // Inside a flat folder, queue the whole folder and start at this track.
           onPlay: () => (id && !subfolders
@@ -272,17 +253,15 @@ const ROUTES = {
     v.crumbs([crumbRoot('playlists')]);
     const ul = list('Playlists');
     v.body.append(ul);
-    pager(v, ul, async (start, count) => {
-      const r = await rpc(['playlists', start, count]);
-      return { items: r.playlists_loop || [], total: r.count };
-    }, (p) => row({
-      href: `#/library/playlist/${enc(p.id)}?name=${enc(p.playlist)}`, title: p.playlist, iconName: 'playlist',
-      actions: actionButtons(v.ctx, 'playlist_id', p.id, p.playlist, { compact: true }),
+    pager(v, ul, (offset, limit) => getPlaylists({ offset, limit }), (p) => row({
+      href: `#/library/playlist/${enc(p.id)}?name=${enc(p.name)}`, title: p.name, iconName: 'playlist',
+      actions: actionButtons(v.ctx, 'playlist_id', p.id, p.name, { compact: true }),
     }), { empty: 'No saved playlists.' });
   },
 
   async playlist(v, id) {
-    const name = v.query.get('name') || 'Playlist';
+    const name = v.query.get('name') || (await getPlaylist(id).catch(() => null))?.name || 'Playlist';
+    if (!v.alive) return;
     v.crumbs([crumbRoot('playlists'), { label: name }]);
     const sub = h('span');
     v.body.append(pageHeader({ title: name, sub, actions: bigActions(v.ctx, 'playlist_id', id, name), iconName: 'playlist' }));
@@ -290,10 +269,7 @@ const ROUTES = {
     ul.classList.add('tracks');
     v.body.append(ul);
     let duration = 0, n = 0;
-    pager(v, ul, async (start, count) => {
-      const r = await rpc(['playlists', 'tracks', start, count, `playlist_id:${id}`, 'tags:adlcuK']);
-      return { items: r.playlisttracks_loop || [], total: r.count };
-    }, (t, i) => {
+    pager(v, ul, (offset, limit) => getPlaylistTracks(id, { offset, limit }), (t, i) => {
       duration += +t.duration || 0;
       n++;
       sub.textContent = `${plural(n, 'track')}${duration ? ' · ' + fmtDuration(duration) : ''}`;
@@ -307,29 +283,21 @@ const ROUTES = {
     v.crumbs([crumbRoot('favorites'), ...trail.map((t) => ({ label: t.name, href: `#/library/favorites/${enc(t.id)}?name=${enc(t.name)}` }))]);
     const ul = list('Favorites');
     v.body.append(ul);
-    const favCmd = (action, itemId, label) => async () => {
-      if (!store.playerId) { toast('Select a player first', 'error'); return; }
-      const r = await v.ctx.cmd('favorites', 'playlist', action, `item_id:${itemId}`);
-      if (r) toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`);
-    };
-    pager(v, ul, async (start, count) => {
-      const cmd = ['favorites', 'items', start, count, 'want_url:1'];
-      if (id) cmd.push(`item_id:${id}`);
-      const r = await rpc(cmd);
-      return { items: r.loop_loop || [], total: r.count };
-    }, (f) => {
-      const name = f.name || f.title || '—';
-      const art = f.image ? itemArt({ image: f.image }) : undefined;
-      if (+f.hasitems && !+f.isaudio) {
+    pager(v, ul, (offset, limit) => getFavorites(id, { offset, limit }), (f) => {
+      const name = f.name || '—';
+      const art = f.artwork ? sizedArtwork(f.artwork, 80) : undefined;
+      const actions = f.playable ? actionButtons(v.ctx, 'favorite_id', f.id, name, { compact: true }) : null;
+      if (f.type === 'folder') {
         trails.favorites.set(String(f.id), [...trail, { id: f.id, name }]);
-        return row({ href: `#/library/favorites/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art });
+        return row({ href: `#/library/favorites/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art, actions });
       }
-      const run = (action) => favCmd(action === 'load' ? 'play' : action, f.id, name)();
+      if (!f.playable) return row({ title: name, iconName: 'link', art });
+      const stream = /^https?:/i.test(f.url || '');
       return row({
-        title: name, sub: f.type === 'audio' && /^https?:/i.test(f.url || '') ? 'Stream' : null,
-        iconName: /^https?:/i.test(f.url || '') ? 'radio' : 'heart', art,
-        label: `Play ${name}`, onActivate: () => run('load'),
-        actions: actionButtons(v.ctx, null, null, name, { compact: true, run }),
+        title: name, sub: stream ? 'Stream' : null,
+        iconName: stream ? 'radio' : 'heart', art,
+        label: `Play ${name}`, onActivate: () => v.ctx.playItem('load', 'favorite_id', f.id, name),
+        actions,
       });
     }, { empty: h('div', {}, h('p', {}, 'No favorites yet.'), h('p', { class: 'muted' }, 'Use the heart button on the Now Playing panel to save the current track or station.')) });
   },
@@ -339,9 +307,17 @@ const ROUTES = {
     const trail = id ? trails.spotify.get(String(id)) || [{ id, name: v.query.get('name') || 'Spotify' }] : [];
     v.crumbs([crumbRoot('spotify'), ...trail.map((t) => ({ label: t.name, href: `#/library/spotify/${enc(t.id)}?name=${enc(t.name)}` }))]);
     if (!id) {
-      const st = await rpc(['spotify', 'status']).catch(() => ({}));
+      let st;
+      try { st = await getSpotify(); } catch (e) {
+        if (e.status !== 404) throw e;
+        st = null;
+      }
       if (!v.alive) return;
-      if (!+st.signed_in) {
+      if (!st) {
+        v.body.append(emptyBox('Spotify is not available on this server.'));
+        return;
+      }
+      if (!st.signed_in) {
         v.body.append(emptyBox(h('div', {},
           h('p', {}, 'Not signed in to Spotify.'),
           h('p', { class: 'muted' }, 'Sign in under ', h('a', { href: '#/settings' }, 'Settings → Spotify'), ' (Spotify Premium is required).'))));
@@ -350,19 +326,9 @@ const ROUTES = {
     }
     const ul = list('Spotify');
     v.body.append(ul);
-    const spCmd = (action, itemId, label) => async () => {
-      if (!store.playerId) { toast('Select a player first', 'error'); return; }
-      const r = await v.ctx.cmd('spotify', 'playlist', action, `item_id:${itemId}`);
-      if (r) toast(`${{ play: 'Playing', add: 'Added to queue', insert: 'Playing next' }[action]}: ${label}`);
-    };
-    pager(v, ul, async (start, count) => {
-      const cmd = ['spotify', 'items', start, count, 'want_url:1'];
-      if (id) cmd.push(`item_id:${id}`);
-      const r = await rpc(cmd);
-      return { items: r.loop_loop || [], total: r.count };
-    }, (f) => {
-      const name = f.name || f.title || '—';
-      const art = f.image ? itemArt({ image: f.image }) : undefined;
+    pager(v, ul, (offset, limit) => getSpotifyItems(id, { offset, limit }), (f) => {
+      const name = f.name || '—';
+      const art = f.artwork ? sizedArtwork(f.artwork, 80) : undefined;
       if (f.type === 'search') {
         const input = h('input', { type: 'search', placeholder: 'Search Spotify', 'aria-label': 'Search Spotify', enterkeyhint: 'search' });
         const form = h('form', { class: 'inline-row sp-search', onsubmit: (e) => {
@@ -376,19 +342,16 @@ const ROUTES = {
         } }, input, h('button', { class: 'btn', type: 'submit' }, 'Search'));
         return h('li', { class: 'row' }, form);
       }
-      const run = (action) => spCmd(action === 'load' ? 'play' : action, f.id, name)();
-      const playable = +f.isaudio || f.type === 'playlist';
-      if (+f.hasitems && !+f.isaudio) {
+      const actions = f.playable ? actionButtons(v.ctx, 'spotify_id', f.id, name, { compact: true }) : null;
+      if (f.type === 'folder') {
         trails.spotify.set(String(f.id), [...trail, { id: f.id, name }]);
-        return row({
-          href: `#/library/spotify/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art,
-          actions: playable ? actionButtons(v.ctx, null, null, name, { compact: true, run }) : null,
-        });
+        return row({ href: `#/library/spotify/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art, actions });
       }
-      if (f.type === 'text') return row({ title: name, iconName: 'link' });
+      if (f.type === 'text' || !f.playable) return row({ title: name, iconName: 'link' });
       return row({
-        title: name, iconName: 'note', art, label: `Play ${name}`, onActivate: () => run('load'),
-        actions: actionButtons(v.ctx, null, null, name, { compact: true, run }),
+        title: name, iconName: 'note', art, label: `Play ${name}`,
+        onActivate: () => v.ctx.playItem('load', 'spotify_id', f.id, name),
+        actions,
       });
     }, { empty: 'Nothing here.' });
   },
@@ -398,10 +361,8 @@ const ROUTES = {
 function albumsGrid(v, filters, onTotal, empty = 'No albums found.') {
   const grid = albumGrid();
   v.body.append(grid);
-  pager(v, grid, async (start, count) => {
-    const r = await rpc(['albums', start, count, ALBUM_TAGS, ...filters]);
-    return { items: r.albums_loop || [], total: r.count };
-  }, (a) => albumCard(v.ctx, a), { pageSize: 60, empty, onFirst: onTotal });
+  pager(v, grid, (offset, limit) => getAlbums({ ...filters, offset, limit }),
+    (a) => albumCard(v.ctx, a), { pageSize: 60, empty, onFirst: onTotal });
 }
 
 /** Load a whole container (album/playlist/folder) and jump to one of its tracks. */

@@ -1,6 +1,6 @@
 // Search results: #/search?q=term
 
-import { rpc } from '../api.js';
+import { search, sizedArtwork } from '../api.js';
 import { h, plural } from '../util.js';
 import { enc, list, row, trackRow, albumCard, albumGrid, actionButtons, emptyBox, errorBox, loadingBox } from './common.js';
 
@@ -20,69 +20,53 @@ export function render(node, { query, ctx }) {
     return () => {};
   }
 
-  Promise.allSettled([
-    rpc(['search', 0, 20, `term:${q}`]),
-    rpc(['albums', 0, 24, 'tags:ljaysSKw', `search:${q}`]),
-  ]).then(([res, alb]) => {
+  search(q, 24).then((r) => {
     if (!alive) return;
-    if (res.status === 'rejected' && alb.status === 'rejected') {
-      body.replaceChildren(errorBox(res.reason, () => ctx.reload()));
-      return;
-    }
-    const r = res.status === 'fulfilled' ? res.value : {};
     const sections = [];
 
-    const artists = r.contributors_loop || [];
+    const artists = r.artists?.items || [];
     if (artists.length) {
       const ul = list('Artists');
       for (const a of artists) {
         ul.append(row({
-          href: `#/library/artist/${enc(a.contributor_id)}?name=${enc(a.contributor)}`,
-          title: a.contributor, iconName: 'person',
-          actions: actionButtons(ctx, 'artist_id', a.contributor_id, a.contributor, { compact: true }),
+          href: `#/library/artist/${enc(a.id)}?name=${enc(a.name)}`,
+          title: a.name, iconName: 'person', art: a.portrait ? sizedArtwork(a.portrait, 80) : undefined, cls: 'artist',
+          actions: actionButtons(ctx, 'artist_id', a.id, a.name, { compact: true }),
         }));
       }
-      sections.push(section('Artists', r.contributors_count ?? artists.length, ul));
+      sections.push(section('Artists', r.artists.total, ul));
     }
 
-    // Prefer the albums query (has artwork); fall back to search's albums_loop.
-    const albums = alb.status === 'fulfilled' ? alb.value.albums_loop || [] : [];
+    const albums = r.albums?.items || [];
     if (albums.length) {
       const grid = albumGrid();
       for (const a of albums) grid.append(albumCard(ctx, a));
-      sections.push(section('Albums', alb.value.count ?? albums.length, grid));
-    } else if (r.albums_loop?.length) {
-      const ul = list('Albums');
-      for (const a of r.albums_loop) {
-        ul.append(row({
-          href: `#/library/album/${enc(a.album_id)}?name=${enc(a.album)}`, title: a.album, iconName: 'album',
-          actions: actionButtons(ctx, 'album_id', a.album_id, a.album, { compact: true }),
-        }));
-      }
-      sections.push(section('Albums', r.albums_count ?? r.albums_loop.length, ul));
+      sections.push(section('Albums', r.albums.total, grid));
     }
 
-    const tracks = r.tracks_loop || [];
+    const tracks = r.tracks?.items || [];
     if (tracks.length) {
       const ul = list('Tracks');
       ul.classList.add('tracks');
-      for (const t of tracks) ul.append(trackRow(ctx, { ...t, id: t.track_id, title: t.track || t.title }, { showAlbum: true }));
-      sections.push(section('Tracks', r.tracks_count ?? tracks.length, ul));
+      for (const t of tracks) ul.append(trackRow(ctx, t, { showAlbum: true }));
+      sections.push(section('Tracks', r.tracks.total, ul));
     }
 
-    const genres = r.genres_loop || [];
+    const genres = r.genres?.items || [];
     if (genres.length) {
       const ul = list('Genres');
       for (const g of genres) {
         ul.append(row({
-          href: `#/library/genre/${enc(g.genre_id)}?name=${enc(g.genre)}`, title: g.genre, iconName: 'genre',
-          actions: actionButtons(ctx, 'genre_id', g.genre_id, g.genre, { compact: true }),
+          href: `#/library/genre/${enc(g.id)}?name=${enc(g.name)}`, title: g.name, iconName: 'genre',
+          actions: actionButtons(ctx, 'genre_id', g.id, g.name, { compact: true }),
         }));
       }
-      sections.push(section('Genres', r.genres_count ?? genres.length, ul));
+      sections.push(section('Genres', r.genres.total, ul));
     }
 
     body.replaceChildren(...(sections.length ? sections : [emptyBox(`Nothing matches “${q}”.`)]));
+  }, (e) => {
+    if (alive) body.replaceChildren(errorBox(e, () => ctx.reload()));
   });
 
   return () => { alive = false; };

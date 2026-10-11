@@ -3,8 +3,13 @@
 
 pub mod commands;
 pub mod events;
+pub mod library;
 pub mod model;
+pub mod services;
+pub mod settings;
 pub mod state;
+#[cfg(test)]
+mod typescript;
 
 use crate::server::Server;
 use axum::extract::rejection::JsonRejection;
@@ -13,8 +18,14 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use model::{ApiError, Command};
-use serde::Deserialize;
+use commands::CommandError;
+use library::{AlbumParams, FolderParams, LibraryError, ListParams};
+use model::{
+    ApiError, Command, NewFavorite, PlayerSettingsPatch, ScanRequest, ServerSettingsPatch,
+    SpotifyLogin,
+};
+use serde::{Deserialize, Serialize};
+use services::MenuParams;
 use std::sync::Arc;
 
 pub fn router() -> Router<Arc<Server>> {
@@ -24,8 +35,41 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/players/{id}", get(get_player))
         .route("/api/v1/players/{id}/queue", get(get_queue))
         .route("/api/v1/players/{id}/command", post(post_command))
+        .route(
+            "/api/v1/players/{id}/settings",
+            get(get_player_settings).patch(patch_player_settings),
+        )
         .route("/api/v1/events", get(events::handle))
-        .route("/api/v1/{*rest}", get(not_found).post(not_found))
+        .route("/api/v1/artists", get(get_artists))
+        .route("/api/v1/artists/{id}", get(get_artist))
+        .route("/api/v1/albums", get(get_albums))
+        .route("/api/v1/albums/{id}", get(get_album))
+        .route("/api/v1/genres", get(get_genres))
+        .route("/api/v1/years", get(get_years))
+        .route("/api/v1/tracks", get(get_tracks))
+        .route("/api/v1/playlists", get(get_playlists))
+        .route("/api/v1/playlists/{id}", get(get_playlist))
+        .route("/api/v1/playlists/{id}/tracks", get(get_playlist_tracks))
+        .route("/api/v1/folders", get(get_folder))
+        .route("/api/v1/search", get(get_search))
+        .route("/api/v1/favorites", get(get_favorites).post(post_favorite))
+        .route(
+            "/api/v1/favorites/{id}",
+            axum::routing::delete(delete_favorite),
+        )
+        .route("/api/v1/spotify", get(get_spotify))
+        .route("/api/v1/spotify/items", get(get_spotify_items))
+        .route("/api/v1/spotify/login", post(post_spotify_login))
+        .route("/api/v1/spotify/logout", post(post_spotify_logout))
+        .route("/api/v1/settings", get(get_settings).patch(patch_settings))
+        .route("/api/v1/library/scan", post(post_scan))
+        .route(
+            "/api/v1/{*rest}",
+            get(not_found)
+                .post(not_found)
+                .patch(not_found)
+                .delete(not_found),
+        )
 }
 
 fn error(status: StatusCode, msg: impl Into<String>) -> Response {
@@ -65,7 +109,7 @@ struct Page {
 async fn get_queue(
     State(server): State<Arc<Server>>,
     Path(id): Path<String>,
-    Query(page): Query<Page>,
+    ApiQuery(page): ApiQuery<Page>,
 ) -> Response {
     let limit = page.limit.unwrap_or(usize::MAX);
     match state::queue(&server, &id, page.offset, limit) {
@@ -77,18 +121,245 @@ async fn get_queue(
 async fn post_command(
     State(server): State<Arc<Server>>,
     Path(id): Path<String>,
-    body: Result<Json<Command>, JsonRejection>,
+    b: Result<Json<Command>, JsonRejection>,
 ) -> Response {
     let Some(p) = server.resolve_client(&id) else {
         return unknown_player(&id);
     };
-    let cmd = match body {
-        Ok(Json(c)) => c,
-        Err(e) => return error(StatusCode::BAD_REQUEST, e.body_text()),
+    let cmd = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
     };
-    match commands::run(&server, &p, cmd).await {
-        Ok(r) => Json(r).into_response(),
-        Err(commands::CommandError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
-        Err(commands::CommandError::Failed(m)) => error(StatusCode::UNPROCESSABLE_ENTITY, m),
+    reply(commands::run(&server, &p, cmd).await)
+}
+
+fn reply<T: Serialize>(r: Result<T, CommandError>) -> Response {
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(CommandError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
+        Err(CommandError::Failed(m)) => error(StatusCode::UNPROCESSABLE_ENTITY, m),
+    }
+}
+
+/// `{}` for a done action.
+fn done(r: Result<(), CommandError>) -> Response {
+    reply(r.map(|()| serde_json::json!({})))
+}
+
+/// `Query`, answering a bad query string with `{"error": …}` like everything else.
+struct ApiQuery<T>(T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ApiQuery<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Query(v)| ApiQuery(v))
+            .map_err(|e| error(StatusCode::BAD_REQUEST, e.body_text()))
+    }
+}
+
+/// `Path`, answering a bad path parameter with `{"error": …}`.
+struct ApiPath<T>(T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ApiPath<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Path::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Path(v)| ApiPath(v))
+            .map_err(|e| error(StatusCode::NOT_FOUND, e.body_text()))
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn body<T>(b: Result<Json<T>, JsonRejection>) -> Result<T, Response> {
+    b.map(|Json(v)| v)
+        .map_err(|e| error(StatusCode::BAD_REQUEST, e.body_text()))
+}
+
+fn library_reply<T: Serialize>(r: Result<T, LibraryError>, what: &str) -> Response {
+    match r {
+        Ok(v) => Json(v).into_response(),
+        Err(LibraryError::NotFound) => error(StatusCode::NOT_FOUND, format!("no such {}", what)),
+        Err(LibraryError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
+        Err(LibraryError::Failed(m)) => error(StatusCode::INTERNAL_SERVER_ERROR, m),
+    }
+}
+
+// ---------------------------------------------------------------- library
+
+async fn get_artists(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+    library_reply(library::artists(&s, p).await, "artist")
+}
+
+async fn get_artist(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::artist_by_id(&s, id).await, "artist")
+}
+
+async fn get_albums(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<AlbumParams>) -> Response {
+    library_reply(library::albums(&s, p).await, "album")
+}
+
+async fn get_album(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::album_by_id(&s, id).await, "album")
+}
+
+async fn get_genres(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+    library_reply(library::genres(&s, p).await, "genre")
+}
+
+async fn get_years(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+    library_reply(library::years(&s, p).await, "year")
+}
+
+async fn get_tracks(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+    library_reply(library::tracks(&s, p).await, "track")
+}
+
+async fn get_playlists(
+    State(s): State<Arc<Server>>,
+    ApiQuery(p): ApiQuery<ListParams>,
+) -> Response {
+    library_reply(library::playlists(&s, p).await, "playlist")
+}
+
+async fn get_playlist(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::playlist_by_id(&s, id).await, "playlist")
+}
+
+async fn get_playlist_tracks(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(p): ApiQuery<ListParams>,
+) -> Response {
+    library_reply(library::playlist_tracks(&s, id, p).await, "playlist")
+}
+
+async fn get_folder(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<FolderParams>) -> Response {
+    library_reply(library::folder(&s, p).await, "folder")
+}
+
+async fn get_search(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+    library_reply(library::search(&s, p).await, "result")
+}
+
+// ---------------------------------------------------------------- favorites, Spotify
+
+async fn get_favorites(
+    State(s): State<Arc<Server>>,
+    ApiQuery(p): ApiQuery<MenuParams>,
+) -> Response {
+    reply(services::menu(&s, "favorites", p).await)
+}
+
+async fn post_favorite(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<NewFavorite>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(f) => done(services::add_favorite(&s, f).await),
+        Err(r) => r,
+    }
+}
+
+async fn delete_favorite(State(s): State<Arc<Server>>, Path(id): Path<String>) -> Response {
+    done(services::delete_favorite(&s, &id).await)
+}
+
+fn no_spotify() -> Response {
+    error(StatusCode::NOT_FOUND, "Spotify is not available")
+}
+
+async fn get_spotify(State(s): State<Arc<Server>>) -> Response {
+    if !services::spotify_available() {
+        return no_spotify();
+    }
+    reply(services::spotify_status(&s).await)
+}
+
+async fn get_spotify_items(
+    State(s): State<Arc<Server>>,
+    ApiQuery(p): ApiQuery<MenuParams>,
+) -> Response {
+    if !services::spotify_available() {
+        return no_spotify();
+    }
+    reply(services::menu(&s, "spotify", p).await)
+}
+
+async fn post_spotify_login(
+    State(s): State<Arc<Server>>,
+    b: Option<Json<SpotifyLogin>>,
+) -> Response {
+    if !services::spotify_available() {
+        return no_spotify();
+    }
+    let login = b.map(|Json(l)| l).unwrap_or_default();
+    reply(services::spotify_login(&s, login).await)
+}
+
+async fn post_spotify_logout(State(s): State<Arc<Server>>) -> Response {
+    if !services::spotify_available() {
+        return no_spotify();
+    }
+    done(services::spotify_logout(&s).await)
+}
+
+// ---------------------------------------------------------------- settings
+
+async fn get_settings(State(s): State<Arc<Server>>) -> Response {
+    Json(settings::server_settings(&s)).into_response()
+}
+
+async fn patch_settings(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<ServerSettingsPatch>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(patch) => reply(settings::update_server_settings(&s, patch).await),
+        Err(r) => r,
+    }
+}
+
+async fn post_scan(State(s): State<Arc<Server>>, b: Option<Json<ScanRequest>>) -> Response {
+    let mode = b.and_then(|Json(r)| r.mode).unwrap_or_default();
+    done(settings::scan(&s, mode).await)
+}
+
+async fn get_player_settings(State(s): State<Arc<Server>>, Path(id): Path<String>) -> Response {
+    match s.resolve_client(&id) {
+        Some(p) => Json(settings::player_settings(&s, &p)).into_response(),
+        None => unknown_player(&id),
+    }
+}
+
+async fn patch_player_settings(
+    State(s): State<Arc<Server>>,
+    Path(id): Path<String>,
+    b: Result<Json<PlayerSettingsPatch>, JsonRejection>,
+) -> Response {
+    let Some(p) = s.resolve_client(&id) else {
+        return unknown_player(&id);
+    };
+    match body(b) {
+        Ok(patch) => reply(settings::update_player_settings(&s, &p, patch).await),
+        Err(r) => r,
     }
 }

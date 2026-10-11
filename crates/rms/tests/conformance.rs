@@ -313,6 +313,7 @@ fn post(http: u16, body: Value) -> Value {
 
 /// Keys whose values change from run to run.
 const VOLATILE: &[&str] = &[
+    "version",
     "uuid",
     "ip",
     "player_ip",
@@ -370,7 +371,8 @@ impl Golden {
             Value::Object(m) => {
                 let mut out = Map::new();
                 for (k, v) in m {
-                    let nv = if VOLATILE.contains(&k.as_str()) && !v.is_null() {
+                    let scalar = v.is_string() || v.is_number();
+                    let nv = if VOLATILE.contains(&k.as_str()) && scalar {
                         json!("<volatile>")
                     } else {
                         self.normalize(v, Some(k))
@@ -928,6 +930,185 @@ fn squeezebox3_screens() {
     press(p, "left", LEFT);
     press(p, "left: My Music", LEFT);
     g.check("squeezebox3_screens", &Value::Object(screens));
+}
+
+/// The native API as the web UI uses it: library browsing, search, favorites, settings.
+#[test]
+fn native_api() {
+    need_ffmpeg!();
+    let f = fixture();
+    let g = Golden::new(&f);
+    let http = f.server.http;
+    let mut out = Map::new();
+    let mut call = |name: &str, method: &str, path: &str, body: Option<Value>| -> Value {
+        let body = body.map(|b| b.to_string());
+        let (code, text) = http_json(http, method, path, body.as_deref());
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::String(text));
+        let v = json!({ "status": code, "body": v });
+        out.insert(format!("{method} {path} ({name})"), v.clone());
+        v["body"].clone()
+    };
+    macro_rules! get {
+        ($name:expr, $path:expr $(,)?) => {
+            call($name, "GET", $path, None)
+        };
+    }
+
+    get!("artists", "/api/v1/artists");
+    get!("artists page", "/api/v1/artists?offset=1&limit=2",);
+    get!("artist", "/api/v1/artists/2");
+    get!("unknown artist", "/api/v1/artists/999");
+    get!("albums", "/api/v1/albums");
+    get!("albums by artist", "/api/v1/albums?sort=artist");
+    get!("recently added", "/api/v1/albums?sort=added");
+    get!("bad sort", "/api/v1/albums?sort=size");
+    get!("albums of artist", "/api/v1/albums?artist=3");
+    get!("albums of genre", "/api/v1/albums?genre=1");
+    get!("albums of year", "/api/v1/albums?year=2005");
+    get!("albums page", "/api/v1/albums?offset=1&limit=1&sort=artist",);
+    get!("bad limit", "/api/v1/albums?limit=many");
+    get!("bad id", "/api/v1/albums/first");
+    get!("album", "/api/v1/albums/1");
+    get!("compilation", "/api/v1/albums/3");
+    get!("unknown album", "/api/v1/albums/999");
+    get!("genres", "/api/v1/genres");
+    get!("years", "/api/v1/years");
+    get!("tracks", "/api/v1/tracks?limit=2");
+    let top = get!("top folder", "/api/v1/folders");
+    let alpha = top["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["name"] == "Alpha Band")
+        .expect("Alpha Band folder")["id"]
+        .clone();
+    let first = get!("artist folder", &format!("/api/v1/folders?id={alpha}"),);
+    let album_dir = first["items"][0]["id"].clone();
+    get!("album folder", &format!("/api/v1/folders?id={album_dir}"),);
+    get!("search", "/api/v1/search?q=light");
+    get!("search two words", "/api/v1/search?q=beta%20wind",);
+    get!("search without words", "/api/v1/search");
+    get!("favorites", "/api/v1/favorites");
+    get!("favorites folder", "/api/v1/favorites?id=0");
+    get!("favorites page", "/api/v1/favorites?offset=1&limit=1",);
+    get!("folder page", "/api/v1/folders?offset=1&limit=1");
+    get!("search page", "/api/v1/search?q=a&offset=0&limit=1",);
+
+    // playlists: save the queue, then browse it
+    let pid = MAC_S.replace(':', "%3A");
+    let enqueue = json!({"command": "enqueue", "item": {"type": "album", "id": 1}, "mode": "add"});
+    call(
+        "queue an album",
+        "POST",
+        &format!("/api/v1/players/{pid}/command"),
+        Some(enqueue),
+    );
+    let playlist_dir = tempfile::tempdir().unwrap();
+    let dir = playlist_dir.path().to_str().unwrap();
+    rpc(&f.server, "", json!(["pref", "playlistdir", dir]));
+    rpc(&f.server, MAC_S, json!(["playlist", "save", "Evening"]));
+    let lists = get!("playlists", "/api/v1/playlists");
+    let list = lists["items"][0]["id"].clone();
+    get!("playlist", &format!("/api/v1/playlists/{list}"));
+    assert!(list.is_number(), "a playlist was saved: {lists}");
+    get!(
+        "playlist tracks",
+        &format!("/api/v1/playlists/{list}/tracks"),
+    );
+    get!("unknown playlist", "/api/v1/playlists/999/tracks",);
+
+    // favorites: add, queue, delete
+    let fav = json!({"url": "http://radio.example.com/other.mp3", "title": "Other FM"});
+    call("add favorite", "POST", "/api/v1/favorites", Some(fav));
+    call(
+        "add favorite without url",
+        "POST",
+        "/api/v1/favorites",
+        Some(json!({"url": " ", "title": "x"})),
+    );
+    get!("favorites after add", "/api/v1/favorites");
+    let clear = json!({"command": "clear"});
+    call(
+        "clear",
+        "POST",
+        &format!("/api/v1/players/{pid}/command"),
+        Some(clear),
+    );
+    let fav_item =
+        json!({"command": "enqueue", "item": {"type": "favorite", "id": "1"}, "mode": "add"});
+    call(
+        "queue a favorite",
+        "POST",
+        &format!("/api/v1/players/{pid}/command"),
+        Some(fav_item),
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    get!("queue", &format!("/api/v1/players/{pid}/queue"));
+    call("delete favorite", "DELETE", "/api/v1/favorites/2", None);
+    get!("favorites after delete", "/api/v1/favorites");
+
+    // settings
+    get!("settings", "/api/v1/settings");
+    let patch = json!({"library_name": "Test Library", "online_artist_images": false});
+    call("change settings", "PATCH", "/api/v1/settings", Some(patch));
+    call(
+        "bad bitrate",
+        "PATCH",
+        "/api/v1/settings",
+        Some(json!({"spotify_bitrate": 100})),
+    );
+    call(
+        "unknown setting",
+        "PATCH",
+        "/api/v1/settings",
+        Some(json!({"colour": "red"})),
+    );
+    get!(
+        "player settings",
+        &format!("/api/v1/players/{pid}/settings"),
+    );
+    let sb3 = SB3.replace(':', "%3A");
+    get!(
+        "squeezebox settings",
+        &format!("/api/v1/players/{sb3}/settings"),
+    );
+    let patch = json!({"transition_type": 1, "transition_duration": 5, "dont_stop_the_music": "0"});
+    call(
+        "change player settings",
+        "PATCH",
+        &format!("/api/v1/players/{pid}/settings"),
+        Some(patch),
+    );
+    let patch = json!({"playing_mode": "2", "text_size": "0", "brightness_on": "3"});
+    call(
+        "change display settings",
+        "PATCH",
+        &format!("/api/v1/players/{sb3}/settings"),
+        Some(patch),
+    );
+    let patch = json!({"text_size": "0"});
+    call(
+        "no display",
+        "PATCH",
+        &format!("/api/v1/players/{pid}/settings"),
+        Some(patch),
+    );
+    let patch = json!({"transition_type": 9});
+    call(
+        "bad transition",
+        "PATCH",
+        &format!("/api/v1/players/{pid}/settings"),
+        Some(patch),
+    );
+    call(
+        "rescan playlists",
+        "POST",
+        "/api/v1/library/scan",
+        Some(json!({"mode": "playlists"})),
+    );
+    get!("no spotify", "/api/v1/spotify");
+
+    g.check("native_api", &Value::Object(out));
 }
 
 /// A 320×32 one-bit Squeezebox display (columns of 4 bytes, top bit first) as text.
