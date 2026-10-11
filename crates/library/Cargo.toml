@@ -33,6 +33,8 @@ rand = "0.9"
 bliss-audio = { version = "0.13", default-features = false, features = ["symphonia-all", "symphonia-alac", "symphonia-aiff"] }
 # Loudness (EBU R128) for files without ReplayGain tags, decoded with bliss's symphonia.
 ebur128 = "0.1"
+# FFTs for rhythm/key analysis (same version bliss-audio uses).
+rustfft = "6.4"
 symphonia = { version = "0.6", default-features = false }
 # Audio fingerprints (Chromaprint's, pure Rust): the same recording in the library and a stream.
 rusty-chromaprint = "0.3"
