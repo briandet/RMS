@@ -1,4 +1,5 @@
-// Library browser: Artists / Albums / Genres / Years / Folders / Playlists / Favorites / Spotify
+// Library browser: Artists / Albums / Genres / Years / Folders / Playlists / Favorites / Radio /
+// Spotify
 // with drill-down pages and breadcrumbs.
 //
 // Routes (hash):
@@ -10,11 +11,12 @@
 //   #/library/folders/<id>?name=    music folder contents
 //   #/library/playlist/<id>?name=   saved playlist tracks
 //   #/library/favorites/<id>?name=  favorites sub-folder
+//   #/library/radio/<id>?name=      radio provider / menu level (`radiobrowser.0_<term>` for a search)
 //   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
 
 import {
   getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
-  getPlaylist, getPlaylistTracks, getFavorites, getSpotify, getSpotifyItems, sizedArtwork,
+  getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
 } from '../api.js';
 import { h, fmtDuration, plural, storage, toast } from '../util.js';
 import {
@@ -24,7 +26,8 @@ import {
 
 const TABS = [
   ['artists', 'Artists'], ['albums', 'Albums'], ['genres', 'Genres'], ['years', 'Years'],
-  ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['spotify', 'Spotify'],
+  ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['radio', 'Radio'],
+  ['spotify', 'Spotify'],
 ];
 const TAB_OF = { artist: 'artists', album: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 
@@ -32,7 +35,7 @@ const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
 
 // Remember breadcrumb trails for hierarchical browsing (folders, favorites).
-const trails = { folders: new Map(), favorites: new Map(), spotify: new Map() };
+const trails = { folders: new Map(), favorites: new Map(), radio: new Map(), spotify: new Map() };
 
 export function render(node, { parts, query, ctx, scrollRoot }) {
   const section = parts[1] || 'albums';
@@ -302,6 +305,14 @@ const ROUTES = {
     }, { empty: h('div', {}, h('p', {}, 'No favorites yet.'), h('p', { class: 'muted' }, 'Use the heart button on the Now Playing panel to save the current track or station.')) });
   },
 
+  // ------------------------------------------------------------ radio
+  radio(v, id) {
+    serviceMenu(v, id, {
+      tab: 'radio', title: 'Radio', key: 'radio_id', fetch: getRadio,
+      search: 'Search stations', leafIcon: 'radio', empty: 'No stations here.',
+    });
+  },
+
   // ------------------------------------------------------------ spotify
   async spotify(v, id) {
     const trail = id ? trails.spotify.get(String(id)) || [{ id, name: v.query.get('name') || 'Spotify' }] : [];
@@ -324,38 +335,49 @@ const ROUTES = {
         return;
       }
     }
-    const ul = list('Spotify');
-    v.body.append(ul);
-    pager(v, ul, (offset, limit) => getSpotifyItems(id, { offset, limit }), (f) => {
-      const name = f.name || '—';
-      const art = f.artwork ? sizedArtwork(f.artwork, 80) : undefined;
-      if (f.type === 'search') {
-        const input = h('input', { type: 'search', placeholder: 'Search Spotify', 'aria-label': 'Search Spotify', enterkeyhint: 'search' });
-        const form = h('form', { class: 'inline-row sp-search', onsubmit: (e) => {
-          e.preventDefault();
-          const term = input.value.trim();
-          if (!term) return;
-          const sid = `${f.id}_${encodeURIComponent(term)}`;
-          const label = `Search: ${term}`;
-          trails.spotify.set(sid, [...trail, { id: sid, name: label }]);
-          location.hash = `#/library/spotify/${enc(sid)}?name=${enc(label)}`;
-        } }, input, h('button', { class: 'btn', type: 'submit' }, 'Search'));
-        return h('li', { class: 'row' }, form);
-      }
-      const actions = f.playable ? actionButtons(v.ctx, 'spotify_id', f.id, name, { compact: true }) : null;
-      if (f.type === 'folder') {
-        trails.spotify.set(String(f.id), [...trail, { id: f.id, name }]);
-        return row({ href: `#/library/spotify/${enc(f.id)}?name=${enc(name)}`, title: name, iconName: 'folder', art, actions });
-      }
-      if (f.type === 'text' || !f.playable) return row({ title: name, iconName: 'link' });
-      return row({
-        title: name, iconName: 'note', art, label: `Play ${name}`,
-        onActivate: () => v.ctx.playItem('load', 'spotify_id', f.id, name),
-        actions,
-      });
-    }, { empty: 'Nothing here.' });
+    serviceMenu(v, id, {
+      tab: 'spotify', title: 'Spotify', key: 'spotify_id', fetch: getSpotifyItems,
+      search: 'Search Spotify', leafIcon: 'note', empty: 'Nothing here.', crumbsDone: true,
+    });
   },
 };
+
+/** A service's menu level (Radio, Spotify): folders to open, search boxes, things to play. */
+function serviceMenu(v, id, { tab, title, key, fetch, search, leafIcon, empty, crumbsDone }) {
+  const trail = id ? trails[tab].get(String(id)) || [{ id, name: v.query.get('name') || title }] : [];
+  const href = (i, name) => `#/library/${tab}/${enc(i)}?name=${enc(name)}`;
+  if (!crumbsDone) v.crumbs([crumbRoot(tab), ...trail.map((t) => ({ label: t.name, href: href(t.id, t.name) }))]);
+  const ul = list(title);
+  v.body.append(ul);
+  pager(v, ul, (offset, limit) => fetch(id, { offset, limit }), (f) => {
+    const name = f.name || '—';
+    const art = f.artwork ? sizedArtwork(f.artwork, 80) : undefined;
+    if (f.type === 'search') {
+      const input = h('input', { type: 'search', placeholder: search, 'aria-label': search, enterkeyhint: 'search' });
+      const form = h('form', { class: 'inline-row sp-search', onsubmit: (e) => {
+        e.preventDefault();
+        const term = input.value.trim();
+        if (!term) return;
+        const sid = `${f.id}_${encodeURIComponent(term)}`;
+        const label = `Search: ${term}`;
+        trails[tab].set(sid, [...trail, { id: sid, name: label }]);
+        location.hash = href(sid, label);
+      } }, input, h('button', { class: 'btn', type: 'submit' }, 'Search'));
+      return h('li', { class: 'row' }, form);
+    }
+    const actions = f.playable ? actionButtons(v.ctx, key, f.id, name, { compact: true }) : null;
+    if (f.type === 'folder') {
+      trails[tab].set(String(f.id), [...trail, { id: f.id, name }]);
+      return row({ href: href(f.id, name), title: name, iconName: 'folder', art, actions });
+    }
+    if (f.type === 'text' || !f.playable) return row({ title: name, iconName: 'link' });
+    return row({
+      title: name, iconName: leafIcon, art, label: `Play ${name}`,
+      onActivate: () => v.ctx.playItem('load', key, f.id, name),
+      actions,
+    });
+  }, { empty });
+}
 
 /** Album grid with infinite scrolling. */
 function albumsGrid(v, filters, onTotal, empty = 'No albums found.') {

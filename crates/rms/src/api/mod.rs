@@ -61,6 +61,7 @@ pub fn router() -> Router<Arc<Server>> {
             "/api/v1/favorites/{id}",
             axum::routing::delete(delete_favorite),
         )
+        .route("/api/v1/radio", get(get_radio))
         .route("/api/v1/spotify", get(get_spotify).patch(patch_spotify))
         .route(
             "/api/v1/spotify/learned",
@@ -275,6 +276,10 @@ async fn get_favorites(
     ApiQuery(p): ApiQuery<MenuParams>,
 ) -> Response {
     reply(services::menu(&s, "favorites", p).await)
+}
+
+async fn get_radio(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<MenuParams>) -> Response {
+    reply(services::radio(&s, p).await)
 }
 
 async fn post_favorite(

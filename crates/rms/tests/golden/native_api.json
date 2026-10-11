@@ -1544,5 +1544,63 @@
       "learn": true,
       "learned": 0
     }
+  },
+  "GET /api/v1/radio (radio providers)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": "radiofavorites",
+          "name": "Favorite Stations",
+          "type": "folder",
+          "playable": false
+        },
+        {
+          "id": "radiodirectory",
+          "name": "Popular Stations",
+          "type": "folder",
+          "playable": false
+        },
+        {
+          "id": "radiobrowser",
+          "name": "Radio Browser",
+          "type": "folder",
+          "playable": false
+        }
+      ]
+    }
+  },
+  "GET /api/v1/radio?id=radiodirectory.0&limit=2 (radio directory)": {
+    "status": 200,
+    "body": {
+      "total": 3,
+      "offset": 0,
+      "items": [
+        {
+          "id": "radiodirectory.0.0",
+          "name": "Groove Salad",
+          "type": "audio",
+          "playable": true,
+          "url": "http://ice2.somafm.com/groovesalad-128-mp3",
+          "artwork": "imageproxy/https%3A%2F%2Fsomafm.com%2Fimg%2Fgroovesalad120.png/image"
+        },
+        {
+          "id": "radiodirectory.0.1",
+          "name": "Drone Zone",
+          "type": "audio",
+          "playable": true,
+          "url": "http://ice2.somafm.com/dronezone-128-mp3",
+          "artwork": "imageproxy/https%3A%2F%2Fsomafm.com%2Fimg%2Fdronezone120.jpg/image"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/radio?id=pref.0 (radio item from elsewhere)": {
+    "status": 400,
+    "body": {
+      "error": "unknown radio item pref.0"
+    }
   }
 }

@@ -1056,6 +1056,12 @@ fn native_api() {
         Some(json!({"mode": "playlists"})),
     );
     get!("no spotify", "/api/v1/spotify");
+    get!("radio providers", "/api/v1/radio");
+    get!(
+        "radio directory",
+        "/api/v1/radio?id=radiodirectory.0&limit=2"
+    );
+    get!("radio item from elsewhere", "/api/v1/radio?id=pref.0");
 
     g.check("native_api", &Value::Object(out));
 }

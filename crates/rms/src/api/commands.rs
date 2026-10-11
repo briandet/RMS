@@ -87,7 +87,12 @@ pub async fn run(
             };
             let entries = match item {
                 // a Spotify menu item plays as its menu says
-                Item::Spotify { id } => return spotify(server, p, &id, mode).await,
+                Item::Spotify { id } => return service_item(server, p, "spotify", &id, mode).await,
+                // so is a radio station, under its provider's tag (`radiobrowser.1.0`)
+                Item::Radio { id } => {
+                    let (tag, rest) = super::services::radio_id(&id)?;
+                    return service_item(server, p, tag, rest, mode).await;
+                }
                 other => core::entries_for(server, &core_item(other)).await,
             };
             PlayerCommand::Enqueue { entries, how }
@@ -149,14 +154,15 @@ fn core_item(item: Item) -> core::Item {
         Item::Folder { id } => core::Item::Folder(id),
         Item::Url { url } => core::Item::Url(url),
         Item::Favorite { id } => core::Item::Favorite(id),
-        Item::Spotify { id } => core::Item::Url(id),
+        Item::Spotify { id } | Item::Radio { id } => core::Item::Url(id),
     }
 }
 
-/// A Spotify menu item, queued as the Spotify menus queue it.
-async fn spotify(
+/// A Spotify or radio menu item, queued as its menu queues it.
+async fn service_item(
     server: &Arc<Server>,
     p: &Arc<Player>,
+    service: &str,
     id: &str,
     mode: EnqueueMode,
 ) -> Result<CommandResult, CommandError> {
@@ -165,7 +171,7 @@ async fn spotify(
         EnqueueMode::Add => "add",
         EnqueueMode::Next => "insert",
     };
-    let words = ["spotify", "playlist", verb, &format!("item_id:{id}")]
+    let words = [service, "playlist", verb, &format!("item_id:{id}")]
         .iter()
         .map(|s| s.to_string())
         .collect();

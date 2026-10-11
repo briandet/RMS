@@ -67,7 +67,7 @@
     "count": 0
   },
   "radios": {
-    "count": 2,
+    "count": 3,
     "radioss_loop": [
       {
         "cmd": "radiofavorites",
@@ -82,6 +82,13 @@
         "type": "xmlbrowser",
         "icon": "html/images/radio.png",
         "weight": 20
+      },
+      {
+        "cmd": "radiobrowser",
+        "name": "Radio Browser",
+        "type": "xmlbrowser",
+        "icon": "html/images/radio.png",
+        "weight": 30
       }
     ]
   },

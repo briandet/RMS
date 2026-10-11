@@ -197,7 +197,10 @@ The script builds a release binary (the web UI is built in), installs it as
   player (time entry, days, sound, shuffle, repeat, volume) like Lyrion's player screens.  The menus are the
   same Jive menus Squeezer uses, so everything browsable there is browsable on the player.
 * **Plugins**: Favorites (OPML, compatible with Lyrion's `favorites.opml`), alarm clock,
-  a small internet radio directory, Don't Stop The Music and Create Mix, Spotify (below).
+  internet radio (a few well-known stations, and the [Radio Browser](https://www.radio-browser.info)
+  directory: search, popular, top voted, by country, genre and language — in the web UI's
+  Library → Radio tab and under Radio on players and controllers), Don't Stop The Music and
+  Create Mix, Spotify (below).
 
 ### Don't Stop The Music and Create Mix
 
@@ -302,9 +305,9 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 
 * One transcoder (ffmpeg) replaces Lyrion's `convert.conf` helper chain (flac, sox, lame,
   faad…); per-format enable/disable is not configurable yet.
-* Only a few plugins exist (Favorites, alarms, radio directory, Don't Stop The Music,
-  Spotify).  Other streaming services (Qobuz, TIDAL…), the Random Mix plugin and the TuneIn
-  directory are not ported; Spotify, including Spotify Connect, is built in rather than
+* Only a few plugins exist (Favorites, alarms, internet radio, Don't Stop The Music,
+  Spotify).  Other streaming services (Qobuz, TIDAL…) and the Random Mix plugin are not
+  ported, and Radio Browser stands in for the TuneIn directory; Spotify, including Spotify Connect, is built in rather than
   through Spotty.
 * The on-screen menus follow the Jive menu layout (as on a Squeezebox Touch/Radio) rather
   than every legacy `Slim::Buttons` screen: e.g. track info lists Play / Add first.

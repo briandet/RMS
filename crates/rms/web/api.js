@@ -133,6 +133,8 @@ export const deleteFavorite = (id) => api(`favorites/${encodeURIComponent(id)}`,
 export const getSpotify = () => api('spotify');
 /** @returns {Promise<Page<BrowseItem>>} */
 export const getSpotifyItems = (id, p) => api(withQuery('spotify/items', { ...p, id }));
+/** Internet radio: the providers, then their menus (`id` from a BrowseItem). @returns {Promise<Page<BrowseItem>>} */
+export const getRadio = (id, p) => api(withQuery('radio', { ...p, id }));
 /** Without `code`: the sign-in page to open (`{url}`); with it: finish (`{user}`). @returns {Promise<SpotifyLoginResult>} */
 export const spotifyLogin = (code) => api('spotify/login', { method: 'POST', body: code ? { code } : {}, timeout: 60000 });
 export const spotifyLogout = () => api('spotify/logout', { method: 'POST', body: {} });
@@ -188,6 +190,7 @@ export function itemFor(key, value) {
   // favorites and Spotify menu items are addressed by their BrowseItem id string
   if (key === 'favorite_id') return { type: 'favorite', id: String(value) };
   if (key === 'spotify_id') return { type: 'spotify', id: String(value) };
+  if (key === 'radio_id') return { type: 'radio', id: String(value) };
   const type = ITEM_TYPES[key];
   return type ? { type, id: +value } : null;
 }

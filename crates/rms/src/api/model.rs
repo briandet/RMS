@@ -198,6 +198,10 @@ pub enum Item {
     Spotify {
         id: String,
     },
+    /// An internet radio station (`BrowseItem` id from `/radio`).
+    Radio {
+        id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]

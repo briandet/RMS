@@ -114,7 +114,7 @@
     "firmwareUpgrade": 0
   },
   "menu": {
-    "count": 29,
+    "count": 30,
     "offset": 0,
     "item_loop": [
       {
@@ -185,6 +185,30 @@
             ],
             "params": {
               "menu": "radiodirectory"
+            }
+          }
+        }
+      },
+      {
+        "text": "Radio Browser",
+        "id": "opmlradiobrowser",
+        "uuid": "<volatile>",
+        "node": "radios",
+        "weight": 30,
+        "displayWhenOff": 0,
+        "window": {
+          "icon-id": "html/images/radio.png",
+          "titleStyle": "album"
+        },
+        "actions": {
+          "go": {
+            "player": 0,
+            "cmd": [
+              "radiobrowser",
+              "items"
+            ],
+            "params": {
+              "menu": "radiobrowser"
             }
           }
         }
