@@ -4,9 +4,10 @@
 // queue, sync groups, alarms and every client's controls work on it.
 //
 // Two ways to play:
-// - Web Audio: the server sends raw samples, and an AudioWorklet (pcm-worklet.js; on pages
-//   that aren't https, where browsers have none, a ScriptProcessorNode) plays them on the
-//   audio clock.  The browser reports its
+// - Web Audio: the server sends FLAC, or Opus to save data, which the browser decodes with
+//   WebCodecs (decoders.js; raw samples where it has no WebCodecs, as on pages that aren't
+//   https), and an AudioWorklet (pcm-worklet.js; without one a ScriptProcessorNode) plays
+//   them on the audio clock.  The browser reports its
 //   clock and exactly where playback is on it, starts at the moment it is told and plays a
 //   little ahead or behind when told, so it keeps in step with the players it is synced with
 //   the way a Squeezebox does.  Tracks follow each other without a gap.
@@ -18,13 +19,14 @@ import { serverRoot, command, sizedArtwork } from './api.js';
 import { store, on, emit } from './store.js';
 import { storage, toast } from './util.js';
 import { PcmOutput } from './pcm-output.js';
+import { pcmDecoder, codecDecoder, decodableFormats } from './decoders.js';
 
 /** @typedef {import('./api-types').ToRenderer} ToRenderer */
 /** @typedef {import('./api-types').FromRenderer} FromRenderer */
-/** @typedef {import('./api-types').Pcm} Pcm */
 
 const ENABLED = 'rms.browserPlayer';
 const PRECISE = 'rms.browserPrecise';
+const QUALITY = 'rms.browserQuality';
 const ID = 'rms.browserId';
 const NAME = 'rms.browserName';
 
@@ -71,6 +73,10 @@ export const browserPlayer = {
   enabled: () => storage.get(ENABLED) === '1',
   /** Plays through Web Audio, in sync (unless turned off, or not supported). */
   precise: () => webAudioSupported() && storage.get(PRECISE) !== '0',
+  /** How Web Audio gets its audio: `lossless` (FLAC) or `compact` (Opus, for slow networks). */
+  quality: () => (storage.get(QUALITY) === 'compact' ? 'compact' : 'lossless'),
+  /** What it decodes, once known: LMS codes (`flc`, `ops`; `pcm` always). */
+  decodes: [],
   name: () => storage.get(NAME) || defaultName(),
   connected: () => !!socket && socket.readyState === WebSocket.OPEN && !!browserPlayer.playerId,
   /** Make it the selected player once it is connected (it was just turned on). */
@@ -217,7 +223,7 @@ const htmlAudio = (() => {
   }
 
   return {
-    query: () => ({ formats: playableFormats().join(',') }),
+    query: async () => ({ formats: playableFormats().join(',') }),
     handle,
     stop,
     // a click is what lets the page play later on
@@ -264,7 +270,9 @@ const webAudio = (() => {
   /** Create the audio context and the worklet (once). */
   function setup() {
     if (loading) return loading;
-    ctx = new AudioContext({ sampleRate: 44100, latencyHint: 'playback' });
+    // Opus decodes at 48 kHz; FLAC and raw samples are mostly 44.1 kHz
+    const rate = browserPlayer.quality() === 'compact' ? 48000 : 44100;
+    ctx = new AudioContext({ sampleRate: rate, latencyHint: 'playback' });
     sr = ctx.sampleRate;
     gain = ctx.createGain();
     gain.gain.value = volume;
@@ -381,76 +389,10 @@ const webAudio = (() => {
     post({ type: 'start', frame: at === undefined ? 0 : frameAt(at) });
   }
 
-  /** Converts a raw sample stream into stereo float samples at the context's rate. */
-  function converter(/** @type {Pcm} */ pcm) {
-    const bytes = pcm.bits / 8;
-    const channels = Math.max(1, pcm.channels);
-    const frameBytes = bytes * channels;
-    const le = pcm.little_endian;
-    let rest = new Uint8Array(0);
-    // linear resampling when the stream's rate isn't the context's
-    const step = pcm.rate / sr;
-    let t = 0;
-    let prevL = 0;
-    let prevR = 0;
-    const sample = (v, o) => {
-      switch (bytes) {
-        case 1: return (v.getUint8(o) - 128) / 128;
-        case 2: return v.getInt16(o, le) / 32768;
-        case 3: {
-          const b0 = v.getUint8(o);
-          const b1 = v.getUint8(o + 1);
-          const b2 = v.getUint8(o + 2);
-          const x = le ? (b2 << 16) | (b1 << 8) | b0 : (b0 << 16) | (b1 << 8) | b2;
-          return ((x << 8) >> 8) / 8388608;
-        }
-        default: return v.getInt32(o, le) / 2147483648;
-      }
-    };
-    return (/** @type {Uint8Array} */ chunk) => {
-      let data = chunk;
-      if (rest.length) {
-        data = new Uint8Array(rest.length + chunk.length);
-        data.set(rest);
-        data.set(chunk, rest.length);
-      }
-      const frames = Math.floor(data.length / frameBytes);
-      rest = data.slice(frames * frameBytes);
-      const v = new DataView(data.buffer, data.byteOffset, frames * frameBytes);
-      let left = new Float32Array(frames);
-      let right = new Float32Array(frames);
-      for (let i = 0, o = 0; i < frames; i++, o += frameBytes) {
-        left[i] = sample(v, o);
-        right[i] = channels > 1 ? sample(v, o + bytes) : left[i];
-      }
-      if (step !== 1 && frames) {
-        // input sample k is at position k + 1, the last one of the chunk before at 0
-        const n = Math.max(0, Math.ceil((frames - t) / step));
-        const outL = new Float32Array(n);
-        const outR = new Float32Array(n);
-        let j = 0;
-        for (; j < n && t < frames; j++, t += step) {
-          const i = Math.floor(t);
-          const f = t - i;
-          const aL = i === 0 ? prevL : left[i - 1];
-          const aR = i === 0 ? prevR : right[i - 1];
-          outL[j] = aL + (left[i] - aL) * f;
-          outR[j] = aR + (right[i] - aR) * f;
-        }
-        t -= frames;
-        prevL = left[frames - 1];
-        prevR = right[frames - 1];
-        left = outL.subarray(0, j);
-        right = outR.subarray(0, j);
-      }
-      return { left, right };
-    };
-  }
-
   const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
-  /** Fetch track `t`'s samples into the worklet. */
-  async function fetchTrack(t, url, pcm, signal) {
+  /** Fetch track `t`'s audio, decode it and send the samples to the worklet. */
+  async function fetchTrack(t, url, format, pcm, signal) {
     let res;
     try {
       res = await fetch(absolute(url), { signal });
@@ -459,9 +401,23 @@ const webAudio = (() => {
       if (!signal.aborted) report({ type: 'error', message: e.message });
       return;
     }
-    const convert = converter(pcm || { bits: 16, rate: 44100, channels: 2, little_endian: true });
-    const reader = res.body.getReader();
     let total = 0;
+    const deliver = (left, right) => {
+      if (signal.aborted) return;
+      post({ type: 'audio', track: t.id, left, right }, [left.buffer, right.buffer]);
+      total += left.length;
+      buffered += left.length;
+      // enough to begin
+      if (t === current && !t.started && !t.ready) {
+        if (t.autostart && total >= START_AFTER * sr) { t.ready = true; start(); }
+        if (!t.autostart && total >= READY_AFTER * sr) { t.ready = true; report({ type: 'ready' }); }
+      }
+    };
+    const fail = (e) => { if (!signal.aborted) report({ type: 'error', message: e.message || String(e) }); };
+    const decoder = format === 'flc' || format === 'ops'
+      ? codecDecoder(format, sr, deliver, fail)
+      : pcmDecoder(pcm || { bits: 16, rate: 44100, channels: 2, little_endian: true }, sr, deliver);
+    const reader = res.body.getReader();
     try {
       for (;;) {
         // keep only so much ahead of what plays
@@ -469,21 +425,14 @@ const webAudio = (() => {
         const { done, value } = await reader.read();
         if (signal.aborted) return;
         if (done) break;
-        const { left, right } = convert(value);
-        if (!left.length) continue;
-        post({ type: 'audio', track: t.id, left, right }, [left.buffer, right.buffer]);
-        total += left.length;
-        buffered += left.length;
-        // enough to begin
-        if (t === current && !t.started && !t.ready) {
-          if (t.autostart && total >= START_AFTER * sr) { t.ready = true; start(); }
-          if (!t.autostart && total >= READY_AFTER * sr) { t.ready = true; report({ type: 'ready' }); }
-        }
+        await decoder.push(value);
       }
+      await decoder.end();
     } catch (e) {
-      if (!signal.aborted) report({ type: 'error', message: e.message });
+      fail(e);
       return;
     }
+    if (signal.aborted) return;
     if (t === current && !t.started && !t.ready) {
       // a short track: all there is
       t.ready = true;
@@ -495,12 +444,12 @@ const webAudio = (() => {
     if (t.started) report({ type: 'fetched' });
   }
 
-  function queueFetch(t, url, pcm) {
+  function queueFetch(t, url, format, pcm) {
     const signal = abort.signal;
     fetching = fetching.then(async () => {
       if (signal.aborted) return;
       fetchesRunning++;
-      try { await fetchTrack(t, url, pcm, signal); } finally { fetchesRunning--; }
+      try { await fetchTrack(t, url, format, pcm, signal); } finally { fetchesRunning--; }
     });
   }
 
@@ -524,11 +473,11 @@ const webAudio = (() => {
         stop();
         current = { id: ++seq, autostart: !!msg.autostart, started: false, ready: false, fetched: false };
         if (msg.autostart) running();
-        queueFetch(current, msg.url, msg.pcm);
+        queueFetch(current, msg.url, msg.format, msg.pcm);
         break;
       case 'preload':
         next = { id: ++seq, autostart: true, started: false, ready: true, fetched: false };
-        queueFetch(next, msg.url, msg.pcm);
+        queueFetch(next, msg.url, msg.format, msg.pcm);
         break;
       case 'pause':
         if (!current) break;
@@ -563,7 +512,14 @@ const webAudio = (() => {
   }
 
   return {
-    query: () => ({ formats: 'pcm', rate: String(sr), clock: '1' }),
+    async query() {
+      browserPlayer.decodes = await decodableFormats();
+      const has = (f) => browserPlayer.decodes.includes(f);
+      // Opus first asks the server for Opus (unless a synced player can't take it)
+      const formats = browserPlayer.quality() === 'compact' && has('ops') ? ['ops', 'flc', 'pcm']
+        : has('flc') ? ['flc', 'pcm'] : ['pcm'];
+      return { formats: formats.join(','), rate: String(sr), clock: '1' };
+    },
     /** Messages are handled in order, though setting up is asynchronous. */
     handle: (() => {
       let chain = Promise.resolve();
@@ -571,6 +527,14 @@ const webAudio = (() => {
     })(),
     stop,
     unlock() { setup().then(running).catch(() => {}); },
+    /** Start again with a new audio context (its rate follows the quality). */
+    reset() {
+      stop();
+      ctx?.close().catch(() => {});
+      ctx = null;
+      loading = null;
+      post = () => {};
+    },
     prepare: setup,
   };
 })();
@@ -591,7 +555,9 @@ async function connect() {
   }
   const base = new URL(serverRoot, location.href);
   base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
-  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), ...engine.query() });
+  const query = await engine.query();
+  if (socket || !browserPlayer.enabled()) return;
+  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), ...query });
   const ws = new WebSocket(`${base.href}api/v1/browser-player?${q}`);
   const own = engine;
   socket = ws;
@@ -635,9 +601,13 @@ function disconnect() {
  * Turn "play in this browser" on or off, or change how it plays (call from a click:
  * browsers only play after one).
  */
-export function setBrowserPlayer(on, name, precise) {
+export function setBrowserPlayer(on, name, precise, quality) {
   if (name !== undefined) storage.set(NAME, name.trim());
   if (precise !== undefined) storage.set(PRECISE, precise ? '1' : '0');
+  if (quality !== undefined && quality !== browserPlayer.quality()) {
+    storage.set(QUALITY, quality);
+    webAudio.reset();
+  }
   storage.set(ENABLED, on ? '1' : '0');
   disconnect();
   if (on) {

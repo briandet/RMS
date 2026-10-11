@@ -27,6 +27,7 @@ export function render(node, { ctx }) {
   const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
   const browserSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-browser' });
+  const secureSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-secure' });
   const devicesSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-devices' });
   const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
@@ -35,7 +36,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, devicesSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, spotifySection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -450,7 +451,31 @@ export function render(node, { ctx }) {
         } }),
         h('label', { for: preciseId }, 'Keep in sync with other players',
           h('span', { class: 'muted small block' }, 'Plays through Web Audio, in step with the players it is synced with. Turn off to play through the browser’s own player, which some phones keep playing with the screen off.')))] : []),
-      h('p', { class: 'muted small' }, browserPlayer.precise() ? 'Audio comes as raw samples.' : `Formats: ${formats.join(', ')}.`));
+      ...(browserPlayer.precise() ? [qualityField()] : []),
+      h('p', { class: 'muted small' }, browserPlayer.precise() ? audioNote() : `Formats: ${formats.join(', ')}.`));
+  }
+
+  function qualityField() {
+    const id = fieldId();
+    return h('div', { class: 'field' },
+      h('label', { for: id }, 'Audio over the network'),
+      h('select', { id, onchange: (e) => { setBrowserPlayer(browserPlayer.enabled(), undefined, undefined, e.target.value); renderBrowser(); } },
+        [['lossless', 'Lossless (FLAC)'], ['compact', 'Compact (Opus, for mobile data and slow Wi-Fi)']]
+          .map(([v, l]) => h('option', { value: v, selected: browserPlayer.quality() === v }, l))));
+  }
+
+  function audioNote() {
+    const d = browserPlayer.decodes;
+    if (!browserPlayer.connected()) return '';
+    if (!d.length) {
+      return location.protocol === 'https:'
+        ? 'This browser can’t decode FLAC or Opus: audio comes as raw samples (about 10 MB a minute).'
+        : 'Audio comes as raw samples (about 10 MB a minute): on the secure address (see Secure connection) it comes as FLAC or Opus instead.';
+    }
+    if (browserPlayer.quality() === 'compact') {
+      return d.includes('ops') ? 'Audio comes as Opus (about 1 MB a minute), or FLAC while synced with a player that doesn’t take Opus.' : 'This browser can’t decode Opus: audio comes as FLAC.';
+    }
+    return d.includes('flc') ? 'Audio comes as FLAC (about 5 MB a minute).' : 'Audio comes as raw samples.';
   }
 
   // ---------------------------------------------------------------- other players
@@ -482,16 +507,57 @@ export function render(node, { ctx }) {
   // ---------------------------------------------------------------- wire up
   renderBrowser();
   renderDevices();
+  // ---------------------------------------------------------------- secure connection
+  let secureKey = null;
+  function renderSecure() {
+    const s = store.server;
+    if (!s) return;
+    const secure = location.protocol === 'https:';
+    const key = `${secure}|${s.https_port}|${s.local_ca}`;
+    if (key === secureKey) return;
+    secureKey = key;
+    const head = h('h2', { id: 'set-secure' }, 'Secure connection');
+    const caLink = (label) => h('a', { href: `${serverRoot}tls/rms-ca.crt`, download: 'rms-ca.crt' }, label);
+    const howTo = h('details', { class: 'small' },
+      h('summary', {}, 'How to install it'),
+      h('ul', {},
+        h('li', {}, h('strong', {}, 'iPhone, iPad: '), 'open the link in Safari and allow the download; Settings → Profile Downloaded → Install; then Settings → General → About → Certificate Trust Settings → turn it on.'),
+        h('li', {}, h('strong', {}, 'Android: '), 'Settings → Security → More security settings → Install from device storage → CA certificate.'),
+        h('li', {}, h('strong', {}, 'Mac: '), 'open the file to add it to Keychain Access, open it there and set Trust → “Always Trust”.'),
+        h('li', {}, h('strong', {}, 'Windows: '), 'open the file → Install Certificate → Local Machine → “Trusted Root Certification Authorities”.'),
+        h('li', {}, h('strong', {}, 'Firefox, Linux: '), 'Firefox settings → Privacy & Security → View Certificates → Authorities → Import; on Linux also add it to the system’s store for Chrome.')),
+      h('p', { class: 'muted' }, 'The certificate can only vouch for addresses on your own network (this server, .local and .lan names, private addresses), so installing it doesn’t let it stand in for other sites.'));
+    const why = 'Over HTTPS this page can be installed as an app, and “Play in this browser” plays compressed audio with less battery.';
+    if (secure) {
+      secureSection.replaceChildren(head,
+        h('p', {}, 'This page is on the server’s secure address.'),
+        ...(s.local_ca ? [h('p', { class: 'muted small' }, 'For your other devices: install the server’s certificate (', caLink('rms-ca.crt'), ') on each one, then use the https address.'), howTo] : []));
+    } else if (s.https_port) {
+      const url = new URL(serverRoot, location.href);
+      url.protocol = 'https:';
+      url.port = String(s.https_port);
+      secureSection.replaceChildren(head,
+        h('p', { class: 'muted small' }, why),
+        ...(s.local_ca ? [h('p', {}, '1. Install the server’s certificate on this device: ', caLink('download rms-ca.crt')), howTo] : []),
+        h('p', {}, s.local_ca ? '2. Then open ' : 'Open ', h('a', { href: url.href }, url.href)));
+    } else {
+      secureSection.replaceChildren(head,
+        h('p', { class: 'muted small' }, why),
+        h('p', { class: 'muted small' }, 'HTTPS is off on this server (it was started with --https-port 0, or the port was taken).'));
+    }
+  }
+
   renderPlayer();
   renderSync(true);
   renderLibrary();
   renderSpotify();
   renderScan();
+  renderSecure();
   offs.push(
     on('player', () => { renderPlayer(); renderSync(true); }),
     on('players', () => { renderSync(); if (currentPlayer()?.name !== renderedName) renderPlayer(); }),
     on('status', () => renderSync()),
-    on('server', renderScan),
+    on('server', () => { renderScan(); renderSecure(); }),
     on('browser-player', renderBrowser),
   );
 

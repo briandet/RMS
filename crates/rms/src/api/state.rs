@@ -39,6 +39,8 @@ pub fn server_info(server: &Server) -> ServerInfo {
             tracks: t.songs,
             duration: t.duration,
         },
+        https_port: crate::web::tls::port(),
+        local_ca: crate::web::tls::local_ca(),
     }
 }
 

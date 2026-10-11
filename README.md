@@ -43,6 +43,8 @@ tracks and HLS radio.  Without it RMS still streams files the player can decode 
 | `--playlist-dir <dir>` | `RMS_PLAYLIST_DIR` | | where saved playlists are written |
 | `--data-dir <dir>` | `RMS_DATA_DIR` | `./data` | prefs, database, artwork cache |
 | `--http-port <n>` | `RMS_HTTP_PORT` | 9000 | web UI, JSON-RPC, Cometd, streaming |
+| `--https-port <n>` | `RMS_HTTPS_PORT` | 9443 | the same over HTTPS ([below](#https)); 0 turns it off |
+| `--tls-cert <pem>`, `--tls-key <pem>` | `RMS_TLS_CERT`, `RMS_TLS_KEY` | | your own certificate for HTTPS instead of the server's |
 | `--cli-port <n>` | `RMS_CLI_PORT` | 9090 | telnet CLI |
 | `--name <name>` | `RMS_NAME` | host name | server name shown on players |
 | `--rescan` / `--wipe` / `--scan-only` | | | library scanning at startup |
@@ -52,6 +54,30 @@ Preferences are stored as YAML in `<data-dir>/prefs/server.prefs` and one
 `<mac>.prefs` file per player, using the same pref names as Lyrion (`maxBitrate`,
 `transitionType`, `replayGainMode`, `syncVolume`, `powerOnResume`, …); they can be changed
 with the `pref` / `playerpref` commands or the web UI.
+
+### HTTPS
+
+The web UI and the APIs are also served over HTTPS, on port 9443.  Browsers keep some
+features to secure pages: installing the web UI as an app, and the browser player's
+compressed audio (WebCodecs) and AudioWorklet.  Squeezeboxes and the LMS clients keep using
+HTTP.
+
+Without a certificate of your own, RMS creates a small certificate authority of its own on
+first start (`<data-dir>/tls`) and issues the server's certificate from it.  The server's
+certificate names the host, `<host>.local` and the host's addresses, and is issued again
+when they change and before it expires.  Each device trusts it once the authority's
+certificate is installed on it: Settings → *Secure connection* has the download
+(`/tls/rms-ca.crt`) and the steps for iOS, Android, macOS, Windows and Firefox.  The
+authority can only vouch for local names and addresses: `localhost`, the host's name,
+`.local`, `.lan`, `.home`, `.home.arpa`, `.internal`, and private, loopback, link-local and
+Tailscale (100.64.0.0/10) addresses.  Its certificate says so (name constraints), and
+browsers enforce that, so a stolen key could not be used to pose as other sites.  To use a
+name outside these, start RMS with `--http-addr <name>` before the authority is first
+created, or give your own certificate.
+
+With a certificate from elsewhere (Let's Encrypt, `tailscale cert`, your own CA), pass
+`--tls-cert` and `--tls-key`.  RMS reloads the files when they change, so renewals need no
+restart.
 
 ### Running as a service (Debian / Ubuntu)
 
@@ -71,8 +97,8 @@ The script builds a release binary (the web UI is built in), installs it as
   `sudo setfacl -R -m u:rms:rX -m d:u:rms:rX /srv/music` (the script warns if it lacks it).
 * Stop Lyrion first if it is installed (`sudo systemctl disable --now lyrionmusicserver`):
   both use the same ports.
-* Firewall: allow TCP+UDP 3483 (players) and TCP 9000 (web UI, Squeezer), plus TCP 9090 if
-  you use the telnet CLI.  Keep them on the LAN: like Lyrion, there is no login by default.
+* Firewall: allow TCP+UDP 3483 (players), TCP 9000 (web UI, Squeezer) and TCP 9443 (the web
+  UI over HTTPS), plus TCP 9090 if you use the telnet CLI.  Keep them on the LAN: like Lyrion, there is no login by default.
   To require one, set `username` and `password` and then `authorize` to 1 (e.g. `pref
   username me`, `pref password <sha1_base64 or plain>`, `pref authorize 1` on the CLI):
   the web UI, JSON-RPC and Cometd then need HTTP Basic auth and the CLI needs `login`.
@@ -126,10 +152,12 @@ The script builds a release binary (the web UI is built in), installs it as
 * **Bridged players** (`crates/rms/src/bridge`): devices that aren't Squeezeboxes join as
   players through an in-process slimproto client per device, so the queue, sync groups,
   alarms and every remote control work on them.  The first is the web browser: *Play in
-  this browser* (Settings) plays through Web Audio (an AudioWorklet fed raw samples),
-  gaplessly and in sync with the Squeezeboxes it is synced with: it reports exact play
+  this browser* (Settings) plays through Web Audio (an AudioWorklet), gaplessly and in
+  sync with the Squeezeboxes it is synced with: it reports exact play
   points on its own clock, starts at the moment the server names and skips or waits when
-  told, as squeezelite does.  Turned off, or where the browser lacks Web Audio, it plays
+  told, as squeezelite does.  On the HTTPS address the audio comes as FLAC, or as Opus
+  (160 kbit/s) when set to save data, decoded by the browser (WebCodecs); on plain HTTP as
+  raw samples.  Turned off, or where the browser lacks Web Audio, it plays
   through an `<audio>` element (only roughly in sync).  Lock-screen and media-key controls
   come from Media Session.  Under *Other players*
   the server can also find **UPnP/DLNA renderers** (SSDP), **Chromecasts** (mDNS) and

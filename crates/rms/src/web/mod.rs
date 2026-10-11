@@ -5,6 +5,7 @@ pub mod artwork;
 pub mod auth;
 pub mod cometd;
 pub mod jsonrpc;
+pub mod tls;
 pub mod ui;
 
 use crate::server::Server;
@@ -37,6 +38,8 @@ pub fn router(server: Arc<Server>) -> Router {
         .route("/imageproxy/{url}/{spec}", get(artwork::imageproxy))
         .route("/html/images/{name}", get(artwork::html_image))
         .route("/html/{*path}", get(ui::html_compat))
+        .route("/tls/rms-ca.crt", get(|| tls::ca_certificate(false)))
+        .route("/tls/rms-ca.pem", get(|| tls::ca_certificate(true)))
         .route("/", get(ui::index))
         .route("/{*path}", get(ui::static_file))
         .layer(axum::middleware::from_fn_with_state(
@@ -209,13 +212,13 @@ pub async fn serve(server: Arc<Server>) -> anyhow::Result<()> {
     let addr = format!("{}:{}", server.config.bind_addr, server.http_port());
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP listening on http://{}/", addr);
-    let app = router(server.clone()).layer(tower_http::cors::CorsLayer::permissive());
+    let app = router(server.clone())
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .into_make_service_with_connect_info::<std::net::SocketAddr>();
+    tokio::spawn(tls::serve(server.clone(), app.clone()));
     let shutdown = server.shutdown.clone();
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move { shutdown.cancelled().await })
-    .await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move { shutdown.cancelled().await })
+        .await?;
     Ok(())
 }

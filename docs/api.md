@@ -92,7 +92,9 @@ curl -N http://localhost:9000/api/v1/events
   "uuid": "b8e7d126…",
   "scan": {"step": "directory_new", "done": 120, "total": 4000},
   "last_scan": 1791694802,
-  "library": {"albums": 310, "artists": 120, "genres": 25, "tracks": 4000, "duration": 980000.0}
+  "library": {"albums": 310, "artists": 120, "genres": 25, "tracks": 4000, "duration": 980000.0},
+  "https_port": 9443,
+  "local_ca": true
 }
 ```
 
@@ -358,6 +360,12 @@ changes them and returns all of them.  Nothing is changed when one of them is in
 
 The player's name is changed with the `rename` command.
 
+## HTTPS
+
+The API is served over HTTPS too (`--https-port`, 9443; `https_port` in `GET /api/v1/server`).  When
+the certificate comes from the server's own authority (`local_ca`), its certificate is at
+`GET /tls/rms-ca.crt` (DER) and `GET /tls/rms-ca.pem` (outside `/api/v1`).
+
 ## Browser player
 
 `GET /api/v1/browser-player?id=<browser id>&name=<player name>&formats=flc,mp3,ogg,ops,aac`
@@ -365,9 +373,11 @@ opens a WebSocket that makes the browser a player for as long as it is open (the
 *Play in this browser*).  `id` is the browser's own id, so it is the same player every time;
 `formats` are what its `<audio>` element plays, best first.
 
-A browser that plays through Web Audio adds `clock=1` and `rate=<its audio output's rate>`
-and asks for `formats=pcm`: raw samples, described by the `pcm` field of `load` and
-`preload` (`bits`, `rate`, `channels`, `little_endian`).  It keeps time like a Squeezebox,
+A browser that plays through Web Audio adds `clock=1` and `rate=<its audio output's rate>`.
+It asks for `formats=flc,pcm` when it decodes FLAC (WebCodecs), `ops,flc,pcm` to save data:
+listing Opus first gets Opus (160 kbit/s, 48 kHz) for every track, unless a player it is
+synced with can't take it.  Otherwise it asks for `pcm`: raw samples, described by the `pcm`
+field of `load` and `preload` (`bits`, `rate`, `channels`, `little_endian`).  It keeps time like a Squeezebox,
 so the server keeps it in sync with the players it is synced with: its first message is
 `{"type": "clock", "jiffies": <ms>}` (its clock, in milliseconds, wrapping at 2³²), every
 `progress` carries `jiffies`, the moment of that clock at which `elapsed` is heard, and it
