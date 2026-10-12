@@ -392,7 +392,7 @@
     "_p2": 1
   },
   "cmd_playlist_save": {
-    "writeError": 1
+    "__playlist_id": 1
   },
   "cmd_playlist_clear": {},
   "cmd_playlist_resume": {},

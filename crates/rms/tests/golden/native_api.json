@@ -78,14 +78,16 @@
           "artist": "Alpha Band",
           "artist_id": 2,
           "year": 1999,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         },
         {
           "id": 3,
           "title": "Mixed Bag",
           "artist": "Various Artists",
           "artist_id": 1,
-          "compilation": true
+          "compilation": true,
+          "release_type": "album"
         },
         {
           "id": 2,
@@ -93,7 +95,8 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -110,7 +113,8 @@
           "artist": "Alpha Band",
           "artist_id": 2,
           "year": 1999,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         },
         {
           "id": 2,
@@ -118,14 +122,16 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         },
         {
           "id": 3,
           "title": "Mixed Bag",
           "artist": "Various Artists",
           "artist_id": 1,
-          "compilation": true
+          "compilation": true,
+          "release_type": "album"
         }
       ]
     }
@@ -141,7 +147,8 @@
           "title": "Mixed Bag",
           "artist": "Various Artists",
           "artist_id": 1,
-          "compilation": true
+          "compilation": true,
+          "release_type": "album"
         },
         {
           "id": 2,
@@ -149,7 +156,8 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         },
         {
           "id": 1,
@@ -157,7 +165,8 @@
           "artist": "Alpha Band",
           "artist_id": 2,
           "year": 1999,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -180,7 +189,8 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -197,7 +207,8 @@
           "artist": "Alpha Band",
           "artist_id": 2,
           "year": 1999,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -214,7 +225,8 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -231,7 +243,8 @@
           "artist": "Beta Singer",
           "artist_id": 3,
           "year": 2005,
-          "compilation": false
+          "compilation": false,
+          "release_type": "album"
         }
       ]
     }
@@ -257,6 +270,7 @@
       "artist_id": 2,
       "year": 1999,
       "compilation": false,
+      "release_type": "album",
       "duration": 4.0,
       "tracks": [
         {
@@ -298,6 +312,7 @@
       "artist": "Various Artists",
       "artist_id": 1,
       "compilation": true,
+      "release_type": "album",
       "duration": 4.076,
       "tracks": [
         {
@@ -511,7 +526,8 @@
             "artist": "Alpha Band",
             "artist_id": 2,
             "year": 1999,
-            "compilation": false
+            "compilation": false,
+            "release_type": "album"
           }
         ]
       },
@@ -574,7 +590,8 @@
             "artist": "Beta Singer",
             "artist_id": 3,
             "year": 2005,
-            "compilation": false
+            "compilation": false,
+            "release_type": "album"
           }
         ]
       },
@@ -703,7 +720,8 @@
             "artist": "Alpha Band",
             "artist_id": 2,
             "year": 1999,
-            "compilation": false
+            "compilation": false,
+            "release_type": "album"
           }
         ]
       },
@@ -748,7 +766,8 @@
       "items": [
         {
           "id": 1,
-          "name": "Evening"
+          "name": "Evening",
+          "editable": true
         }
       ]
     }
@@ -757,7 +776,8 @@
     "status": 200,
     "body": {
       "id": 1,
-      "name": "Evening"
+      "name": "Evening",
+      "editable": true
     }
   },
   "GET /api/v1/playlists/1/tracks (playlist tracks)": {

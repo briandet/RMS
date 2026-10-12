@@ -150,6 +150,10 @@ export type Album = { id: number, title: string,
  */
 artist?: string, artist_id?: number, year?: number, compilation: boolean, 
 /**
+ * `album`, `ep`, `single`, `compilation`, `live`, … (as tagged).
+ */
+release_type?: string, 
+/**
  * Like `Track.artwork`.
  */
 artwork?: string, 
@@ -168,6 +172,10 @@ duration: number, tracks: Array<Track>, id: number, title: string,
  */
 artist?: string, artist_id?: number, year?: number, compilation: boolean, 
 /**
+ * `album`, `ep`, `single`, `compilation`, `live`, … (as tagged).
+ */
+release_type?: string, 
+/**
  * Like `Track.artwork`.
  */
 artwork?: string, 
@@ -184,7 +192,12 @@ export type Year = {
  */
 year: number, };
 
-export type Playlist = { id: number, name: string, };
+export type Playlist = { id: number, name: string, 
+/**
+ * Saved in the playlist folder, so it can be changed (a playlist file among the music or
+ * a cue sheet can't).
+ */
+editable: boolean, };
 
 export type FolderEntryType = "folder" | "track" | "playlist" | "other";
 
