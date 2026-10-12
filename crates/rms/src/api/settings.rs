@@ -18,6 +18,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let prefs = &server.prefs.server;
     let bitrate = prefs.get_i64("spotifyBitrate");
     let mb = server.library.musicbrainz_totals();
+    let albums = server.library.release_totals();
     let d = server.library.discovery_totals();
     let (pending, scrobble_error) = crate::plugins::scrobble::pending(server);
     ServerSettings {
@@ -36,6 +37,12 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         acoustid_key: prefs.get_str(crate::plugins::musicbrainz::KEY_PREF),
         musicbrainz_identified: mb.identified,
         musicbrainz_pending: mb.pending,
+        albums_matched: albums.matched,
+        albums_uncertain: albums.uncertain,
+        albums_pending: albums.pending,
+        edit_files: prefs.get_bool(crate::tagedit::PREF),
+        edit_files_blocked: crate::tagedit::blocked(server),
+        file_name_template: crate::tagedit::template(server),
         listenbrainz: prefs.get_bool(crate::plugins::listenbrainz::PREF),
         discovered: d.proposed,
         discovered_played: d.played,
@@ -128,6 +135,16 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.musicbrainz {
         changes.push((crate::plugins::musicbrainz::PREF, flag(v)));
+    }
+    if let Some(v) = patch.edit_files {
+        changes.push((crate::tagedit::PREF, flag(v)));
+    }
+    if let Some(v) = patch.file_name_template {
+        let v = v.trim().to_string();
+        if !v.is_empty() {
+            rms_library::organize::Template::parse(&v).map_err(CommandError::Invalid)?;
+        }
+        changes.push((crate::tagedit::TEMPLATE_PREF, v));
     }
     if let Some(v) = patch.scrobble_spotify {
         changes.push((crate::plugins::scrobble::SPOTIFY, flag(v)));

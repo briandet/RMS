@@ -1091,6 +1091,7 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TABLE track_musicbrainz;
              DROP TABLE discovered; DROP TABLE web_cache;
              DROP TABLE scrobble_queue;
+             DROP TABLE mb_releases; DROP TABLE track_release; DROP TABLE tag_edits;
              ALTER TABLE track_stats DROP COLUMN skip_count;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
@@ -1099,13 +1100,15 @@ fn the_search_index_is_built_for_an_older_database() {
     }
     let lib = Library::open(&db, &f.dir.path().join("cache")).unwrap();
     assert_eq!(titles_found(&lib, "mp3"), ["The Mp3 Song"]);
-    // and version 3's tables
+    // and the later versions' tables
     let c = rusqlite::Connection::open(&db).unwrap();
     for t in [
         "remote_tracks",
         "track_rhythm",
         "track_chromaprint",
         "track_musicbrainz",
+        "track_release",
+        "mb_releases",
     ] {
         let n: i64 = c
             .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
@@ -1822,6 +1825,49 @@ fn listens_carry_what_the_library_knows_and_wait_in_a_queue() {
     assert_eq!(f.lib.listens_pending("listenbrainz:a"), (0, None));
     f.lib.drop_listens("listenbrainz:b");
     assert_eq!(f.lib.listens_pending("listenbrainz:b").0, 0);
+}
+
+#[test]
+fn a_retagged_album_is_a_compilation_no_more() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let comps = |lib: &Library| {
+        let r = run(
+            lib,
+            LibQueryName::Albums,
+            0,
+            10,
+            &[("compilation", "1"), ("tags", "la")],
+        );
+        lp(&r, "albums_loop")
+            .iter()
+            .map(|a| a["album"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(comps(&f.lib), ["Hits"]);
+
+    // its three artists made one (as tag editing or Picard would)
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    let one: rms_library::tagwrite::Values =
+        [("artist".to_string(), Some("One Artist".to_string()))].into();
+    for n in ["01", "02", "03"] {
+        let p = f.media.join(format!("Comp/Hits/{n}.m4a"));
+        rms_library::tagwrite::write(&p, &one, &f.dir.path().join("scratch")).unwrap();
+    }
+    let s = f.lib.scan(ScanMode::Full).unwrap();
+    assert_eq!(s.changed, 3, "{s:?}");
+    assert!(comps(&f.lib).is_empty(), "{:?}", comps(&f.lib));
+    let r = run(
+        &f.lib,
+        LibQueryName::Albums,
+        0,
+        10,
+        &[("search", "hits"), ("tags", "la")],
+    );
+    let a = lp(&r, "albums_loop");
+    assert_eq!(a.len(), 1);
+    assert_eq!(a[0]["artist"], "One Artist", "{a:?}");
 }
 
 #[test]

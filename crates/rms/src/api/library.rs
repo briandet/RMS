@@ -4,8 +4,9 @@
 //! resources here.
 
 use super::model::{
-    Album, AlbumDetail, Artist, FolderEntry, FolderEntryType, Genre, Page, Playlist, SearchResults,
-    SimilarArtist, Track, Year,
+    Album, AlbumDetail, AlbumRelease, AlbumTags, Artist, FolderEntry, FolderEntryType, Genre, Page,
+    Playlist, ReleaseCandidate, ReleaseInfo, ReleaseStatus, ReleaseTrackMatch, SearchResults,
+    SimilarArtist, TagEdit, TagEditFailure, TagEditResult, TagValue, Track, TrackTags, Year,
 };
 use super::state::{int, string, track_from_row};
 use crate::server::Server;
@@ -253,6 +254,198 @@ pub async fn album_by_id(server: &Arc<Server>, id: i64) -> Result<AlbumDetail, L
         duration: (duration * 1000.0).round() / 1000.0,
         tracks,
     })
+}
+
+/// The MusicBrainz release the album was matched to.
+pub async fn album_release(server: &Arc<Server>, id: i64) -> Result<AlbumRelease, LibraryError> {
+    let lib = server.library.clone();
+    tokio::task::spawn_blocking(move || {
+        if lib.album_job(id).is_none() {
+            return Err(LibraryError::NotFound);
+        }
+        let Some(m) = lib.album_match(id) else {
+            return Ok(AlbumRelease {
+                status: ReleaseStatus::Pending,
+                how: None,
+                score: None,
+                release: None,
+                tracks: Vec::new(),
+                candidates: Vec::new(),
+            });
+        };
+        let status = if m.release_mbid.is_none() {
+            ReleaseStatus::None
+        } else if m.confident() {
+            ReleaseStatus::Matched
+        } else {
+            ReleaseStatus::Uncertain
+        };
+        let tracks = m
+            .tracks
+            .iter()
+            .map(|(track_id, pos)| {
+                let rt = pos.and_then(|(d, p)| {
+                    m.release
+                        .as_ref()?
+                        .media
+                        .iter()
+                        .find(|x| x.position == d)?
+                        .tracks
+                        .iter()
+                        .find(|t| t.position == p)
+                });
+                let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
+                ReleaseTrackMatch {
+                    track_id: *track_id,
+                    disc: pos.map(|p| p.0),
+                    position: pos.map(|p| p.1),
+                    number: rt.and_then(|t| some(&t.number)),
+                    title: rt.and_then(|t| some(&t.title)),
+                    artist: rt.and_then(|t| some(&t.artist)),
+                    length: rt.and_then(|t| t.length),
+                    recording: rt.and_then(|t| some(&t.recording)),
+                }
+            })
+            .collect();
+        let mut candidates: Vec<ReleaseCandidate> = m
+            .candidates
+            .iter()
+            .map(|(mbid, score, r)| ReleaseCandidate {
+                mbid: mbid.clone(),
+                score: *score,
+                release: r.as_ref().map(release_info),
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+        Ok(AlbumRelease {
+            status,
+            how: (m.how != "none").then(|| m.how.clone()),
+            score: m.score,
+            release: m.release.as_ref().map(release_info),
+            tracks,
+            candidates,
+        })
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?
+}
+
+/// An album's tags and proposals ([`crate::tagedit::proposal`]) as the API has them.
+pub fn album_tags(
+    server: &Server,
+    release: Option<rms_library::releases::Release>,
+    tracks: Vec<crate::tagedit::TrackTags>,
+) -> AlbumTags {
+    let norm = |field: &str, v: &Option<String>| -> Option<String> {
+        let v = v.as_deref().map(str::trim).filter(|v| !v.is_empty())?;
+        // "03" is track 3
+        if field.ends_with("_number") || field.ends_with("_total") {
+            if let Ok(n) = v.parse::<i64>() {
+                return Some(n.to_string());
+            }
+        }
+        Some(v.to_string())
+    };
+    AlbumTags {
+        release: release.as_ref().map(release_info),
+        blocked: crate::tagedit::blocked(server),
+        tracks: tracks
+            .into_iter()
+            .map(|t| TrackTags {
+                track_id: t.track_id,
+                path: t.path,
+                error: t.error,
+                tags: t
+                    .tags
+                    .into_iter()
+                    .map(|(field, current, proposed)| TagValue {
+                        changed: proposed.is_some()
+                            && norm(&field, &proposed) != norm(&field, &current),
+                        field,
+                        current,
+                        proposed,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn tag_edit_result(o: crate::tagedit::Outcome) -> TagEditResult {
+    TagEditResult {
+        batch: o.batch,
+        changed: o.changed as i64,
+        failed: o
+            .failed
+            .into_iter()
+            .map(|(track_id, error)| TagEditFailure { track_id, error })
+            .collect(),
+    }
+}
+
+pub fn tag_edits(server: &Server, limit: usize) -> Vec<TagEdit> {
+    server
+        .library
+        .edit_batches(limit.min(1000))
+        .into_iter()
+        .map(|b| TagEdit {
+            batch: b.batch,
+            album: b.album,
+            files: b.files,
+            applied_at: b.applied_at,
+            undone_at: b.undone_at,
+            kind: b.kind,
+        })
+        .collect()
+}
+
+/// An album's files and where `template` puts them, as the API has them.
+pub fn album_files(
+    server: &Server,
+    template: String,
+    plan: Vec<crate::tagedit::Planned>,
+) -> super::model::AlbumFiles {
+    let rel = |root: &std::path::Path, p: &std::path::Path| {
+        p.strip_prefix(root).unwrap_or(p).display().to_string()
+    };
+    super::model::AlbumFiles {
+        blocked: crate::tagedit::blocked(server),
+        template,
+        files: plan
+            .into_iter()
+            .map(|p| super::model::FileMove {
+                track_id: p.track_id,
+                changed: p.from != p.to,
+                from: rel(&p.root, &p.from),
+                to: rel(&p.root, &p.to),
+                error: p.error,
+            })
+            .collect(),
+    }
+}
+
+fn release_info(r: &rms_library::releases::Release) -> ReleaseInfo {
+    ReleaseInfo {
+        mbid: r.mbid.clone(),
+        title: r.title.clone(),
+        artist: r.artist.clone(),
+        date: r.date.clone(),
+        original_date: r.original_date.clone(),
+        country: r.country.clone(),
+        status: r.status.clone(),
+        label: r.label.clone(),
+        catalog_number: r.catalog_number.clone(),
+        barcode: r.barcode.clone(),
+        format: r.format(),
+        release_type: std::iter::once(&r.primary_type)
+            .chain(&r.secondary_types)
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .collect(),
+        track_count: r.track_count() as i64,
+        disc_count: r.media.len() as i64,
+        url: format!("https://musicbrainz.org/release/{}", r.mbid),
+    }
 }
 
 pub async fn genres(server: &Arc<Server>, p: ListParams) -> Result<Page<Genre>, LibraryError> {

@@ -1,7 +1,11 @@
 #!/bin/sh
 # Build RMS and install (or upgrade) it as a systemd service on Debian / Ubuntu.
 #
-#   packaging/install.sh [music-dir[,music-dir...]]
+#   packaging/install.sh [--edit-files] [music-dir[,music-dir...]]
+#
+# --edit-files lets the service write to the music folders, for changing tags from the web
+# UI (Settings → Library → "Change tags in music files"; it also needs a login).  Without it
+# the service can only read them.
 #
 # Run from the repository as a normal user; it uses sudo for the system changes.
 # Running it again upgrades: rebuild, replace the binary, restart.  Your settings in
@@ -9,6 +13,11 @@
 set -eu
 
 cd "$(dirname "$0")/.."
+EDIT_FILES=0
+if [ "${1:-}" = "--edit-files" ]; then
+    EDIT_FILES=1
+    shift
+fi
 MUSIC="${1:-}"
 
 command -v cargo >/dev/null || {
@@ -50,11 +59,22 @@ sudo systemctl daemon-reload
 sudo systemctl enable rms >/dev/null 2>&1
 sudo systemctl restart rms
 
-# The service only reads the music; check it can.
 dirs=$(sed -n 's/^RMS_MUSIC_DIR=//p' /etc/default/rms | tr ',' ' ')
+dropin=/etc/systemd/system/rms.service.d/edit-files.conf
+if [ "$EDIT_FILES" = 1 ]; then
+    # the service's file system is read-only but for its data; open the music folders
+    echo "==> Letting the service write to the music folders"
+    sudo mkdir -p "$(dirname "$dropin")"
+    printf '[Service]\nReadWritePaths=%s\n' "$dirs" | sudo tee "$dropin" >/dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl restart rms
+fi
+# The service reads the music (and with --edit-files writes it); check it can.
 for d in $dirs; do
     if ! sudo -u rms test -r "$d" -a -x "$d"; then
         echo "warning: the rms user cannot read $d; for example: sudo setfacl -R -m u:rms:rX -m d:u:rms:rX '$d'" >&2
+    elif [ -e "$dropin" ] && ! sudo -u rms test -w "$d"; then
+        echo "warning: the rms user cannot write to $d; for example: sudo setfacl -R -m u:rms:rwX -m d:u:rms:rwX '$d'" >&2
     fi
 done
 

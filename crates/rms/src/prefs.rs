@@ -91,6 +91,7 @@ pub fn server_defaults() -> PrefMap {
         ("coverArt", json!("")),
         ("artfolder", json!("")),
         ("onlineArtistImages", json!(0)),
+        ("editFiles", json!(0)),
         ("sonicAnalysis", json!(1)),
         ("ignoreDirRE", json!("")),
         ("rank-PLUGIN_FAVORITES_MODULE_NAME", json!(5)),

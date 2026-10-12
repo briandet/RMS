@@ -30,6 +30,9 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V3_REMOTE,
     SCHEMA_V4_DISCOVER,
     SCHEMA_V5_SCROBBLE,
+    SCHEMA_V6_RELEASES,
+    SCHEMA_V7_TAG_EDITS,
+    SCHEMA_V8_FILE_MOVES,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -423,6 +426,59 @@ CREATE TABLE scrobble_queue (
   last_error  TEXT
 ) STRICT;
 CREATE INDEX scrobble_queue_account ON scrobble_queue (account, id);
+"#;
+
+/// Album matching ([`crate::releases`]): the MusicBrainz releases fetched, and the release
+/// each track's audio was matched to.  Kept across wipes, like `track_musicbrainz`.
+const SCHEMA_V6_RELEASES: &str = r#"
+-- A MusicBrainz release as crate::releases::Release (JSON): title, artist, date, label,
+-- media and their tracks.
+CREATE TABLE mb_releases (
+  mbid       TEXT PRIMARY KEY,
+  body       TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+-- The release the album holding the audio with that fingerprint was matched to, and which of
+-- its tracks the audio is (`medium`, `position`; NULL: none of them).  All of an album's
+-- tracks are matched together.  `how`: `tag` (the tags name the release), `auto`, `user`
+-- (chosen), `none` (no release found: `release_mbid` NULL).  `score` 0-1; `candidates`: the
+-- releases considered, as JSON `[{"mbid": …, "score": …}]`.
+CREATE TABLE track_release (
+  fingerprint  TEXT PRIMARY KEY,
+  release_mbid TEXT,
+  medium       INTEGER,
+  position     INTEGER,
+  score        REAL,
+  how          TEXT NOT NULL,
+  candidates   TEXT,
+  matched_at   INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+CREATE INDEX track_release_release ON track_release (release_mbid);
+"#;
+
+/// Tags RMS wrote into music files ([`crate::tagwrite`]), to undo them.
+const SCHEMA_V7_TAG_EDITS: &str = r#"
+-- One file's tags as they were (`before`) and as written (`after`): JSON objects of field
+-- name to value (null: absent).  `batch` groups the files changed together (an album).
+CREATE TABLE tag_edits (
+  id         INTEGER PRIMARY KEY,
+  batch      INTEGER NOT NULL,
+  url        TEXT NOT NULL,
+  album      TEXT,
+  before     TEXT NOT NULL,
+  after      TEXT NOT NULL,
+  applied_at INTEGER NOT NULL,
+  undone_at  INTEGER
+) STRICT;
+CREATE INDEX tag_edits_batch ON tag_edits (batch);
+"#;
+
+/// Files RMS moved or renamed ([`crate::organize`]) join the journal of tag changes.
+const SCHEMA_V8_FILE_MOVES: &str = r#"
+-- `tags`: `before` and `after` are tag values; `move`: a file moved, `{"url": …}` each
+-- (`url` is where it went).
+ALTER TABLE tag_edits ADD COLUMN kind TEXT NOT NULL DEFAULT 'tags';
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

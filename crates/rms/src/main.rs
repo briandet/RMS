@@ -15,6 +15,7 @@ mod server;
 mod stream;
 mod strings;
 mod subsonic;
+mod tagedit;
 mod ui;
 mod util;
 mod watch;

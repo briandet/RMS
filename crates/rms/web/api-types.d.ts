@@ -184,6 +184,198 @@ artwork?: string,
  */
 letter?: string, };
 
+export type AlbumRelease = { status: ReleaseStatus, 
+/**
+ * How the release was found: `tag` (the tags name it), `auto` (best fit), `user` (chosen).
+ */
+how?: string, 
+/**
+ * How well the album fits the release, 0–1.
+ */
+score?: number, release?: ReleaseInfo, 
+/**
+ * The album's tracks, and the release track each one is.
+ */
+tracks: Array<ReleaseTrackMatch>, 
+/**
+ * The releases considered, best first.
+ */
+candidates: Array<ReleaseCandidate>, };
+
+export type ReleaseStatus = "matched" | "uncertain" | "none" | "pending";
+
+export type ReleaseInfo = { mbid: string, title: string, artist: string, 
+/**
+ * `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; empty when unknown.
+ */
+date: string, 
+/**
+ * The first release of this album (the original year).
+ */
+original_date: string, country: string, 
+/**
+ * `Official`, `Promotion`, `Bootleg`, …
+ */
+status: string, label: string, catalog_number: string, barcode: string, 
+/**
+ * The media: `CD`, `2×CD`, `Digital Media`, …
+ */
+format: string, 
+/**
+ * `Album`, `Single`, `EP`, … and secondary types (`Compilation`, `Live`, …).
+ */
+release_type: Array<string>, track_count: number, disc_count: number, 
+/**
+ * The release's page on MusicBrainz.
+ */
+url: string, };
+
+export type ReleaseTrackMatch = { track_id: number, 
+/**
+ * Where the track is on the release; absent when it is none of its tracks.
+ */
+disc?: number, position?: number, 
+/**
+ * The track's number as printed ("A1", "3").
+ */
+number?: string, title?: string, artist?: string, 
+/**
+ * Seconds.
+ */
+length?: number, 
+/**
+ * MusicBrainz recording id.
+ */
+recording?: string, };
+
+export type ReleaseCandidate = { mbid: string, score: number, release?: ReleaseInfo, };
+
+export type ReleaseChoice = { 
+/**
+ * A MusicBrainz release id (from `candidates`, or from musicbrainz.org).
+ */
+mbid: string, };
+
+export type AlbumTags = { 
+/**
+ * The release the proposals come from.
+ */
+release?: ReleaseInfo, 
+/**
+ * Why the files can't be changed now (see `edit_files_blocked` in the settings).
+ */
+blocked?: string, tracks: Array<TrackTags>, };
+
+export type TrackTags = { track_id: number, 
+/**
+ * The file.
+ */
+path: string, 
+/**
+ * Why this file can't be changed, if it can't.
+ */
+error?: string, tags: Array<TagValue>, };
+
+export type TagValue = { 
+/**
+ * `title`, `artist`, `album`, `album_artist`, `track_number`, `track_total`,
+ * `disc_number`, `disc_total`, `date`, `original_date`, `label`, `catalog_number`,
+ * `barcode`, `musicbrainz_recording_id`, `musicbrainz_track_id`,
+ * `musicbrainz_release_id`, `musicbrainz_release_group_id`, `musicbrainz_artist_id`,
+ * `musicbrainz_album_artist_id`.
+ */
+field: string, 
+/**
+ * In the file (several values joined with "; "); absent when the file has none.
+ */
+current?: string, 
+/**
+ * What the release says; absent when it says nothing.
+ */
+proposed?: string, 
+/**
+ * `proposed` differs from `current`.
+ */
+changed: boolean, };
+
+export type TagChanges = { changes: Array<TrackTagChange>, };
+
+export type TrackTagChange = { track_id: number, tags: { [key in string]: string | null }, };
+
+export type TagEditResult = { 
+/**
+ * The change's entry in `GET /api/v1/tags/edits`, to undo it.
+ */
+batch?: number, 
+/**
+ * Files changed.
+ */
+changed: number, failed: Array<TagEditFailure>, };
+
+export type TagEditFailure = { track_id: number, error: string, };
+
+export type TagEdit = { batch: number, 
+/**
+ * `tags` or `move`.
+ */
+kind: string, album?: string, 
+/**
+ * Files changed.
+ */
+files: number, 
+/**
+ * Unix time.
+ */
+applied_at: number, undone_at?: number, };
+
+export type AlbumFiles = { 
+/**
+ * The template used (the setting's, or the one asked for).
+ */
+template: string, 
+/**
+ * Why files can't be moved now, if they can't.
+ */
+blocked?: string, files: Array<FileMove>, };
+
+export type FileMove = { 
+/**
+ * Absent for a file that is not a track (cover, booklet) going with the album.
+ */
+track_id?: number, 
+/**
+ * Relative to its music folder.
+ */
+from: string, to: string, 
+/**
+ * `to` differs from `from`.
+ */
+changed: boolean, 
+/**
+ * Why it can't move, if it can't.
+ */
+error?: string, };
+
+export type MoveRequest = { 
+/**
+ * Instead of the setting's.
+ */
+template?: string, };
+
+export type MoveResult = { 
+/**
+ * The change's entry in `GET /api/v1/tags/edits`, to undo it.
+ */
+batch?: number, 
+/**
+ * Tracks moved.
+ */
+changed: number, failed: Array<TagEditFailure>, 
+/**
+ * The album after the library caught up (its id can change).
+ */
+album_id?: number, };
+
 export type Genre = { id: number, name: string, };
 
 export type Year = { 
@@ -301,6 +493,24 @@ musicbrainz_identified: number,
  */
 musicbrainz_pending: number, 
 /**
+ * Albums matched to their MusicBrainz release; matched only possibly (worth checking);
+ * waiting to be matched.
+ */
+albums_matched: number, albums_uncertain: number, albums_pending: number, 
+/**
+ * Tags can be changed in the music files (the web UI's album tag editor).
+ */
+edit_files: boolean, 
+/**
+ * Why music files can't be changed now (off, or no login), if they can't.
+ */
+edit_files_blocked: string | null, 
+/**
+ * Where an album's files go when organised, relative to their music folder
+ * (`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}`).
+ */
+file_name_template: string, 
+/**
  * Mixes take some songs from outside what was played, found with ListenBrainz.
  */
 listenbrainz: boolean, 
@@ -321,7 +531,7 @@ scrobble_spotify: boolean,
  */
 scrobble_pending: number, scrobble_error: string | null, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

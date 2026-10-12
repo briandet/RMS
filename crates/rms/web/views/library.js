@@ -6,6 +6,7 @@
 //   #/library/<tab>                 tab = artists|albums|genres|years|folders|playlists|favorites
 //   #/library/artist/<id>?name=     albums by artist
 //   #/library/album/<id>?name=      album tracks
+//   #/library/tags/<id>?name=       the album's tags and its MusicBrainz release
 //   #/library/genre/<id>?name=      albums in genre
 //   #/library/year/<year>           albums from year
 //   #/library/folders/<id>?name=    music folder contents
@@ -15,8 +16,9 @@
 //   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
 //   #/library/listenbrainz/<id>?name=  recommendations / a playlist made for you
 
+import { tagsPage, releaseLabel } from './tags.js';
 import {
-  getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
+  getAlbumRelease, getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
   getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
   getListenBrainz, getArtistTopTracks, getSimilarArtists, createPlaylist, renamePlaylist,
   deletePlaylist, reorderPlaylist,
@@ -48,7 +50,7 @@ function releaseGroup(al, artistId) {
   return 'other';
 }
 
-const TAB_OF = { artist: 'artists', album: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
+const TAB_OF = { artist: 'artists', album: 'albums', tags: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 
 const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
@@ -224,9 +226,21 @@ const ROUTES = {
         onPlay: () => playFrom(v.ctx, 'album_id', id, i, t.title),
       }));
     });
+    const tagsLink = h('a', { class: 'btn', href: `#/library/tags/${enc(id)}?name=${enc(title)}` }, icon('edit'), 'Tags');
+    const release = h('div', { class: 'muted small' });
     v.body.replaceChildren(
-      pageHeader({ title, sub, art, actions: bigActions(v.ctx, 'album_id', id, title) }),
+      pageHeader({ title, sub: h('div', {}, sub, release), art, actions: [...bigActions(v.ctx, 'album_id', id, title), tagsLink] }),
       tracks.length ? ul : emptyBox('This album has no tracks.'));
+    // the MusicBrainz release, when matched
+    getAlbumRelease(id).then((r) => {
+      if (!v.alive || !r.release) return;
+      release.append('MusicBrainz: ', h('a', { href: r.release.url, target: '_blank', rel: 'noopener' }, releaseLabel(r.release)),
+        r.status === 'uncertain' ? ' (uncertain)' : '');
+    }).catch(() => {});
+  },
+
+  tags(v, id) {
+    return tagsPage(v, id);
   },
 
   // ------------------------------------------------------------ genres

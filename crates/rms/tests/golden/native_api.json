@@ -143,11 +143,12 @@
       "offset": 0,
       "items": [
         {
-          "id": 3,
-          "title": "Mixed Bag",
-          "artist": "Various Artists",
-          "artist_id": 1,
-          "compilation": true,
+          "id": 1,
+          "title": "First Light",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "year": 1999,
+          "compilation": false,
           "release_type": "album"
         },
         {
@@ -160,12 +161,11 @@
           "release_type": "album"
         },
         {
-          "id": 1,
-          "title": "First Light",
-          "artist": "Alpha Band",
-          "artist_id": 2,
-          "year": 1999,
-          "compilation": false,
+          "id": 3,
+          "title": "Mixed Bag",
+          "artist": "Various Artists",
+          "artist_id": 1,
+          "compilation": true,
           "release_type": "album"
         }
       ]
@@ -957,6 +957,12 @@
       "acoustid_key": "",
       "musicbrainz_identified": 0,
       "musicbrainz_pending": 5,
+      "albums_matched": 0,
+      "albums_uncertain": 0,
+      "albums_pending": 3,
+      "edit_files": false,
+      "edit_files_blocked": "Changing music files is off (setting edit_files).",
+      "file_name_template": "{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}",
       "listenbrainz": false,
       "discovered": 0,
       "discovered_played": 0,
@@ -986,6 +992,12 @@
       "acoustid_key": "",
       "musicbrainz_identified": 0,
       "musicbrainz_pending": 5,
+      "albums_matched": 0,
+      "albums_uncertain": 0,
+      "albums_pending": 3,
+      "edit_files": false,
+      "edit_files_blocked": "Changing music files is off (setting edit_files).",
+      "file_name_template": "{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}",
       "listenbrainz": false,
       "discovered": 0,
       "discovered_played": 0,
@@ -1004,7 +1016,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `listenbrainz`, `scrobble_spotify` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {

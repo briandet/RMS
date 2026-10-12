@@ -250,6 +250,38 @@ Spotify tracks get their genres the same way, so mixes weigh them like your file
 are never written, and tags always win.  A large library takes some hours the first time;
 `--musicbrainz-url` points RMS at a local MusicBrainz mirror instead, without the rate limit.
 
+Then each album is matched to the release it is (the edition, not just the songs): the one
+its tags name, else the best fit among the releases holding its recordings, by how its tracks
+pair up with the release's (recording, title, length, position), how much of the release it
+holds, and its title and artist.  A confident match fills in the album's year and MusicBrainz id and the tracks'
+numbers and discs where tags have none; uncertain ones can be checked and another release
+chosen through the API (`/api/v1/albums/{id}/release`, [docs/api.md](docs/api.md#album-release)).
+
+**Changing tags** (Settings → Library, *Change tags in music files*, off by default): an
+album's *Tags* page shows its files' tags next to what its MusicBrainz release says — title,
+artists, album artist, track and disc numbers, dates, label, catalog number, barcode and the
+MusicBrainz ids, by the names Picard uses — and writes what you tick (or type) into the
+files, with undo.  Another release can be picked from the ones considered, or given by its
+link.  It needs a login (`username`, `password`, `authorize`, see the firewall notes above),
+since anyone who can reach the web UI could otherwise rewrite your music, and write access
+for RMS to the music (`packaging/install.sh --edit-files` sets up the service for it).  Only
+the tags asked for change: the audio, pictures and other tags stay as they are, the file is
+rewritten in place (keeping its owner and permissions), each write is read back and the file
+put back if anything is off.  FLAC, Ogg, Opus, MP3, MP4/M4A, AIFF, WAV, APE and WavPack;
+not cue-sheet tracks.  Play counts, analysis and the release match stay with the files.
+
+The same page **moves and renames** the album's files by a template (Settings, or edited on
+the page and saved as the default), relative to the music folder they are in:
+`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}` gives
+`The Band/First Album (1991)/01 Opening.flac`.  A part in `[…]` is left out when its tags are
+empty; `{disc}` only appears for albums of several discs.  The page shows every file's
+current and new path first.  Names are made safe for any file system (no `/ \ : * ? " < > |`,
+no leading dots).  Covers, booklets and logs in the album's folder go along when all of its
+audio moves to one place, and folders left empty are removed.  Ratings and play history,
+saved playlists (and their `.m3u` files), favorites and the players' queues follow the files;
+undo moves everything back.  Files never leave their music folder, and a file already at the
+new path is never overwritten.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

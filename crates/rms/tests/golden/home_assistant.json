@@ -136,12 +136,12 @@
   "albums_new": {
     "albums_loop": [
       {
-        "id": 3,
+        "id": 1,
         "performance": "",
-        "favorites_url": "db:album.title=Mixed%20Bag&contributor.name=Various%20Artists",
-        "favorites_title": "Mixed Bag",
-        "album": "Mixed Bag",
-        "artist": "Various Artists"
+        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
+        "favorites_title": "First Light",
+        "album": "First Light",
+        "artist": "Alpha Band"
       },
       {
         "id": 2,
@@ -152,12 +152,12 @@
         "artist": "Beta Singer"
       },
       {
-        "id": 1,
+        "id": 3,
         "performance": "",
-        "favorites_url": "db:album.title=First%20Light&contributor.name=Alpha%20Band",
-        "favorites_title": "First Light",
-        "album": "First Light",
-        "artist": "Alpha Band"
+        "favorites_url": "db:album.title=Mixed%20Bag&contributor.name=Various%20Artists",
+        "favorites_title": "Mixed Bag",
+        "album": "Mixed Bag",
+        "artist": "Various Artists"
       }
     ],
     "count": 3

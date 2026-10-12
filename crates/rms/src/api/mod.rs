@@ -22,8 +22,8 @@ use axum::{Json, Router};
 use commands::CommandError;
 use library::{AlbumParams, FolderParams, LibraryError, ListParams};
 use model::{
-    ApiError, Command, NewFavorite, PlayerSettingsPatch, ScanRequest, ServerSettingsPatch,
-    SpotifyLogin, SpotifyPatch,
+    ApiError, Command, MoveRequest, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
+    ServerSettingsPatch, SpotifyLogin, SpotifyPatch, TagChanges,
 };
 use serde::{Deserialize, Serialize};
 use services::MenuParams;
@@ -54,6 +54,20 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/artists/{id}/similar", get(get_artist_similar))
         .route("/api/v1/albums", get(get_albums))
         .route("/api/v1/albums/{id}", get(get_album))
+        .route(
+            "/api/v1/albums/{id}/release",
+            get(get_album_release)
+                .put(put_album_release)
+                .delete(delete_album_release),
+        )
+        .route("/api/v1/albums/{id}/tags", get(get_album_tags))
+        .route(
+            "/api/v1/albums/{id}/files",
+            get(get_album_files).post(post_album_files),
+        )
+        .route("/api/v1/tags", post(post_tags))
+        .route("/api/v1/tags/edits", get(get_tag_edits))
+        .route("/api/v1/tags/edits/{batch}/undo", post(post_tag_undo))
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
         .route("/api/v1/tracks", get(get_tracks))
@@ -253,6 +267,151 @@ async fn get_albums(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<AlbumPar
 
 async fn get_album(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
     library_reply(library::album_by_id(&s, id).await, "album")
+}
+
+async fn get_album_release(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::album_release(&s, id).await, "album")
+}
+
+async fn put_album_release(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<ReleaseChoice>, JsonRejection>,
+) -> Response {
+    let choice = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    choose_release(&s, id, Some(choice.mbid.trim())).await
+}
+
+async fn delete_album_release(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    choose_release(&s, id, None).await
+}
+
+/// Match the album to a release (`Some`), or have it matched again (`None`); answers with
+/// the album's release as `GET` does.
+async fn choose_release(s: &Arc<Server>, id: i64, mbid: Option<&str>) -> Response {
+    use crate::plugins::musicbrainz::ChooseError;
+    match crate::plugins::musicbrainz::choose_release(s, id, mbid).await {
+        Ok(_) => library_reply(library::album_release(s, id).await, "album"),
+        Err(ChooseError::NotFound) => error(StatusCode::NOT_FOUND, "no such album"),
+        Err(ChooseError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
+        Err(ChooseError::Failed(m)) => error(StatusCode::BAD_GATEWAY, m),
+    }
+}
+
+#[derive(Deserialize)]
+struct TagsQuery {
+    release: Option<String>,
+}
+
+async fn get_album_tags(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<TagsQuery>,
+) -> Response {
+    let s2 = s.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        crate::tagedit::proposal(&s2, id, q.release.as_deref().filter(|r| !r.is_empty()))
+    })
+    .await;
+    match r {
+        Ok(Ok((release, tracks))) => Json(library::album_tags(&s, release, tracks)).into_response(),
+        Ok(Err(e)) => tag_error(e, "album"),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn post_tags(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<TagChanges>, JsonRejection>,
+) -> Response {
+    let changes = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let changes = changes
+        .changes
+        .into_iter()
+        .map(|c| (c.track_id, c.tags))
+        .collect();
+    match crate::tagedit::apply(&s, changes).await {
+        Ok(o) => Json(library::tag_edit_result(o)).into_response(),
+        Err(e) => tag_error(e, "track"),
+    }
+}
+
+#[derive(Deserialize)]
+struct FilesQuery {
+    template: Option<String>,
+}
+
+async fn get_album_files(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<FilesQuery>,
+) -> Response {
+    let template = q
+        .template
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| crate::tagedit::template(&s));
+    let s2 = s.clone();
+    let t2 = template.clone();
+    match tokio::task::spawn_blocking(move || crate::tagedit::move_plan(&s2, id, &t2)).await {
+        Ok(Ok(plan)) => Json(library::album_files(&s, template, plan)).into_response(),
+        Ok(Err(e)) => tag_error(e, "album"),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn post_album_files(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<MoveRequest>, JsonRejection>,
+) -> Response {
+    let req = match body(b) {
+        Ok(r) => r,
+        Err(r) => return r,
+    };
+    let template = req
+        .template
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| crate::tagedit::template(&s));
+    match crate::tagedit::move_album(&s, id, &template).await {
+        Ok(m) => {
+            let r = library::tag_edit_result(m.outcome);
+            Json(model::MoveResult {
+                batch: r.batch,
+                changed: r.changed,
+                failed: r.failed,
+                album_id: m.album_id,
+            })
+            .into_response()
+        }
+        Err(e) => tag_error(e, "album"),
+    }
+}
+
+async fn get_tag_edits(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<Page>) -> Response {
+    Json(library::tag_edits(&s, p.limit.unwrap_or(50))).into_response()
+}
+
+async fn post_tag_undo(State(s): State<Arc<Server>>, ApiPath(batch): ApiPath<i64>) -> Response {
+    match crate::tagedit::undo(&s, batch).await {
+        Ok(o) => Json(library::tag_edit_result(o)).into_response(),
+        Err(e) => tag_error(e, "change"),
+    }
+}
+
+fn tag_error(e: crate::tagedit::Error, what: &str) -> Response {
+    use crate::tagedit::Error;
+    match e {
+        Error::NotFound => error(StatusCode::NOT_FOUND, format!("no such {what}")),
+        Error::Invalid(m) => error(StatusCode::BAD_REQUEST, m),
+        Error::Forbidden(m) => error(StatusCode::FORBIDDEN, m),
+        Error::Failed(m) => error(StatusCode::INTERNAL_SERVER_ERROR, m),
+    }
 }
 
 async fn get_genres(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {

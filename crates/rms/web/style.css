@@ -564,6 +564,43 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .plain-list > li { align-items: center; flex-wrap: wrap; }
 .plain-list .check { display: inline-flex; align-items: center; gap: 0.35rem; }
 
+/* ---------------------------------------------------------------- album tags */
+.notice { background: var(--warn-bg); color: var(--warn-text); border-radius: var(--radius-sm); padding: 10px 14px; }
+.notice p { margin: 0 0 6px; }
+.notice ul { margin: 4px 0 8px; padding-left: 18px; }
+.tag-top { display: flex; flex-direction: column; gap: 12px; margin: 0 0 18px; max-width: 900px; }
+.tag-tracks { display: flex; flex-direction: column; gap: 18px; }
+.tag-track h3 { font-size: 1rem; margin: 0 0 6px; overflow-wrap: anywhere; }
+.tag-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.tag-table th, .tag-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+.tag-table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.tag-table td:first-child, .tag-table th:first-child { width: 32px; }
+.tag-table tbody th { width: 22%; font-weight: 500; font-size: .9rem; }
+.tag-table .tag-current { width: 34%; color: var(--muted); font-size: .9rem; }
+.tag-table tr.changed .tag-current { text-decoration: line-through; }
+.tag-table .tag-new input { width: 100%; }
+.tag-files { margin-top: 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
+.tag-files h2 { font-size: 1.1rem; }
+.file-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.file-table th, .file-table td { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; font-size: .9rem; }
+.file-table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.file-table td:first-child { color: var(--muted); }
+.file-table tr.blocked td { opacity: .75; }
+@media (max-width: 600px) {
+  .file-table thead { display: none; }
+  .file-table tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .file-table td { display: block; border: 0; padding: 2px 0; }
+  .file-table td + td::before { content: '→ '; color: var(--muted); }
+}
+.tag-ids summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: 6px 0; }
+.tag-footer { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 600px) {
+  .tag-table thead { display: none; }
+  .tag-table tr { display: grid; grid-template-columns: 32px 1fr; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .tag-table th, .tag-table td { border: 0; width: auto !important; }
+  .tag-table .tag-current, .tag-table .tag-new { grid-column: 2; }
+}
+
 /* ---------------------------------------------------------------- menus & dialogs */
 .menu {
   position: fixed; z-index: 1000; min-width: 210px; max-width: min(320px, calc(100vw - 16px));

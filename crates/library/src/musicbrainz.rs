@@ -136,8 +136,9 @@ impl Library {
         Ok(())
     }
 
-    /// Fill in from MusicBrainz what the tags leave out: MusicBrainz ids, ISRCs, and the genres
-    /// of tracks without a genre tag (the "No Genre" genre).  Returns the tracks changed.
+    /// Fill in from MusicBrainz what the tags leave out: MusicBrainz ids, ISRCs, the genres
+    /// of tracks without a genre tag (the "No Genre" genre), and what the albums' releases
+    /// tell ([`Library::apply_releases`]).  Returns the tracks and albums changed.
     pub fn apply_musicbrainz(&self) -> usize {
         let Ok(c) = self.conn() else { return 0 };
         let mut n = 0;
@@ -159,7 +160,7 @@ impl Library {
                 [],
             )
             .unwrap_or(0);
-        n + self.apply_genres(&c).unwrap_or(0)
+        n + self.apply_genres(&c).unwrap_or(0) + self.apply_releases()
     }
 
     /// Genres for tracks whose only genre is "No Genre".

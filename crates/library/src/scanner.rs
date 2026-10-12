@@ -1664,7 +1664,17 @@ impl<'a> Scanner<'a> {
 
         // compilation detection (after the track's artists are known)
         if is_compilation.is_none() {
+            // a changed file (retagged) may make the album's artists agree again: decide
+            // afresh, as when a track is removed
+            let redo = existing.is_some()
+                && self.conn.execute(
+                    "UPDATE albums SET compilation = NULL WHERE id = ? AND compilation = 1",
+                    [album_id],
+                )? > 0;
             self.merge_single_va_album(album_id)?;
+            if redo {
+                self.restore_album_artist(album_id)?;
+            }
         }
         self.touched_albums.insert(album_id);
 
@@ -1973,6 +1983,29 @@ impl<'a> Scanner<'a> {
             }
         }
         Ok(ids)
+    }
+
+    /// An album found not to be a compilation after all gets its artist back from Various
+    /// Artists: its album artist, else the artist of its first track.
+    fn restore_album_artist(&mut self, album: i64) -> rusqlite::Result<()> {
+        let va = self.va_id()?;
+        let artist: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT ta.artist_id FROM tracks t JOIN track_artists ta ON ta.track_id = t.id
+                 WHERE t.album_id = ?1 AND ta.role IN (1, 5) AND ta.artist_id != ?2
+                 ORDER BY ta.role = 5 DESC, t.disc, t.track_number, ta.position LIMIT 1",
+                params![album, va],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(a) = artist {
+            self.conn.execute(
+                "UPDATE albums SET artist_id = ?1 WHERE id = ?2 AND compilation = 0 AND artist_id = ?3",
+                params![a, album, va],
+            )?;
+        }
+        Ok(())
     }
 
     /// `mergeSingleVAAlbum($albumid)` (also sets compilation 0 when not yet evaluated).

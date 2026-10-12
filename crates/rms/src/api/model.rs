@@ -397,6 +397,251 @@ pub struct AlbumDetail {
     pub tracks: Vec<Track>,
 }
 
+/// `GET /api/v1/albums/{id}/release`: the MusicBrainz release the album was matched to.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumRelease {
+    pub status: ReleaseStatus,
+    /// How the release was found: `tag` (the tags name it), `auto` (best fit), `user` (chosen).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub how: Option<String>,
+    /// How well the album fits the release, 0–1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+    /// The album's tracks, and the release track each one is.
+    pub tracks: Vec<ReleaseTrackMatch>,
+    /// The releases considered, best first.
+    pub candidates: Vec<ReleaseCandidate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ReleaseStatus {
+    /// Matched confidently (or chosen, or named by the tags): fills in what tags leave out.
+    Matched,
+    /// Matched, but not surely: worth checking.
+    Uncertain,
+    /// No release found.
+    None,
+    /// Not matched yet (MusicBrainz identification is off, or still busy).
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ReleaseInfo {
+    pub mbid: String,
+    pub title: String,
+    pub artist: String,
+    /// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; empty when unknown.
+    pub date: String,
+    /// The first release of this album (the original year).
+    pub original_date: String,
+    pub country: String,
+    /// `Official`, `Promotion`, `Bootleg`, …
+    pub status: String,
+    pub label: String,
+    pub catalog_number: String,
+    pub barcode: String,
+    /// The media: `CD`, `2×CD`, `Digital Media`, …
+    pub format: String,
+    /// `Album`, `Single`, `EP`, … and secondary types (`Compilation`, `Live`, …).
+    pub release_type: Vec<String>,
+    pub track_count: i64,
+    pub disc_count: i64,
+    /// The release's page on MusicBrainz.
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct ReleaseTrackMatch {
+    pub track_id: i64,
+    /// Where the track is on the release; absent when it is none of its tracks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disc: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<i64>,
+    /// The track's number as printed ("A1", "3").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    /// Seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
+    /// MusicBrainz recording id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct ReleaseCandidate {
+    pub mbid: String,
+    pub score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+}
+
+/// `GET /api/v1/albums/{id}/tags`: the album's tracks' tags as they are in the files, next
+/// to what its release says.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumTags {
+    /// The release the proposals come from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+    /// Why the files can't be changed now (see `edit_files_blocked` in the settings).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+    pub tracks: Vec<TrackTags>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TrackTags {
+    pub track_id: i64,
+    /// The file.
+    pub path: String,
+    /// Why this file can't be changed, if it can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub tags: Vec<TagValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagValue {
+    /// `title`, `artist`, `album`, `album_artist`, `track_number`, `track_total`,
+    /// `disc_number`, `disc_total`, `date`, `original_date`, `label`, `catalog_number`,
+    /// `barcode`, `musicbrainz_recording_id`, `musicbrainz_track_id`,
+    /// `musicbrainz_release_id`, `musicbrainz_release_group_id`, `musicbrainz_artist_id`,
+    /// `musicbrainz_album_artist_id`.
+    pub field: String,
+    /// In the file (several values joined with "; "); absent when the file has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    /// What the release says; absent when it says nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed: Option<String>,
+    /// `proposed` differs from `current`.
+    pub changed: bool,
+}
+
+/// `POST /api/v1/tags` body: tags to write, by track (`null` removes a tag).
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct TagChanges {
+    pub changes: Vec<TrackTagChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct TrackTagChange {
+    pub track_id: i64,
+    pub tags: std::collections::BTreeMap<String, Option<String>>,
+}
+
+/// What writing (or undoing) tags did.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagEditResult {
+    /// The change's entry in `GET /api/v1/tags/edits`, to undo it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch: Option<i64>,
+    /// Files changed.
+    pub changed: i64,
+    pub failed: Vec<TagEditFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TagEditFailure {
+    pub track_id: i64,
+    pub error: String,
+}
+
+/// `GET /api/v1/albums/{id}/files`: where the album's files are, and where they go.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumFiles {
+    /// The template used (the setting's, or the one asked for).
+    pub template: String,
+    /// Why files can't be moved now, if they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+    pub files: Vec<FileMove>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct FileMove {
+    /// Absent for a file that is not a track (cover, booklet) going with the album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<i64>,
+    /// Relative to its music folder.
+    pub from: String,
+    pub to: String,
+    /// `to` differs from `from`.
+    pub changed: bool,
+    /// Why it can't move, if it can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `POST /api/v1/albums/{id}/files` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct MoveRequest {
+    /// Instead of the setting's.
+    #[serde(default)]
+    pub template: Option<String>,
+}
+
+/// What moving an album's files did.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct MoveResult {
+    /// The change's entry in `GET /api/v1/tags/edits`, to undo it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch: Option<i64>,
+    /// Tracks moved.
+    pub changed: i64,
+    pub failed: Vec<TagEditFailure>,
+    /// The album after the library caught up (its id can change).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<i64>,
+}
+
+/// A change of tags (or of files' places) made through RMS.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagEdit {
+    pub batch: i64,
+    /// `tags` or `move`.
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    /// Files changed.
+    pub files: i64,
+    /// Unix time.
+    pub applied_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undone_at: Option<i64>,
+}
+
+/// `PUT /api/v1/albums/{id}/release` body: the release the album is.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseChoice {
+    /// A MusicBrainz release id (from `candidates`, or from musicbrainz.org).
+    pub mbid: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Genre {
     pub id: i64,
@@ -610,6 +855,19 @@ pub struct ServerSettings {
     pub musicbrainz_identified: i64,
     /// Recordings waiting to be looked up.
     pub musicbrainz_pending: i64,
+    /// Albums matched to their MusicBrainz release; matched only possibly (worth checking);
+    /// waiting to be matched.
+    pub albums_matched: i64,
+    pub albums_uncertain: i64,
+    pub albums_pending: i64,
+    /// Tags can be changed in the music files (the web UI's album tag editor).
+    pub edit_files: bool,
+    /// Why music files can't be changed now (off, or no login), if they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edit_files_blocked: Option<String>,
+    /// Where an album's files go when organised, relative to their music folder
+    /// (`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}`).
+    pub file_name_template: String,
     /// Mixes take some songs from outside what was played, found with ListenBrainz.
     pub listenbrainz: bool,
     /// Songs discovered so far, and of those played and rejected (skipped early).
@@ -665,6 +923,8 @@ pub struct ServerSettingsPatch {
     pub spotify_normalisation: Option<bool>,
     pub musicbrainz: Option<bool>,
     pub acoustid_key: Option<String>,
+    pub edit_files: Option<bool>,
+    pub file_name_template: Option<String>,
     pub listenbrainz: Option<bool>,
     pub scrobble_spotify: Option<bool>,
 }
