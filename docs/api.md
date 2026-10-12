@@ -37,6 +37,9 @@ own conventions:
 | `GET /api/v1/albums?sort=&artist=&genre=&year=&q=` | page of [Album](#album) |
 | `GET /api/v1/albums/{id}` | [Album](#album) with `duration` and `tracks` |
 | `GET`, `PUT`, `DELETE /api/v1/albums/{id}/release` | the album's [MusicBrainz release](#album-release) |
+| `GET /api/v1/albums/{id}/tags?release=` | the album's [tags](#tags), and what the release says |
+| `POST /api/v1/tags` | [write tags](#tags) into files |
+| `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes](#tags), and undoing one |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
 | `GET /api/v1/tracks?q=` | page of [Track](#track) |
@@ -306,6 +309,36 @@ written.
 MusicBrainz; `502` when it can't be asked) and returns the result; `DELETE` forgets the match,
 so the album is matched again.  A user's choice is kept when the album gains tracks.
 
+### Tags
+
+`GET /api/v1/albums/{id}/tags` lists each of the album's files with every tag RMS can write,
+as it is in the file (`current`) and as the album's release says (`proposed`; `?release=`
+another release considered for it), `changed` when they differ:
+
+```json
+{"release": { "…": "as in Album release" }, "blocked": "…",
+ "tracks": [{"track_id": 102, "path": "/srv/music/Nirvana/Nevermind/02.flac",
+             "tags": [{"field": "title", "current": "In Blom", "proposed": "In Bloom", "changed": true},
+                      {"field": "track_number", "current": "2", "proposed": "2", "changed": false}, "…"]}]}
+```
+
+The fields: `title`, `artist`, `album`, `album_artist`, `track_number`, `track_total`,
+`disc_number`, `disc_total`, `date`, `original_date`, `label`, `catalog_number`, `barcode`,
+`musicbrainz_recording_id`, `musicbrainz_track_id`, `musicbrainz_release_id`,
+`musicbrainz_release_group_id`, `musicbrainz_artist_id`, `musicbrainz_album_artist_id`.  A
+track's `error` says why its file can't be changed (a cue-sheet track, a format RMS can't
+write, no write permission).
+
+`POST /api/v1/tags` writes them:
+`{"changes": [{"track_id": 102, "tags": {"title": "In Bloom", "label": null}}]}` (`null`
+removes the tag) → `{"batch": 7, "changed": 1, "failed": [{"track_id": …, "error": …}]}`.
+Only the tags named change; the files' folders are rescanned.  It answers `403` unless file
+changes are on (`edit_files` in the settings) and the server has a login (`authorize`, a user
+name and a password): `blocked` and the settings' `edit_files_blocked` say which.
+`GET /api/v1/tags/edits` lists the changes made, newest first (`{batch, album, files,
+applied_at, undone_at}`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
+they replaced, except in files changed again since.
+
 ### Folder entry
 
 ```json
@@ -395,7 +428,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
  "musicbrainz_identified": 0, "musicbrainz_pending": 0, "albums_matched": 0,
- "albums_uncertain": 0, "albums_pending": 0, "listenbrainz": false,
+ "albums_uncertain": 0, "albums_pending": 0, "edit_files": false,
+ "edit_files_blocked": "…", "listenbrainz": false,
  "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
  "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
  "scrobble_pending": 0, "scrobble_error": "…"}

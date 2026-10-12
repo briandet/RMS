@@ -41,6 +41,7 @@ pub mod scrobble;
 pub mod songdata;
 pub mod sonic;
 pub mod tags;
+pub mod tagwrite;
 pub mod text;
 pub mod track;
 pub mod types;

@@ -257,6 +257,19 @@ holds, and its title and artist.  A confident match fills in the album's year an
 numbers and discs where tags have none; uncertain ones can be checked and another release
 chosen through the API (`/api/v1/albums/{id}/release`, [docs/api.md](docs/api.md#album-release)).
 
+**Changing tags** (Settings → Library, *Change tags in music files*, off by default): an
+album's *Tags* page shows its files' tags next to what its MusicBrainz release says — title,
+artists, album artist, track and disc numbers, dates, label, catalog number, barcode and the
+MusicBrainz ids, by the names Picard uses — and writes what you tick (or type) into the
+files, with undo.  Another release can be picked from the ones considered, or given by its
+link.  It needs a login (`username`, `password`, `authorize`, see the firewall notes above),
+since anyone who can reach the web UI could otherwise rewrite your music, and write access
+for RMS to the music (`packaging/install.sh --edit-files` sets up the service for it).  Only
+the tags asked for change: the audio, pictures and other tags stay as they are, the file is
+rewritten in place (keeping its owner and permissions), each write is read back and the file
+put back if anything is off.  FLAC, Ogg, Opus, MP3, MP4/M4A, AIFF, WAV, APE and WavPack;
+not cue-sheet tracks.  Play counts, analysis and the release match stay with the files.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

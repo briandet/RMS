@@ -295,13 +295,34 @@ pub fn http_post_status(port: u16, path: &str, body: &str, auth: Option<&str>) -
 
 /// HTTP/1.0 request with a JSON body; returns status and body.
 pub fn http_json(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    http_json_as(port, None, method, path, body)
+}
+
+/// [`http_json`] signed in as `user:password`.
+pub fn http_json_as(
+    port: u16,
+    login: Option<&str>,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> (u16, String) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     let body = body.unwrap_or("");
+    let auth = login
+        .map(|l| {
+            use base64::Engine;
+            format!(
+                "Authorization: Basic {}\r\n",
+                base64::engine::general_purpose::STANDARD.encode(l)
+            )
+        })
+        .unwrap_or_default();
     write!(
         s,
-        "{} {} HTTP/1.0\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        "{} {} HTTP/1.0\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
         method,
         path,
+        auth,
         body.len(),
         body
     )

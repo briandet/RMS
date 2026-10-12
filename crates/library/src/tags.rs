@@ -904,7 +904,7 @@ fn dsf_cover(path: &Path) -> Option<(Vec<u8>, String)> {
 // Public entry points
 // ---------------------------------------------------------------------------------------------
 
-fn file_type_for(path: &Path) -> Option<FileType> {
+pub(crate) fn file_type_for(path: &Path) -> Option<FileType> {
     let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
     Some(match ext.as_str() {
         "mp3" | "mp2" => FileType::Mpeg,

@@ -31,6 +31,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V4_DISCOVER,
     SCHEMA_V5_SCROBBLE,
     SCHEMA_V6_RELEASES,
+    SCHEMA_V7_TAG_EDITS,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -453,6 +454,23 @@ CREATE TABLE track_release (
   matched_at   INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX track_release_release ON track_release (release_mbid);
+"#;
+
+/// Tags RMS wrote into music files ([`crate::tagwrite`]), to undo them.
+const SCHEMA_V7_TAG_EDITS: &str = r#"
+-- One file's tags as they were (`before`) and as written (`after`): JSON objects of field
+-- name to value (null: absent).  `batch` groups the files changed together (an album).
+CREATE TABLE tag_edits (
+  id         INTEGER PRIMARY KEY,
+  batch      INTEGER NOT NULL,
+  url        TEXT NOT NULL,
+  album      TEXT,
+  before     TEXT NOT NULL,
+  after      TEXT NOT NULL,
+  applied_at INTEGER NOT NULL,
+  undone_at  INTEGER
+) STRICT;
+CREATE INDEX tag_edits_batch ON tag_edits (batch);
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

@@ -4,8 +4,9 @@
 //! resources here.
 
 use super::model::{
-    Album, AlbumDetail, AlbumRelease, Artist, FolderEntry, FolderEntryType, Genre, Page, Playlist,
-    ReleaseCandidate, ReleaseInfo, ReleaseStatus, ReleaseTrackMatch, SearchResults, Track, Year,
+    Album, AlbumDetail, AlbumRelease, AlbumTags, Artist, FolderEntry, FolderEntryType, Genre, Page,
+    Playlist, ReleaseCandidate, ReleaseInfo, ReleaseStatus, ReleaseTrackMatch, SearchResults,
+    TagEdit, TagEditFailure, TagEditResult, TagValue, Track, TrackTags, Year,
 };
 use super::state::{int, string, track_from_row};
 use crate::server::Server;
@@ -326,6 +327,74 @@ pub async fn album_release(server: &Arc<Server>, id: i64) -> Result<AlbumRelease
     })
     .await
     .map_err(|e| LibraryError::Failed(e.to_string()))?
+}
+
+/// An album's tags and proposals ([`crate::tagedit::proposal`]) as the API has them.
+pub fn album_tags(
+    server: &Server,
+    release: Option<rms_library::releases::Release>,
+    tracks: Vec<crate::tagedit::TrackTags>,
+) -> AlbumTags {
+    let norm = |field: &str, v: &Option<String>| -> Option<String> {
+        let v = v.as_deref().map(str::trim).filter(|v| !v.is_empty())?;
+        // "03" is track 3
+        if field.ends_with("_number") || field.ends_with("_total") {
+            if let Ok(n) = v.parse::<i64>() {
+                return Some(n.to_string());
+            }
+        }
+        Some(v.to_string())
+    };
+    AlbumTags {
+        release: release.as_ref().map(release_info),
+        blocked: crate::tagedit::blocked(server),
+        tracks: tracks
+            .into_iter()
+            .map(|t| TrackTags {
+                track_id: t.track_id,
+                path: t.path,
+                error: t.error,
+                tags: t
+                    .tags
+                    .into_iter()
+                    .map(|(field, current, proposed)| TagValue {
+                        changed: proposed.is_some()
+                            && norm(&field, &proposed) != norm(&field, &current),
+                        field,
+                        current,
+                        proposed,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn tag_edit_result(o: crate::tagedit::Outcome) -> TagEditResult {
+    TagEditResult {
+        batch: o.batch,
+        changed: o.changed as i64,
+        failed: o
+            .failed
+            .into_iter()
+            .map(|(track_id, error)| TagEditFailure { track_id, error })
+            .collect(),
+    }
+}
+
+pub fn tag_edits(server: &Server, limit: usize) -> Vec<TagEdit> {
+    server
+        .library
+        .edit_batches(limit.min(1000))
+        .into_iter()
+        .map(|b| TagEdit {
+            batch: b.batch,
+            album: b.album,
+            files: b.files,
+            applied_at: b.applied_at,
+            undone_at: b.undone_at,
+        })
+        .collect()
 }
 
 fn release_info(r: &rms_library::releases::Release) -> ReleaseInfo {

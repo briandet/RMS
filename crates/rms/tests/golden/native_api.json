@@ -940,6 +940,8 @@
       "albums_matched": 0,
       "albums_uncertain": 0,
       "albums_pending": 3,
+      "edit_files": false,
+      "edit_files_blocked": "Changing music files is off (setting edit_files).",
       "listenbrainz": false,
       "discovered": 0,
       "discovered_played": 0,
@@ -972,6 +974,8 @@
       "albums_matched": 0,
       "albums_uncertain": 0,
       "albums_pending": 3,
+      "edit_files": false,
+      "edit_files_blocked": "Changing music files is off (setting edit_files).",
       "listenbrainz": false,
       "discovered": 0,
       "discovered_played": 0,
@@ -990,7 +994,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `listenbrainz`, `scrobble_spotify` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `listenbrainz`, `scrobble_spotify` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {

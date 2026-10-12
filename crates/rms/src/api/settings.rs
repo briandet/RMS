@@ -40,6 +40,8 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         albums_matched: albums.matched,
         albums_uncertain: albums.uncertain,
         albums_pending: albums.pending,
+        edit_files: prefs.get_bool(crate::tagedit::PREF),
+        edit_files_blocked: crate::tagedit::blocked(server),
         listenbrainz: prefs.get_bool(crate::plugins::listenbrainz::PREF),
         discovered: d.proposed,
         discovered_played: d.played,
@@ -132,6 +134,9 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.musicbrainz {
         changes.push((crate::plugins::musicbrainz::PREF, flag(v)));
+    }
+    if let Some(v) = patch.edit_files {
+        changes.push((crate::tagedit::PREF, flag(v)));
     }
     if let Some(v) = patch.scrobble_spotify {
         changes.push((crate::plugins::scrobble::SPOTIFY, flag(v)));

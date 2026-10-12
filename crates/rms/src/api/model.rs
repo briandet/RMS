@@ -484,6 +484,98 @@ pub struct ReleaseCandidate {
     pub release: Option<ReleaseInfo>,
 }
 
+/// `GET /api/v1/albums/{id}/tags`: the album's tracks' tags as they are in the files, next
+/// to what its release says.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumTags {
+    /// The release the proposals come from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+    /// Why the files can't be changed now (see `edit_files_blocked` in the settings).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+    pub tracks: Vec<TrackTags>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TrackTags {
+    pub track_id: i64,
+    /// The file.
+    pub path: String,
+    /// Why this file can't be changed, if it can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub tags: Vec<TagValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagValue {
+    /// `title`, `artist`, `album`, `album_artist`, `track_number`, `track_total`,
+    /// `disc_number`, `disc_total`, `date`, `original_date`, `label`, `catalog_number`,
+    /// `barcode`, `musicbrainz_recording_id`, `musicbrainz_track_id`,
+    /// `musicbrainz_release_id`, `musicbrainz_release_group_id`, `musicbrainz_artist_id`,
+    /// `musicbrainz_album_artist_id`.
+    pub field: String,
+    /// In the file (several values joined with "; "); absent when the file has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    /// What the release says; absent when it says nothing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed: Option<String>,
+    /// `proposed` differs from `current`.
+    pub changed: bool,
+}
+
+/// `POST /api/v1/tags` body: tags to write, by track (`null` removes a tag).
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct TagChanges {
+    pub changes: Vec<TrackTagChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct TrackTagChange {
+    pub track_id: i64,
+    pub tags: std::collections::BTreeMap<String, Option<String>>,
+}
+
+/// What writing (or undoing) tags did.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagEditResult {
+    /// The change's entry in `GET /api/v1/tags/edits`, to undo it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch: Option<i64>,
+    /// Files changed.
+    pub changed: i64,
+    pub failed: Vec<TagEditFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TagEditFailure {
+    pub track_id: i64,
+    pub error: String,
+}
+
+/// A change of tags made through RMS.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TagEdit {
+    pub batch: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    /// Files changed.
+    pub files: i64,
+    /// Unix time.
+    pub applied_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub undone_at: Option<i64>,
+}
+
 /// `PUT /api/v1/albums/{id}/release` body: the release the album is.
 #[derive(Debug, Clone, PartialEq, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
@@ -662,6 +754,11 @@ pub struct ServerSettings {
     pub albums_matched: i64,
     pub albums_uncertain: i64,
     pub albums_pending: i64,
+    /// Tags can be changed in the music files (the web UI's album tag editor).
+    pub edit_files: bool,
+    /// Why music files can't be changed now (off, or no login), if they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edit_files_blocked: Option<String>,
     /// Mixes take some songs from outside what was played, found with ListenBrainz.
     pub listenbrainz: bool,
     /// Songs discovered so far, and of those played and rejected (skipped early).
@@ -717,6 +814,7 @@ pub struct ServerSettingsPatch {
     pub spotify_normalisation: Option<bool>,
     pub musicbrainz: Option<bool>,
     pub acoustid_key: Option<String>,
+    pub edit_files: Option<bool>,
     pub listenbrainz: Option<bool>,
     pub scrobble_spotify: Option<bool>,
 }

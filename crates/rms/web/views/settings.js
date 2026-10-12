@@ -3,7 +3,8 @@
 import {
   serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
   getSpotify, spotifyLogin, spotifyLogout, patchSpotify, forgetSpotifyLearned,
-  addListenBrainzAccount, patchListenBrainzAccount, removeListenBrainzAccount,
+  addListenBrainzAccount, patchListenBrainzAccount, removeListenBrainzAccount, getTagEdits,
+  undoTagEdit,
 } from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
@@ -476,7 +477,7 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: mbId }, 'Identify recordings with MusicBrainz',
         h('span', { class: 'muted small block' },
-          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and each album's release, and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs, album years, track numbers and discs. Your files are never changed and tags always win. One lookup a second, so a large library takes some hours the first time. ',
+          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and each album’s release, and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs, album years, track numbers and discs. Tags always win, and your files are only changed from an album’s Tags page (below). One lookup a second, so a large library takes some hours the first time. ',
           progress)));
     const keyInput = h('input', { id: keyId, type: 'text', value: settings.acoustid_key ?? '', placeholder: 'AcoustID application key', spellcheck: 'false', autocomplete: 'off' });
     const keyForm = h('form', { class: 'field inline', hidden: !mbOn, onsubmit: async (e) => {
@@ -500,7 +501,38 @@ export function render(node, { ctx }) {
           'Mixes include some songs you haven’t played (each player’s “Adventurous” setting): played alongside the seeds by ListenBrainz listeners, or by artists they find similar. From your library when you have them, else from Spotify. Skipping one within 30 seconds rejects it. Needs MusicBrainz identification (above) or MusicBrainz ids in your tags. ',
           lbOn ? `${settings.discovered ?? 0} discovered, ${settings.discovered_played ?? 0} played, ${settings.discovered_rejected ?? 0} rejected.` : '')));
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm, lbField);
+    // changing tags in the music files (the album Tags page)
+    const editId = fieldId();
+    const editOn = !!settings.edit_files;
+    const recent = h('div', { class: 'field', hidden: !editOn });
+    const editField = h('div', { class: 'field check' },
+      h('input', { id: editId, type: 'checkbox', checked: editOn, onchange: async (e) => {
+        await saveServer({ edit_files: e.target.checked }, e.target.checked ? 'Tags can be changed from the albums’ Tags pages' : 'Music files are left alone');
+        renderLibrary();
+      } }),
+      h('label', { for: editId }, 'Change tags in music files',
+        h('span', { class: 'muted small block' },
+          'Lets the album Tags page write tags into your files (from the MusicBrainz release, or by hand), with undo. Only with a login (Server → password protection), since anyone who can reach this page could otherwise change your music. The files must be writable by RMS. ',
+          editOn && settings.edit_files_blocked ? h('strong', {}, settings.edit_files_blocked) : '')));
+    if (editOn) {
+      getTagEdits(5).then((edits) => {
+        if (!alive || !edits.length) return;
+        recent.replaceChildren(h('label', {}, 'Recent tag changes'),
+          h('ul', { class: 'plain-list' }, edits.map((e) => h('li', { class: 'inline-row' },
+            h('span', {}, `${e.album || 'Files'}: ${plural(e.files, 'file')}, ${new Date(e.applied_at * 1000).toLocaleString()}`),
+            e.undone_at ? h('span', { class: 'muted small' }, 'undone')
+              : h('button', { class: 'btn btn-small', type: 'button', onclick: async (ev) => {
+                ev.target.disabled = true;
+                try {
+                  const r = await undoTagEdit(e.batch);
+                  toast(`Put back the tags of ${plural(r.changed, 'file')}`);
+                  renderLibrary();
+                } catch (err) { toast(`Could not undo: ${err.message}`, 'error'); ev.target.disabled = false; }
+              } }, 'Undo')))));
+      }).catch(() => {});
+    }
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm, lbField, editField, recent);
   }
 
   // ---------------------------------------------------------------- scan

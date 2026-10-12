@@ -154,6 +154,26 @@ export const getSettings = () => api('settings');
 /** @param {ServerSettingsPatch} patch @returns {Promise<ServerSettings>} */
 export const patchSettings = (patch) => api('settings', { method: 'PATCH', body: patch });
 /** @param {ScanMode} mode `changes` (rescan), `playlists`, or `full` (clear the library and rescan). */
+// ---------------------------------------------------------------- MusicBrainz releases, tags
+
+/** @typedef {import('./api-types').AlbumRelease} AlbumRelease */
+/** @typedef {import('./api-types').AlbumTags} AlbumTags */
+/** @typedef {import('./api-types').TagEditResult} TagEditResult */
+/** @typedef {import('./api-types').TagEdit} TagEdit */
+
+/** @returns {Promise<AlbumRelease>} */
+export const getAlbumRelease = (id) => api(`albums/${encodeURIComponent(id)}/release`);
+/** Match the album to a release (fetched from MusicBrainz). @returns {Promise<AlbumRelease>} */
+export const setAlbumRelease = (id, mbid) => api(`albums/${encodeURIComponent(id)}/release`, { method: 'PUT', body: { mbid }, timeout: 60000 });
+/** @returns {Promise<AlbumTags>} */
+export const getAlbumTags = (id, release) => api(withQuery(`albums/${encodeURIComponent(id)}/tags`, { release }), { timeout: 60000 });
+/** @param {{track_id: number, tags: Record<string, string | null>}[]} changes @returns {Promise<TagEditResult>} */
+export const writeTags = (changes) => api('tags', { method: 'POST', body: { changes }, timeout: 300000 });
+/** @returns {Promise<TagEdit[]>} */
+export const getTagEdits = (limit = 10) => api(withQuery('tags/edits', { limit }));
+/** @returns {Promise<TagEditResult>} */
+export const undoTagEdit = (batch) => api(`tags/edits/${encodeURIComponent(batch)}/undo`, { method: 'POST', body: {}, timeout: 300000 });
+
 export const scanLibrary = (mode) => api('library/scan', { method: 'POST', body: { mode } });
 
 /** @returns {Promise<PlayerSettings>} */

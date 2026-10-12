@@ -248,6 +248,74 @@ export type ReleaseChoice = {
  */
 mbid: string, };
 
+export type AlbumTags = { 
+/**
+ * The release the proposals come from.
+ */
+release?: ReleaseInfo, 
+/**
+ * Why the files can't be changed now (see `edit_files_blocked` in the settings).
+ */
+blocked?: string, tracks: Array<TrackTags>, };
+
+export type TrackTags = { track_id: number, 
+/**
+ * The file.
+ */
+path: string, 
+/**
+ * Why this file can't be changed, if it can't.
+ */
+error?: string, tags: Array<TagValue>, };
+
+export type TagValue = { 
+/**
+ * `title`, `artist`, `album`, `album_artist`, `track_number`, `track_total`,
+ * `disc_number`, `disc_total`, `date`, `original_date`, `label`, `catalog_number`,
+ * `barcode`, `musicbrainz_recording_id`, `musicbrainz_track_id`,
+ * `musicbrainz_release_id`, `musicbrainz_release_group_id`, `musicbrainz_artist_id`,
+ * `musicbrainz_album_artist_id`.
+ */
+field: string, 
+/**
+ * In the file (several values joined with "; "); absent when the file has none.
+ */
+current?: string, 
+/**
+ * What the release says; absent when it says nothing.
+ */
+proposed?: string, 
+/**
+ * `proposed` differs from `current`.
+ */
+changed: boolean, };
+
+export type TagChanges = { changes: Array<TrackTagChange>, };
+
+export type TrackTagChange = { track_id: number, tags: { [key in string]: string | null }, };
+
+export type TagEditResult = { 
+/**
+ * The change's entry in `GET /api/v1/tags/edits`, to undo it.
+ */
+batch?: number, 
+/**
+ * Files changed.
+ */
+changed: number, failed: Array<TagEditFailure>, };
+
+export type TagEditFailure = { track_id: number, error: string, };
+
+export type TagEdit = { batch: number, album?: string, 
+/**
+ * Files changed.
+ */
+files: number, 
+/**
+ * Unix time.
+ */
+applied_at: number, undone_at?: number, };
+
 export type Genre = { id: number, name: string, };
 
 export type Year = { 
@@ -365,6 +433,14 @@ musicbrainz_pending: number,
  */
 albums_matched: number, albums_uncertain: number, albums_pending: number, 
 /**
+ * Tags can be changed in the music files (the web UI's album tag editor).
+ */
+edit_files: boolean, 
+/**
+ * Why music files can't be changed now (off, or no login), if they can't.
+ */
+edit_files_blocked: string | null, 
+/**
  * Mixes take some songs from outside what was played, found with ListenBrainz.
  */
 listenbrainz: boolean, 
@@ -385,7 +461,7 @@ scrobble_spotify: boolean,
  */
 scrobble_pending: number, scrobble_error: string | null, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, listenbrainz?: boolean, scrobble_spotify?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

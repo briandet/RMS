@@ -22,7 +22,7 @@ use commands::CommandError;
 use library::{AlbumParams, FolderParams, LibraryError, ListParams};
 use model::{
     ApiError, Command, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
-    ServerSettingsPatch, SpotifyLogin, SpotifyPatch,
+    ServerSettingsPatch, SpotifyLogin, SpotifyPatch, TagChanges,
 };
 use serde::{Deserialize, Serialize};
 use services::MenuParams;
@@ -54,6 +54,10 @@ pub fn router() -> Router<Arc<Server>> {
                 .put(put_album_release)
                 .delete(delete_album_release),
         )
+        .route("/api/v1/albums/{id}/tags", get(get_album_tags))
+        .route("/api/v1/tags", post(post_tags))
+        .route("/api/v1/tags/edits", get(get_tag_edits))
+        .route("/api/v1/tags/edits/{batch}/undo", post(post_tag_undo))
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
         .route("/api/v1/tracks", get(get_tracks))
@@ -274,6 +278,68 @@ async fn choose_release(s: &Arc<Server>, id: i64, mbid: Option<&str>) -> Respons
         Err(ChooseError::NotFound) => error(StatusCode::NOT_FOUND, "no such album"),
         Err(ChooseError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
         Err(ChooseError::Failed(m)) => error(StatusCode::BAD_GATEWAY, m),
+    }
+}
+
+#[derive(Deserialize)]
+struct TagsQuery {
+    release: Option<String>,
+}
+
+async fn get_album_tags(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<TagsQuery>,
+) -> Response {
+    let s2 = s.clone();
+    let r = tokio::task::spawn_blocking(move || {
+        crate::tagedit::proposal(&s2, id, q.release.as_deref().filter(|r| !r.is_empty()))
+    })
+    .await;
+    match r {
+        Ok(Ok((release, tracks))) => Json(library::album_tags(&s, release, tracks)).into_response(),
+        Ok(Err(e)) => tag_error(e, "album"),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn post_tags(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<TagChanges>, JsonRejection>,
+) -> Response {
+    let changes = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let changes = changes
+        .changes
+        .into_iter()
+        .map(|c| (c.track_id, c.tags))
+        .collect();
+    match crate::tagedit::apply(&s, changes).await {
+        Ok(o) => Json(library::tag_edit_result(o)).into_response(),
+        Err(e) => tag_error(e, "track"),
+    }
+}
+
+async fn get_tag_edits(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<Page>) -> Response {
+    Json(library::tag_edits(&s, p.limit.unwrap_or(50))).into_response()
+}
+
+async fn post_tag_undo(State(s): State<Arc<Server>>, ApiPath(batch): ApiPath<i64>) -> Response {
+    match crate::tagedit::undo(&s, batch).await {
+        Ok(o) => Json(library::tag_edit_result(o)).into_response(),
+        Err(e) => tag_error(e, "change"),
+    }
+}
+
+fn tag_error(e: crate::tagedit::Error, what: &str) -> Response {
+    use crate::tagedit::Error;
+    match e {
+        Error::NotFound => error(StatusCode::NOT_FOUND, format!("no such {what}")),
+        Error::Invalid(m) => error(StatusCode::BAD_REQUEST, m),
+        Error::Forbidden(m) => error(StatusCode::FORBIDDEN, m),
+        Error::Failed(m) => error(StatusCode::INTERNAL_SERVER_ERROR, m),
     }
 }
 

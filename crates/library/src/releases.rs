@@ -71,6 +71,8 @@ pub struct ReleaseTrack {
     pub number: String,
     pub title: String,
     pub artist: String,
+    #[serde(default)]
+    pub artist_mbids: Vec<String>,
     /// Seconds.
     pub length: Option<f64>,
 }
@@ -86,12 +88,7 @@ impl Release {
             mbid: v["id"].as_str()?.to_string(),
             title: s(&v["title"]),
             artist: credit(&v["artist-credit"]),
-            artist_mbids: v["artist-credit"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|c| c["artist"]["id"].as_str().map(str::to_string))
-                .collect(),
+            artist_mbids: credit_ids(&v["artist-credit"]),
             date: s(&v["date"]),
             country: s(&v["country"]),
             status: s(&v["status"]),
@@ -138,6 +135,16 @@ impl Release {
                                 } else {
                                     a
                                 }
+                            },
+                            artist_mbids: {
+                                let c =
+                                    if t["artist-credit"].as_array().is_some_and(|a| !a.is_empty())
+                                    {
+                                        &t["artist-credit"]
+                                    } else {
+                                        &t["recording"]["artist-credit"]
+                                    };
+                                credit_ids(c)
                             },
                             length: t["length"]
                                 .as_f64()
@@ -196,6 +203,15 @@ impl Release {
             .iter()
             .find(|t| t.position == position)
     }
+}
+
+/// The ids of the artists in an artist credit.
+fn credit_ids(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["artist"]["id"].as_str().map(str::to_string))
+        .collect()
 }
 
 /// An artist credit as printed: names and join phrases.
