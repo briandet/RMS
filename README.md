@@ -290,6 +290,14 @@ suggested when the files already have one.  A `cover`/`folder`/`album` picture a
 folder is set aside, and the files' old embedded covers are kept, so undo puts back exactly
 what was there (`<data-dir>/cover-backup`).  The album shows the new cover at once.
 
+Albums **without any art** of their own get it anyway, with MusicBrainz identification on:
+once an album is confidently matched to its release, RMS fetches the archive's front cover
+(1200 pixels, about 100–300 KB, kept in `<data-dir>/cache/release-art`) and every client shows
+it: the web UI, Squeezer, the players' screens, Subsonic apps.  Your files are not changed,
+and your own art always wins: a picture embedded in the files, or put in the album's folder
+later, takes over.  The Tags page marks such a cover as the archive's, and saving it there
+keeps it with your music.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

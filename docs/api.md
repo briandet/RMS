@@ -409,13 +409,15 @@ release (`?release=` another release; the release group's when the release has n
 cover first, and what the album has now:
 
 ```json
-{"release_mbid": "1b022e01-…", "files": 12, "embedded": 0, "folder_image": "folder.jpg",
+{"release_mbid": "1b022e01-…", "files": 12, "embedded": 0, "folder_image": "folder.jpg", "archive": false,
  "images": [{"id": "1234", "types": ["Front"], "front": true,
              "thumbnail": "https://coverartarchive.org/release/…/1234-500.jpg"}, "…"]}
 ```
 
 `embedded` counts the files with an embedded front cover, which players and RMS show before a
-picture in the folder (`folder_image`).  Without a matched release `images` is empty.
+picture in the folder (`folder_image`).  `archive` is true when the album, having no art of its
+own, shows the archive's front cover of its release (fetched in the background with
+MusicBrainz identification on; the files are not changed).  Without a matched release `images` is empty.
 `502` when the archive can't be asked.
 
 `POST` with `{"image": "1234", "folder": true, "embed": true}` downloads that image (only one

@@ -1048,6 +1048,8 @@ async fn undo_cover(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> 
                     }
                     if let Some(d) = file.parent() {
                         let _ = s.library.refresh_folder_art(d);
+                        // (no picture of its own again: the archive's, if it has one)
+                        s.library.apply_release_art();
                     }
                     Ok(file)
                 } else {

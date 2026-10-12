@@ -112,10 +112,11 @@ export async function tagsPage(v, id) {
     const now = sizedArtwork(album.artwork, 300);
     const current = h('figure', { class: 'cover-now' },
       now ? h('img', { src: now, alt: 'The cover now', width: 150, height: 150 }) : h('div', { class: 'cover-none muted' }, 'No cover'),
-      h('figcaption', { class: 'muted small' }, [
+      h('figcaption', { class: 'muted small' }, art.archive ? 'From the Cover Art Archive (not in your files)' : [
         art.embedded ? `In ${art.embedded} of ${plural(art.files, 'file')}` : null,
         art.folder_image ? `${art.embedded ? '; f' : 'F'}older: ${art.folder_image}` : null,
       ].filter(Boolean).join('') || 'Now'));
+    if (art.archive) current.title = 'Shown because the album has no picture of its own. Save it to keep it with your music.';
     if (!art.release_mbid) {
       coverEl.replaceChildren(title, current,
         h('p', { class: 'muted small' }, 'Match the album to a MusicBrainz release (above) to choose cover art from the Cover Art Archive.'));

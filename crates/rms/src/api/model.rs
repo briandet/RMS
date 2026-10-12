@@ -634,6 +634,9 @@ pub struct CoverArt {
     /// The picture file in the album's folder that stands for it, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_image: Option<String>,
+    /// The album shows the archive's front cover of its release: it has no art of its own
+    /// (the files are not changed; saving it in the folder or the files keeps it).
+    pub archive: bool,
     /// Why covers can't be written now, if they can't.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<String>,

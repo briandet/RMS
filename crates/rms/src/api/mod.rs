@@ -423,10 +423,13 @@ async fn get_cover_art(
     ApiQuery(q): ApiQuery<CoverQuery>,
 ) -> Response {
     let (s2, s3) = (s.clone(), s.clone());
-    let Ok(Some((state, release))) = tokio::task::spawn_blocking(move || {
+    let Ok(Some(((state, archive), release))) = tokio::task::spawn_blocking(move || {
         s2.library.album_job(id)?;
         Some((
-            crate::tagedit::cover_state(&s2, id),
+            (
+                crate::tagedit::cover_state(&s2, id),
+                s2.library.album_uses_release_art(id),
+            ),
             cover_release(&s2, id, q.release),
         ))
     })
@@ -457,6 +460,7 @@ async fn get_cover_art(
         folder_image: state
             .folder
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())),
+        archive,
         blocked: crate::tagedit::blocked(&s),
     })
     .into_response()

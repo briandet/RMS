@@ -33,6 +33,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V6_RELEASES,
     SCHEMA_V7_TAG_EDITS,
     SCHEMA_V8_FILE_MOVES,
+    SCHEMA_V9_RELEASE_ART,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -479,6 +480,18 @@ const SCHEMA_V8_FILE_MOVES: &str = r#"
 -- `tags`: `before` and `after` are tag values; `move`: a file moved, `{"url": …}` each
 -- (`url` is where it went).
 ALTER TABLE tag_edits ADD COLUMN kind TEXT NOT NULL DEFAULT 'tags';
+"#;
+
+/// The Cover Art Archive's front covers of releases ([`crate::releaseart`]), for albums without
+/// art of their own.  Kept across wipes.
+const SCHEMA_V9_RELEASE_ART: &str = r#"
+-- `path`: the front cover, in the library's cache folder (`release-art/`); NULL: the archive
+-- has none (asked again after a while).
+CREATE TABLE release_art (
+  release_mbid TEXT PRIMARY KEY,
+  path         TEXT,
+  fetched_at   INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

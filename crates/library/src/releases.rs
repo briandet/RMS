@@ -629,10 +629,12 @@ impl Library {
     /// tracks and albums changed.
     pub fn apply_releases(&self) -> usize {
         let Ok(c) = self.conn() else { return 0 };
-        apply_releases(&c).unwrap_or_else(|e| {
+        let n = apply_releases(&c).unwrap_or_else(|e| {
             tracing::warn!("filling in from MusicBrainz releases: {e}");
             0
-        })
+        });
+        drop(c);
+        n + self.apply_release_art()
     }
 }
 

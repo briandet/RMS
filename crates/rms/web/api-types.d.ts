@@ -395,6 +395,11 @@ files: number, embedded: number,
  */
 folder_image?: string, 
 /**
+ * The album shows the archive's front cover of its release: it has no art of its own
+ * (the files are not changed; saving it in the folder or the files keeps it).
+ */
+archive: boolean, 
+/**
  * Why covers can't be written now, if they can't.
  */
 blocked?: string, };

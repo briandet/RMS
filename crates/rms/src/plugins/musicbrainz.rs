@@ -63,8 +63,8 @@ pub async fn run(server: Arc<Server>) {
             .unwrap_or_default();
         client.key = server.prefs.server.get_str(KEY_PREF).trim().to_string();
         if jobs.is_empty() {
-            // recordings done: their albums
-            if !match_albums(&server, &mut client).await {
+            // recordings done: their albums, then the covers of those without art
+            if !match_albums(&server, &mut client).await && !fetch_release_art(&server).await {
                 tokio::time::sleep(IDLE).await;
             }
             continue;
@@ -154,6 +154,71 @@ async fn match_albums(server: &Arc<Server>, client: &mut Client) -> bool {
         "MusicBrainz: matched {matched} of {} albums to releases; {changed} tracks and albums filled in",
         jobs.len()
     );
+    true
+}
+
+/// Front covers from the Cover Art Archive (1200 pixels) for a batch of confidently matched
+/// albums without art.  `false` when there was nothing to fetch (or the archive can't be
+/// asked).
+async fn fetch_release_art(server: &Arc<Server>) -> bool {
+    let lib = server.library.clone();
+    let jobs = tokio::task::spawn_blocking(move || lib.release_art_pending(ALBUM_BATCH))
+        .await
+        .unwrap_or_default();
+    if jobs.is_empty() {
+        return false;
+    }
+    let mut found = 0;
+    for job in &jobs {
+        if !enabled(server) {
+            break;
+        }
+        let images =
+            match super::coverart::images(server, &job.release_mbid, job.release_group.as_deref())
+                .await
+            {
+                Ok(i) => i,
+                Err(e) => {
+                    warn!("{e}");
+                    return false;
+                }
+            };
+        // the front cover only: another image isn't the album's picture
+        let front = images
+            .iter()
+            .find(|i| i.front || i.types.iter().any(|t| t == "Front"));
+        let image = match front {
+            Some(i) => match super::coverart::download(server, i).await {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    warn!("cover art for {}: {e}", job.release_mbid);
+                    None
+                }
+            },
+            None => None,
+        };
+        found += image.is_some() as usize;
+        let res = server.library.store_release_art(
+            &job.release_mbid,
+            image.as_ref().map(|(d, m)| (d.as_slice(), m.as_str())),
+        );
+        if let Err(e) = res {
+            warn!("cover art for {}: {e}", job.release_mbid);
+        }
+        // (the archive asks for no limit; one album a second all the same)
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    let lib = server.library.clone();
+    let changed = tokio::task::spawn_blocking(move || lib.apply_release_art())
+        .await
+        .unwrap_or(0);
+    info!(
+        "Cover Art Archive: front covers for {found} of {} releases; {changed} tracks have one now",
+        jobs.len()
+    );
+    if changed > 0 {
+        server.notifier.notify(None, &["library", "changed", "1"]);
+    }
     true
 }
 
