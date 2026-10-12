@@ -885,3 +885,240 @@ fn native_api_pushes_player_state() {
     drop(p);
     events.player_where(|p| p["connected"] == false);
 }
+
+/// A second of 8 kHz mono silence as a WAV file.
+fn make_wav() -> Vec<u8> {
+    let data = vec![0u8; 16_000];
+    let mut w = Vec::new();
+    w.extend_from_slice(b"RIFF");
+    w.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    w.extend_from_slice(b"WAVEfmt ");
+    w.extend_from_slice(&16u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    w.extend_from_slice(&1u16.to_le_bytes()); // mono
+    w.extend_from_slice(&8000u32.to_le_bytes());
+    w.extend_from_slice(&16_000u32.to_le_bytes());
+    w.extend_from_slice(&2u16.to_le_bytes());
+    w.extend_from_slice(&16u16.to_le_bytes());
+    w.extend_from_slice(b"data");
+    w.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    w.extend_from_slice(&data);
+    w
+}
+
+/// POST raw bytes with a content type; (status, body).
+fn http_post_bytes(port: u16, path: &str, content_type: &str, body: &[u8]) -> (u16, String) {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(
+        s,
+        "POST {} HTTP/1.0\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+        path,
+        content_type,
+        body.len()
+    )
+    .unwrap();
+    s.write_all(body).unwrap();
+    let mut resp = String::new();
+    s.read_to_string(&mut resp).unwrap();
+    let status = resp
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (
+        status,
+        resp[resp.find("\r\n\r\n").unwrap() + 4..].to_string(),
+    )
+}
+
+/// Play the clip the server just queued to its end: started, sent, decoded, played out.
+fn play_out(server: &Server, p: &mut FakePlayer) {
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    assert!(
+        !fetch_stream(server.http, &strm).is_empty(),
+        "the clip streams"
+    );
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    p.send(b"DSCO", &[0]);
+    p.stat(b"STMd", 1000);
+    std::thread::sleep(Duration::from_millis(200));
+    p.stat(b"STMu", 1000);
+}
+
+#[test]
+fn announcement_interrupts_and_resumes() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"setd", Duration::from_secs(5));
+    p.expect(b"audg", Duration::from_secs(5));
+    p.send(b"SETD", b"\0Kitchen\0");
+    std::thread::sleep(Duration::from_millis(300));
+    let api = format!("/api/v1/players/{}", MAC_S.replace(':', "%3A"));
+
+    // the album plays, track 2 at 2.5 s, volume 25, repeat all
+    let dir = music.path().to_str().unwrap();
+    cli(
+        server.cli,
+        &format!("{} playlist play {}", MAC_S, dir.replace(' ', "%20")),
+    );
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    cli(server.cli, &format!("{} playlist index 1", MAC_S));
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    p.stat(b"STMt", 2500);
+    cli(server.cli, &format!("{} mixer volume 25", MAC_S));
+    cli(server.cli, &format!("{} playlist repeat 2", MAC_S));
+    std::thread::sleep(Duration::from_millis(300));
+
+    // not audio, and too loud: refused before anything changes
+    let (code, _) = http_post_bytes(server.http, &format!("{api}/announce"), "image/png", b"x");
+    assert_eq!(code, 400);
+    let (code, _) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce?volume=101"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 400);
+
+    // the announcement at volume 60
+    let (code, body) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce?volume=60"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 202, "{body}");
+    let st = cli(server.cli, &format!("{} status - 1 tags:u", MAC_S));
+    assert_eq!(
+        field(&st, "playlist_tracks").as_deref(),
+        Some("1"),
+        "{st:?}"
+    );
+    assert_eq!(field(&st, "mixer volume").as_deref(), Some("60"));
+    // one at a time per group
+    let (code, _) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 422);
+    play_out(&server, &mut p);
+
+    // back: the album, track 2 from about where it was, volume and repeat as they were
+    // (resumed at a position, so transcoded for the seek)
+    p.expect_strm(b's', Duration::from_secs(5));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let st = loop {
+        let st = cli(server.cli, &format!("{} status - 1 tags:u", MAC_S));
+        if field(&st, "playlist_tracks").as_deref() == Some("3") || Instant::now() > deadline {
+            break st;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(
+        field(&st, "playlist_tracks").as_deref(),
+        Some("3"),
+        "{st:?}"
+    );
+    assert_eq!(field(&st, "playlist_cur_index").as_deref(), Some("1"));
+    assert_eq!(field(&st, "mode").as_deref(), Some("play"));
+    assert_eq!(field(&st, "mixer volume").as_deref(), Some("25"));
+    assert_eq!(field(&st, "playlist repeat").as_deref(), Some("2"));
+    let at: f64 = field(&st, "time")
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(0.0);
+    assert!((2.0..4.0).contains(&at), "resumed near 2.5 s, not {at}");
+    // the clip is gone from the data dir (right after the restore)
+    let left = || {
+        std::fs::read_dir(server._dir.path().join("announce"))
+            .map(|d| d.count())
+            .unwrap_or(0)
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while left() > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(left(), 0, "clip file removed");
+
+    // an announcement interrupted by someone choosing other music: nothing restored
+    let (code, _) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 202);
+    p.expect_strm(b's', Duration::from_secs(5));
+    cli(
+        server.cli,
+        &format!("{} playlist play {}", MAC_S, dir.replace(' ', "%20")),
+    );
+    std::thread::sleep(Duration::from_millis(800));
+    let st = cli(server.cli, &format!("{} status - 1 tags:u", MAC_S));
+    assert_eq!(field(&st, "playlist_tracks").as_deref(), Some("3"));
+    assert_eq!(
+        field(&st, "playlist_cur_index").as_deref(),
+        Some("0"),
+        "their choice stands"
+    );
+    // and the group is free for the next one
+    let (code, _) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 202);
+}
+
+#[test]
+fn announcement_on_a_player_that_was_off() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"setd", Duration::from_secs(5));
+    p.send(b"SETD", b"\0Kitchen\0");
+    cli(server.cli, &format!("{} power 0", MAC_S));
+    std::thread::sleep(Duration::from_millis(300));
+    let api = format!("/api/v1/players/{}", MAC_S.replace(':', "%3A"));
+    let (code, body) = http_post_bytes(
+        server.http,
+        &format!("{api}/announce"),
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 202, "{body}");
+    let st = cli(server.cli, &format!("{} status - 1", MAC_S));
+    assert_eq!(field(&st, "power").as_deref(), Some("1"), "on for the clip");
+    play_out(&server, &mut p);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let st = loop {
+        let st = cli(server.cli, &format!("{} status - 1", MAC_S));
+        if field(&st, "power").as_deref() == Some("0") || Instant::now() > deadline {
+            break st;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert_eq!(
+        field(&st, "power").as_deref(),
+        Some("0"),
+        "off again: {st:?}"
+    );
+    assert_eq!(field(&st, "playlist_tracks").as_deref(), Some("0"));
+    let (code, _) = http_post_bytes(
+        server.http,
+        "/api/v1/players/nobody/announce",
+        "audio/wav",
+        &make_wav(),
+    );
+    assert_eq!(code, 404);
+}

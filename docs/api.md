@@ -29,6 +29,7 @@ own conventions:
 | `GET /api/v1/players/{id}` | [Player](#player) |
 | `GET /api/v1/players/{id}/queue?offset=&limit=` | [Queue](#queue) |
 | `POST /api/v1/players/{id}/command` | run a [command](#commands) |
+| `POST /api/v1/players/{id}/announce?volume=` | play an [announcement](#announcements), then carry on |
 | `GET`, `PATCH /api/v1/players/{id}/settings` | [player settings](#player-settings) |
 | `GET /api/v1/events` | [event stream](#events) |
 | `GET /api/v1/browser-player` | WebSocket: [this browser as a player](#browser-player) |
@@ -265,6 +266,28 @@ curl -X POST http://localhost:9000/api/v1/players/00:04:20:12:34:56/command \
      -H 'Content-Type: application/json' \
      -d '{"command": "enqueue", "item": {"type": "album", "id": 42}}'
 ```
+
+## Announcements
+
+`POST /api/v1/players/{id}/announce` plays a short clip — a doorbell, a spoken message — on
+the player and its sync group, then puts everything back: the queue as it was (shuffle order
+and repeat included), the track, playing again from where it was, and each member's power
+and volume.  The body is the clip itself, at most 20 MB, with an audio `Content-Type`
+(`audio/mpeg`, `audio/wav`, `audio/flac`, `audio/ogg`, `audio/opus`, `audio/mp4`,
+`audio/aiff`); any player can play it, transcoded when needed.  `volume` (0–100) plays it
+at that volume instead of the players' own.
+
+```sh
+curl -X POST -H 'Content-Type: audio/mpeg' --data-binary @dinner.mp3 \
+     'http://localhost:9000/api/v1/players/00:04:20:12:34:56/announce?volume=50'
+```
+
+It answers `202 {}` once the clip is queued; the rest shows on the event stream.  `400` for
+something that isn't audio, empty or too big; `422` while another announcement plays in the
+group.  The music stops for the clip (it isn't mixed under it).  A paused player comes back
+stopped at the track it was on; one that was off is turned on for the clip and off again.
+Choosing something else to play while the clip plays cancels the return: nothing is put back
+over it.
 
 ## Library
 
