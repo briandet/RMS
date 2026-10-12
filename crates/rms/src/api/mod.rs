@@ -461,6 +461,7 @@ async fn get_cover_art(
             .folder
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())),
         archive,
+        folder_shared: state.folder_shared,
         blocked: crate::tagedit::blocked(&s),
     })
     .into_response()

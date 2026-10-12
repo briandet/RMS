@@ -264,7 +264,11 @@ release?: ReleaseInfo,
 /**
  * Why the files can't be changed now (see `edit_files_blocked` in the settings).
  */
-blocked?: string, tracks: Array<TrackTags>, };
+blocked?: string, 
+/**
+ * Not an album: the tracks without an album tag, each on its own.
+ */
+loose: boolean, tracks: Array<TrackTags>, };
 
 export type TrackTags = { track_id: number, 
 /**
@@ -394,6 +398,11 @@ files: number, embedded: number,
  * The picture file in the album's folder that stands for it, if any.
  */
 folder_image?: string, 
+/**
+ * The album's folder holds other music too: a picture there would be theirs as well, so
+ * the cover can only be embedded.
+ */
+folder_shared: boolean, 
 /**
  * The album shows the archive's front cover of its release: it has no art of its own
  * (the files are not changed; saving it in the folder or the files keeps it).

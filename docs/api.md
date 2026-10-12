@@ -310,7 +310,7 @@ holds, and its title and artist; of releases with the same tracks, the earliest.
 ```
 
 `status`: `matched` (a confident match, or one the tags name or the user chose), `uncertain`
-(worth checking: `score` under 0.8), `none` (no release found; tried again after 90 days) or
+(worth checking: `score` under 0.8, or a release whose title isn't the album's), `none` (no release found; tried again after 90 days) or
 `pending` (not matched yet).  `how`: `tag`, `auto` or `user`.  `tracks` lists the album's
 tracks; one without `position` is none of the release's.  `candidates` are the releases
 considered, best first.  A `matched` release fills in what the tags leave out: the album's
@@ -415,7 +415,9 @@ cover first, and what the album has now:
 ```
 
 `embedded` counts the files with an embedded front cover, which players and RMS show before a
-picture in the folder (`folder_image`).  `archive` is true when the album, having no art of its
+picture in the folder (`folder_image`).  `folder_shared` is true when the album's folder holds other music
+too (other albums' files, or tracks without an album tag): a picture there would be theirs as
+well, so `folder` is refused (400).  `archive` is true when the album, having no art of its
 own, shows the archive's front cover of its release (fetched in the background with
 MusicBrainz identification on; the files are not changed).  Without a matched release `images` is empty.
 `502` when the archive can't be asked.

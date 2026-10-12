@@ -138,8 +138,9 @@ export async function tagsPage(v, id) {
       h('span', { class: 'small' }, (im.types || []).join(', ') || 'Image'));
       return b;
     });
-    const folderBox = h('input', { type: 'checkbox', id: 'cover-folder', checked: true });
-    const embedBox = h('input', { type: 'checkbox', id: 'cover-embed', checked: art.embedded > 0 });
+    // a folder holding other music too: a picture there would be theirs as well
+    const folderBox = h('input', { type: 'checkbox', id: 'cover-folder', checked: !art.folder_shared, disabled: art.folder_shared });
+    const embedBox = h('input', { type: 'checkbox', id: 'cover-embed', checked: art.embedded > 0 || art.folder_shared });
     const hint = h('p', { class: 'muted small', hidden: !(art.embedded > 0) || embedBox.checked },
       'Pictures embedded in the files are shown before one in the folder: embed it too, or the old one stays.');
     embedBox.addEventListener('change', () => { hint.hidden = !(art.embedded > 0) || embedBox.checked; });
@@ -172,7 +173,8 @@ export async function tagsPage(v, id) {
       title,
       h('div', { class: 'cover-row' }, current, ...picks),
       h('p', { class: 'muted small' }, 'From the Cover Art Archive. Pick one, then where it goes.'),
-      h('div', { class: 'field check' }, folderBox, h('label', { for: 'cover-folder' }, 'Save it in the album’s folder (cover.jpg)')),
+      h('div', { class: 'field check' }, folderBox, h('label', { for: 'cover-folder' }, 'Save it in the album’s folder (cover.jpg)',
+        art.folder_shared ? h('span', { class: 'muted small block' }, 'The folder holds other music too, which would take the picture as well: embed it instead.') : null)),
       h('div', { class: 'field check' }, embedBox, h('label', { for: 'cover-embed' }, `Embed it in each file (${plural(art.files, 'file')})`)),
       hint,
       done,
@@ -241,7 +243,11 @@ export async function tagsPage(v, id) {
   function render() {
     renderTop();
     rows = new Map(data.tracks.map((t) => [t.track_id, new Map()]));
-    tracksEl.replaceChildren(renderAlbum(), ...data.tracks.map(renderTrack));
+    // loose tracks (no album tag) aren't an album: each on its own, album tags included
+    tracksEl.replaceChildren(...[
+      data.loose ? h('p', { class: 'notice' }, 'These tracks have no album tag, so they are not an album: each is changed on its own. Give them their album’s name to group them.') : renderAlbum(),
+      ...data.tracks.map(renderTrack),
+    ]);
     renderFooter();
   }
 
@@ -342,7 +348,7 @@ export async function tagsPage(v, id) {
     const disabled = !!(t.error || data.blocked);
     const trs = [], ids = [];
     for (const x of t.tags) {
-      if (ALBUM_FIELDS.includes(x.field) || !(x.changed || showAll)) continue;
+      if ((ALBUM_FIELDS.includes(x.field) && !data.loose) || !(x.changed || showAll)) continue;
       const row = tagRow(x.field, x.current, x.proposed, x.changed, disabled, disabled ? [] : [[t.track_id, x.current]]);
       (ID_FIELDS.has(x.field) ? ids : trs).push(row);
     }

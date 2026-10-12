@@ -498,6 +498,8 @@ pub struct AlbumTags {
     /// Why the files can't be changed now (see `edit_files_blocked` in the settings).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<String>,
+    /// Not an album: the tracks without an album tag, each on its own.
+    pub loose: bool,
     pub tracks: Vec<TrackTags>,
 }
 
@@ -634,6 +636,9 @@ pub struct CoverArt {
     /// The picture file in the album's folder that stands for it, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_image: Option<String>,
+    /// The album's folder holds other music too: a picture there would be theirs as well, so
+    /// the cover can only be embedded.
+    pub folder_shared: bool,
     /// The album shows the archive's front cover of its release: it has no art of its own
     /// (the files are not changed; saving it in the folder or the files keeps it).
     pub archive: bool,

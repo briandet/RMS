@@ -63,8 +63,12 @@ pub async fn run(server: Arc<Server>) {
             .unwrap_or_default();
         client.key = server.prefs.server.get_str(KEY_PREF).trim().to_string();
         if jobs.is_empty() {
-            // recordings done: their albums, then the covers of those without art
-            if !match_albums(&server, &mut client).await && !fetch_release_art(&server).await {
+            // recordings done: their albums, the releases of loose tracks, then the covers of
+            // those without art
+            if !match_albums(&server, &mut client).await
+                && !choose_track_covers(&server, &mut client).await
+                && !fetch_release_art(&server).await
+            {
                 tokio::time::sleep(IDLE).await;
             }
             continue;
@@ -152,6 +156,52 @@ async fn match_albums(server: &Arc<Server>, client: &mut Client) -> bool {
         .unwrap_or(0);
     info!(
         "MusicBrainz: matched {matched} of {} albums to releases; {changed} tracks and albums filled in",
+        jobs.len()
+    );
+    true
+}
+
+/// For a batch of loose tracks (no album tag, or an album not surely identified) without art,
+/// the release of their recording whose cover stands for them.  `false` when there was
+/// nothing to choose (or MusicBrainz can't be asked).
+async fn choose_track_covers(server: &Arc<Server>, client: &mut Client) -> bool {
+    let lib = server.library.clone();
+    let jobs = tokio::task::spawn_blocking(move || lib.track_cover_pending(BATCH))
+        .await
+        .unwrap_or_default();
+    if jobs.is_empty() {
+        return false;
+    }
+    let mut chosen = 0;
+    for job in &jobs {
+        if !enabled(server) {
+            break;
+        }
+        let v = match client
+            .mb_get(&format!(
+                "/ws/2/release?recording={}&inc=release-groups&limit=100&fmt=json",
+                job.recording
+            ))
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("{e}");
+                return false;
+            }
+        };
+        let pick = rms_library::releaseart::pick_recording_release(job.album.as_deref(), &v);
+        chosen += pick.is_some() as usize;
+        let res = server.library.store_track_cover_release(
+            &job.fingerprint,
+            pick.as_ref().map(|(r, g)| (r.as_str(), g.as_deref())),
+        );
+        if let Err(e) = res {
+            warn!("MusicBrainz: {e}");
+        }
+    }
+    info!(
+        "MusicBrainz: releases for the covers of {chosen} of {} loose tracks",
         jobs.len()
     );
     true
@@ -458,8 +508,23 @@ impl Client {
     /// and artist.
     async fn candidates(&mut self, job: &AlbumJob) -> Result<Vec<String>, String> {
         let n = job.tracks.len() as i64;
-        // id → (recordings held, track count, official)
-        let mut found: Vec<(String, usize, i64, bool)> = Vec::new();
+        let mut found: Vec<Candidate> = Vec::new();
+        let add = |found: &mut Vec<Candidate>, r: &Value| {
+            let Some(id) = r["id"].as_str() else { return };
+            match found.iter_mut().find(|f| f.id == id) {
+                Some(f) => f.held += 1,
+                None => found.push(Candidate {
+                    id: id.to_string(),
+                    held: 1,
+                    tracks: track_count(r),
+                    official: official(r),
+                    title: releases::title_similarity(
+                        &job.title,
+                        r["title"].as_str().unwrap_or_default(),
+                    ),
+                }),
+            }
+        };
         for rec in job.recordings() {
             let v = self
                 .mb_get(&format!(
@@ -467,18 +532,16 @@ impl Client {
                 ))
                 .await?;
             for r in v["releases"].as_array().into_iter().flatten() {
-                let Some(id) = r["id"].as_str() else { continue };
-                match found.iter_mut().find(|f| f.0 == id) {
-                    Some(f) => f.1 += 1,
-                    None => found.push((id.to_string(), 1, track_count(r), official(r))),
-                }
+                add(&mut found, r);
             }
         }
         // a popular song is on more releases than one page lists, so its album may be missing:
         // unless a release holds two of the album's recordings, search by title and artist too
+        // (always for an album of a track or two, which holds no two)
         let recordings = job.recordings().len();
-        let held = found.iter().map(|f| f.1).max().unwrap_or(0);
-        if (found.is_empty() || (recordings >= 2 && held < 2)) && !job.title.is_empty() {
+        let held = found.iter().map(|f| f.held).max().unwrap_or(0);
+        let few = n <= 2 || recordings < 2;
+        if (found.is_empty() || few || held < 2) && !job.title.is_empty() {
             let mut q = format!("release:\"{}\"", lucene(&job.title));
             if !job.artist.is_empty() && !job.compilation {
                 q.push_str(&format!(" AND artist:\"{}\"", lucene(&job.artist)));
@@ -490,30 +553,36 @@ impl Client {
                 ))
                 .await?;
             for r in v["releases"].as_array().into_iter().flatten() {
-                if r["score"].as_i64().unwrap_or(0) < MIN_RELEASE_SCORE {
-                    continue;
-                }
-                let Some(id) = r["id"].as_str() else { continue };
-                // as likely as a release holding one recording; found both ways, likelier
-                match found.iter_mut().find(|f| f.0 == id) {
-                    Some(f) => f.1 += 1,
-                    None => found.push((id.to_string(), 1, track_count(r), official(r))),
+                if r["score"].as_i64().unwrap_or(0) >= MIN_RELEASE_SCORE {
+                    // as likely as a release holding one recording; found both ways, likelier
+                    add(&mut found, r);
                 }
             }
         }
-        // a release can't hold more of the album than it has tracks; one with fewer tracks
-        // than the album is still possible (a file too many), just less likely
-        found.sort_by_key(|(_, held, tracks, official)| {
-            (
-                std::cmp::Reverse(*held),
-                (tracks - n).abs() + if *tracks < n { n } else { 0 },
-                !official,
-            )
+        // The album's name first (the tags name it); then how many of its recordings a release
+        // holds; then a track count like the album's, unless it is a track or two of something
+        // bigger (a release can't hold more of the album than it has tracks; one with fewer is
+        // still possible, a file too many, just less likely).
+        found.sort_by(|a, b| {
+            let agrees = |c: &Candidate| c.title >= releases::TITLE_AGREES;
+            let size = |c: &Candidate| {
+                if few {
+                    0
+                } else {
+                    (c.tracks - n).abs() + if c.tracks < n { n } else { 0 }
+                }
+            };
+            agrees(b)
+                .cmp(&agrees(a))
+                .then(b.held.cmp(&a.held))
+                .then(size(a).cmp(&size(b)))
+                .then(b.official.cmp(&a.official))
+                .then(b.title.total_cmp(&a.title))
         });
         Ok(found
             .into_iter()
             .take(MAX_CANDIDATES)
-            .map(|f| f.0)
+            .map(|f| f.id)
             .collect())
     }
 
@@ -660,6 +729,17 @@ async fn wait(last: &mut Option<Instant>, interval: Duration) {
         }
     }
     *last = Some(Instant::now());
+}
+
+/// A release that might be an album's, as MusicBrainz lists it.
+struct Candidate {
+    id: String,
+    /// The album's recordings it holds (and found by searching too).
+    held: usize,
+    tracks: i64,
+    official: bool,
+    /// How alike its title and the album's are.
+    title: f64,
 }
 
 /// Tracks on a release, as MusicBrainz lists releases.

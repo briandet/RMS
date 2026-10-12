@@ -34,6 +34,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V7_TAG_EDITS,
     SCHEMA_V8_FILE_MOVES,
     SCHEMA_V9_RELEASE_ART,
+    SCHEMA_V10_TRACK_COVERS,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -491,6 +492,20 @@ CREATE TABLE release_art (
   release_mbid TEXT PRIMARY KEY,
   path         TEXT,
   fetched_at   INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+"#;
+
+/// The release whose cover stands for a track outside a matched album
+/// ([`crate::releaseart`]).  Kept across wipes.
+const SCHEMA_V10_TRACK_COVERS: &str = r#"
+-- For the audio with that fingerprint: the release of its recording whose front cover it shows
+-- when it has no art of its own and isn't on a confidently matched album (the album its tags
+-- name, else the recording's original album).  NULL: none fits (asked again after a while).
+CREATE TABLE track_cover_release (
+  fingerprint   TEXT PRIMARY KEY,
+  release_mbid  TEXT,
+  release_group TEXT,
+  chosen_at     INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 "#;
 

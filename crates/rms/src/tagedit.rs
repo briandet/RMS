@@ -449,6 +449,11 @@ pub struct Planned {
 /// moves to one place (covers, booklets, logs) go with it.
 pub fn move_plan(server: &Server, album_id: i64, template: &str) -> Result<Vec<Planned>, Error> {
     use rms_library::organize::{self, Template};
+    if server.library.is_no_album(album_id) {
+        return Err(Error::Invalid(
+            "these are loose tracks, not an album: tag their albums first".into(),
+        ));
+    }
     let tpl = Template::parse(template).map_err(Error::Invalid)?;
     let roots: Vec<PathBuf> = server
         .prefs
@@ -809,6 +814,9 @@ pub struct CoverState {
     pub embedded: usize,
     /// The picture file in the album's folder the scanner takes, if any.
     pub folder: Option<PathBuf>,
+    /// The folder also holds other albums' files (or loose tracks): a picture there would be
+    /// theirs too.
+    pub folder_shared: bool,
 }
 
 /// The album's audio files that RMS can change (whole files, in a music folder).
@@ -839,11 +847,16 @@ pub fn cover_state(server: &Server, album_id: i64) -> CoverState {
         .filter(|(_, p, _)| matches!(tagwrite::read_front_cover(p), Ok(Some(_))))
         .count();
     let cover_art = server.library.config().cover_art;
+    let dir = album_dir(&files);
     CoverState {
         files: files.len(),
         embedded,
-        folder: album_dir(&files)
-            .and_then(|d| rms_library::scanner::find_standalone_artwork(&d, &cover_art)),
+        folder: dir
+            .as_ref()
+            .and_then(|d| rms_library::scanner::find_standalone_artwork(d, &cover_art)),
+        folder_shared: dir
+            .as_ref()
+            .is_none_or(|d| !server.library.folder_is_album(d, album_id)),
     }
 }
 
@@ -895,6 +908,11 @@ pub async fn apply_cover(
         let files = album_files(&s, album_id);
         if files.is_empty() {
             return Err(Error::NotFound);
+        }
+        if folder && album_dir(&files).is_none_or(|d| !s.library.folder_is_album(&d, album_id)) {
+            return Err(Error::Invalid(
+                "the album's folder holds other music too: embed the cover instead".into(),
+            ));
         }
         let album = s.library.track_file(files[0].0).and_then(|t| t.album);
         let scratch = s.config.data_dir.join("tag-backup");

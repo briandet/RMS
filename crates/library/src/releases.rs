@@ -22,6 +22,8 @@ pub const CONFIDENT: f64 = 0.8;
 pub const MIN_SCORE: f64 = 0.5;
 /// An album without a match is tried again after this long (MusicBrainz grows).
 const RETRY_SECS: i64 = 90 * 86400;
+/// The album's title and the release's must be this alike (0–1) for a confident match.
+pub const TITLE_AGREES: f64 = 0.75;
 /// A track and a release track below this are not paired.
 const MIN_PAIR: f64 = 0.5;
 
@@ -330,14 +332,29 @@ pub fn score(job: &AlbumJob, release: &Release) -> Scored {
     } else {
         similarity(&job.artist, &release.artist)
     };
-    let mut score = 0.6 * tracks_part + 0.15 * coverage + 0.15 * title + 0.1 * artist;
+    // How much of the release the album holds says little for an album of a track or two (a
+    // one-track single holds all of one track): its weight goes to the title then.
+    let small = ((job.tracks.len() as f64 - 1.0) / 3.0).clamp(0.0, 1.0);
+    // (just under 1: the nudges below must still tell equal fits apart)
+    let mut score = 0.99
+        * (0.6 * tracks_part
+            + 0.15 * small * coverage
+            + (0.15 + 0.15 * (1.0 - small)) * title
+            + 0.1 * artist);
+    // the tags name the album: a release by another name is not surely it
+    if title < TITLE_AGREES {
+        score = score.min(CONFIDENT - 0.01);
+    }
     // among releases with the same track list (reissues, other countries), a nudge to the
-    // official one with a date
+    // official one with a date; for a lone track, to the album over the single of the song
     if release.status.eq_ignore_ascii_case("official") {
         score += 0.004;
     }
     if !release.date.is_empty() {
         score += 0.001;
+    }
+    if release.primary_type == "Album" && release.secondary_types.is_empty() {
+        score += 0.003;
     }
     Scored {
         score: score.min(1.0),
@@ -481,7 +498,7 @@ const PENDING: &str = "
                          AND m.fingerprint IS NULL)";
 
 impl Library {
-    fn no_album_key(&self) -> String {
+    pub(crate) fn no_album_key(&self) -> String {
         let cfg = self.config();
         crate::text::TextRules::new(&cfg.ignored_articles, &cfg.split_list)
             .search_key(&cfg.no_album_string)
@@ -979,13 +996,20 @@ mod tests {
 
     #[test]
     fn a_partial_album_matches_less_confidently() {
-        let album = job(&[
+        let half = job(&[
             ("Smells Like Teen Spirit", 301.0, Some(1)),
             ("In Bloom", 255.0, Some(2)),
         ]);
-        let s = score(&album, &release("orig", "Nevermind", NEVERMIND));
-        assert!(s.score > MIN_SCORE && s.score < 0.95, "{s:?}");
-        assert_eq!(s.tracks, [Some((1, 1)), Some((1, 2))]);
+        let whole = job(&[
+            ("Smells Like Teen Spirit", 301.0, Some(1)),
+            ("In Bloom", 255.0, Some(2)),
+            ("Come as You Are", 219.0, Some(3)),
+            ("Breed", 184.0, Some(4)),
+        ]);
+        let r = release("orig", "Nevermind", NEVERMIND);
+        let (h, w) = (score(&half, &r), score(&whole, &r));
+        assert!(h.score >= CONFIDENT && h.score < w.score, "{h:?} {w:?}");
+        assert_eq!(h.tracks, [Some((1, 1)), Some((1, 2))]);
     }
 
     #[test]
@@ -1032,6 +1056,50 @@ mod tests {
         let mut album = job(&[("A II", 100.0, Some(1))]);
         album.tracks[0].disc = Some(2);
         assert_eq!(score(&album, &r).tracks, [Some((2, 1))]);
+    }
+
+    /// A lone file of an album, tagged with the album's name.
+    fn lone(album: &str) -> AlbumJob {
+        AlbumJob {
+            album_id: 1,
+            title: album.into(),
+            artist: "Nirvana".into(),
+            tracks: vec![MatchTrack {
+                fingerprint: "f".into(),
+                title: "Smells Like Teen Spirit".into(),
+                duration: Some(301.0),
+                recording: Some("rec-Smells Like Teen Spirit".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_lone_track_matches_its_album_not_a_single_of_it() {
+        let mut album = release("album", "Nevermind", NEVERMIND);
+        album.primary_type = "Album".into();
+        let mut single = release("single", "Smells Like Teen Spirit", &NEVERMIND[..1]);
+        single.primary_type = "Single".into();
+        let job = lone("Nevermind");
+        let (a, s) = (score(&job, &album), score(&job, &single));
+        assert!(a.score >= CONFIDENT, "{a:?}");
+        assert!(s.score < CONFIDENT && s.score < a.score, "{s:?}");
+        assert_eq!(a.tracks, [Some((1, 1))]);
+        // its album's title track released as a single of the same name: the album still
+        let mut title_single = release("ts", "Nevermind", &NEVERMIND[..1]);
+        title_single.primary_type = "Single".into();
+        assert!(score(&job, &title_single).score < a.score);
+    }
+
+    #[test]
+    fn a_track_from_elsewhere_matches_nothing_surely() {
+        // a mixtape's name: neither the album nor the single is it
+        let job = lone("Greatest Hits Mix");
+        let album = release("album", "Nevermind", NEVERMIND);
+        let single = release("single", "Smells Like Teen Spirit", &NEVERMIND[..1]);
+        assert!(score(&job, &album).score < CONFIDENT);
+        assert!(score(&job, &single).score < CONFIDENT);
     }
 
     #[test]
