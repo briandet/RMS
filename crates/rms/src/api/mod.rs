@@ -20,7 +20,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use commands::CommandError;
-use library::{AlbumParams, FolderParams, LibraryError, ListParams};
+use library::{AlbumParams, FolderParams, LibraryError, ListParams, TrackParams};
 use model::{
     ApiError, Command, MoveRequest, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
     ServerSettingsPatch, SpotifyLogin, SpotifyPatch, TagChanges,
@@ -75,6 +75,9 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
         .route("/api/v1/tracks", get(get_tracks))
+        .route("/api/v1/tracks/{id}", get(get_track))
+        .route("/api/v1/tracks/{id}/similar", get(get_track_similar))
+        .route("/api/v1/similar", post(post_similar))
         .route("/api/v1/playlists", get(get_playlists).post(post_playlist))
         .route(
             "/api/v1/playlists/{id}",
@@ -536,8 +539,46 @@ async fn get_years(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParam
     library_reply(library::years(&s, p).await, "year")
 }
 
-async fn get_tracks(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+async fn get_tracks(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<TrackParams>) -> Response {
     library_reply(library::tracks(&s, p).await, "track")
+}
+
+async fn get_track(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::track_detail(&s, id).await, "track")
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SimilarParams {
+    limit: Option<usize>,
+    #[serde(default)]
+    detail: bool,
+}
+
+async fn get_track_similar(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(p): ApiQuery<SimilarParams>,
+) -> Response {
+    if let Err(r) = library::track_detail(&s, id).await {
+        return library_reply::<()>(Err(r), "track");
+    }
+    let r = model::SimilarRequest {
+        seeds: vec![model::Item::Track { id }],
+        limit: p.limit,
+        exclude: Vec::new(),
+        detail: p.detail,
+    };
+    library_reply(library::similar(&s, r).await, "track")
+}
+
+async fn post_similar(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<model::SimilarRequest>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(r) => library_reply(library::similar(&s, r).await, "track"),
+        Err(r) => r,
+    }
 }
 
 async fn get_playlists(

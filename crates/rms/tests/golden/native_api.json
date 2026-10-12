@@ -423,6 +423,133 @@
       ]
     }
   },
+  "GET /api/v1/tracks?year_from=2000&sort=year&limit=3 (tracks by year)": {
+    "status": 200,
+    "body": {
+      "total": 1,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+          "title": "Breeze",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "album": "Second Wind",
+          "album_id": 2,
+          "duration": 2.038,
+          "track_number": 1,
+          "year": 2005,
+          "remote": false,
+          "format": "mp3"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks?genre=1&limit=3 (tracks of genre)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        },
+        {
+          "id": 2,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/02%20Noon.flac",
+          "title": "Noon",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 2,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks?played=false&sort=title&limit=2 (tracks never played)": {
+    "status": 200,
+    "body": {
+      "total": 5,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+          "title": "Breeze",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "album": "Second Wind",
+          "album_id": 2,
+          "duration": 2.038,
+          "track_number": 1,
+          "year": 2005,
+          "remote": false,
+          "format": "mp3"
+        },
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks?key=13Z (bad key)": {
+    "status": 400,
+    "body": {
+      "error": "bad Camelot key \"13Z\" (1A–12B)"
+    }
+  },
+  "GET /api/v1/tracks?sort=loudest (bad track sort)": {
+    "status": 400,
+    "body": {
+      "error": "unknown sort \"loudest\" (title, random, added, most_played, least_recently_played, recently_played, rating, bpm or year)"
+    }
+  },
+  "GET /api/v1/tracks?genre=1,rock (bad genre list)": {
+    "status": 400,
+    "body": {
+      "error": "bad genre id \"rock\""
+    }
+  },
+  "GET /api/v1/tracks/999 (unknown track)": {
+    "status": 404,
+    "body": {
+      "error": "no such track"
+    }
+  },
+  "GET /api/v1/tracks/999/similar (similar to unknown track)": {
+    "status": 404,
+    "body": {
+      "error": "no such track"
+    }
+  },
   "GET /api/v1/folders (top folder)": {
     "status": 200,
     "body": {
@@ -1656,5 +1783,156 @@
     "body": {
       "error": "unknown radio item pref.0"
     }
+  },
+  "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (clear for a list)": {
+    "status": 200,
+    "body": {}
+  },
+  "POST /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/command (queue a list of tracks)": {
+    "status": 200,
+    "body": {
+      "count": 2
+    }
+  },
+  "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/queue (queue of a list)": {
+    "status": 200,
+    "body": {
+      "version": "<volatile>",
+      "length": 2,
+      "index": 0,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+          "title": "Breeze",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "album": "Second Wind",
+          "album_id": 2,
+          "duration": 2.038,
+          "track_number": 1,
+          "year": 2005,
+          "remote": false,
+          "format": "mp3"
+        },
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks?limit=2&detail=true (tracks with detail)": {
+    "status": 200,
+    "body": {
+      "total": 5,
+      "offset": 0,
+      "items": [
+        {
+          "id": 3,
+          "url": "file:///<music>/Beta%20Singer/Second%20Wind/01%20Breeze.mp3",
+          "title": "Breeze",
+          "artist": "Beta Singer",
+          "artist_id": 3,
+          "album": "Second Wind",
+          "album_id": 2,
+          "duration": 2.038,
+          "track_number": 1,
+          "year": 2005,
+          "remote": false,
+          "format": "mp3",
+          "detail": {
+            "genres": [
+              "Jazz"
+            ],
+            "added": "<volatile>",
+            "play_count": 0,
+            "skip_count": 0
+          }
+        },
+        {
+          "id": 1,
+          "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+          "title": "Morning",
+          "artist": "Alpha Band",
+          "artist_id": 2,
+          "album": "First Light",
+          "album_id": 1,
+          "duration": 2.0,
+          "track_number": 1,
+          "year": 1999,
+          "remote": false,
+          "format": "flc",
+          "detail": {
+            "genres": [
+              "Rock"
+            ],
+            "added": "<volatile>",
+            "play_count": 0,
+            "skip_count": 0
+          }
+        }
+      ]
+    }
+  },
+  "GET /api/v1/tracks/1 (track)": {
+    "status": 200,
+    "body": {
+      "id": 1,
+      "url": "file:///<music>/Alpha%20Band/First%20Light/01%20Morning.flac",
+      "title": "Morning",
+      "artist": "Alpha Band",
+      "artist_id": 2,
+      "album": "First Light",
+      "album_id": 1,
+      "duration": 2.0,
+      "track_number": 1,
+      "year": 1999,
+      "remote": false,
+      "format": "flc",
+      "detail": {
+        "genres": [
+          "Rock"
+        ],
+        "added": "<volatile>",
+        "play_count": 0,
+        "skip_count": 0
+      }
+    }
+  },
+  "POST /api/v1/similar (similar to a track)": {
+    "status": 200,
+    "found": true,
+    "has_seed_or_excluded": false,
+    "error": null
+  },
+  "POST /api/v1/similar (similar to an album)": {
+    "status": 200,
+    "found": true,
+    "has_seed_or_excluded": false,
+    "error": null
+  },
+  "POST /api/v1/similar (no seeds)": {
+    "status": 400,
+    "found": false,
+    "has_seed_or_excluded": false,
+    "error": "no seeds"
+  },
+  "POST /api/v1/similar (url seed)": {
+    "status": 400,
+    "found": false,
+    "has_seed_or_excluded": false,
+    "error": "seeds are tracks, albums, artists, genres or years"
   }
 }

@@ -108,11 +108,54 @@ station?: string,
 /**
  * Content type (`flc`, `mp3`, …).
  */
-format?: string, };
+format?: string, 
+/**
+ * What the library knows about a library track beyond its tags; only when asked for
+ * (`detail=true`).
+ */
+detail?: TrackDetail, };
+
+export type TrackDetail = { genres: Array<string>, 
+/**
+ * Beats per minute, from the rhythm analysis, else the `BPM` tag.
+ */
+bpm?: number, 
+/**
+ * Musical key as a Camelot code (`8A`), from the rhythm analysis.
+ */
+key?: string, 
+/**
+ * 0–100.
+ */
+rating?: number, play_count: number, 
+/**
+ * Times it was left within 30 seconds.
+ */
+skip_count: number, 
+/**
+ * Unix time.
+ */
+last_played?: number, 
+/**
+ * Unix time it was added to the library.
+ */
+added?: number, 
+/**
+ * MusicBrainz recording id.
+ */
+mbid?: string, isrc?: string, 
+/**
+ * Integrated loudness, LUFS.
+ */
+loudness?: number, 
+/**
+ * The sonic analysis is done, so similar songs can go by how it sounds.
+ */
+analyzed: boolean, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
-export type Item = { "type": "track", id: number, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "listenbrainz", id: string, } | { "type": "radio", id: string, };
+export type Item = { "type": "track", id: number, } | { "type": "tracks", ids: Array<number>, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "listenbrainz", id: string, } | { "type": "radio", id: string, };
 
 export type EnqueueMode = "play" | "add" | "next";
 
@@ -461,6 +504,24 @@ export type FolderEntry = { type: FolderEntryType,
 id: number, name: string, track?: Track, };
 
 export type SearchResults = { artists: Page<Artist>, albums: Page<Album>, tracks: Page<Track>, genres: Page<Genre>, };
+
+export type SimilarRequest = { 
+/**
+ * Tracks, albums, artists, genres or years to start from.
+ */
+seeds: Array<Item>, 
+/**
+ * How many (default 20, at most 200).
+ */
+limit?: number, 
+/**
+ * Track ids to leave out (what is already chosen).
+ */
+exclude: Array<number>, 
+/**
+ * Include each track's `detail`.
+ */
+detail: boolean, };
 
 export type BrowseItemType = "folder" | "audio" | "search" | "text";
 

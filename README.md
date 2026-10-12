@@ -135,7 +135,10 @@ The script builds a release binary (the web UI is built in), installs it as
   library, favorites, Spotify and settings as plain JSON, commands as typed requests, and a
   Server-Sent Events stream that pushes each change as it happens (no polling).  The web UI
   runs on it alone; TypeScript declarations of its types are generated from the server's
-  (`crates/rms/web/api-types.d.ts`).
+  (`crates/rms/web/api-types.d.ts`).  For clients that choose songs themselves (an assistant
+  building a playlist), it also finds tracks by tempo, key, genre, year, rating and
+  listening history, lists songs similar to any seeds without playing them, and queues or
+  saves a list of tracks in one go.
 * **Subsonic API** (`/rest/*`, [docs/subsonic.md](docs/subsonic.md)): Subsonic 1.16.1 with
   the OpenSubsonic additions, for the apps that browse a library and stream it to the
   phone or computer they run on, transcoding with ffmpeg when asked; stars are RMS
