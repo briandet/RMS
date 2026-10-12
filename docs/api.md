@@ -39,7 +39,8 @@ own conventions:
 | `GET`, `PUT`, `DELETE /api/v1/albums/{id}/release` | the album's [MusicBrainz release](#album-release) |
 | `GET /api/v1/albums/{id}/tags?release=` | the album's [tags](#tags), and what the release says |
 | `POST /api/v1/tags` | [write tags](#tags) into files |
-| `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes](#tags), and undoing one |
+| `GET /api/v1/albums/{id}/files?template=`, `POST` | where the album's [files](#files) go, and moving them |
+| `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes and moves](#tags), and undoing one |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
 | `GET /api/v1/tracks?q=` | page of [Track](#track) |
@@ -335,9 +336,38 @@ removes the tag) → `{"batch": 7, "changed": 1, "failed": [{"track_id": …, "e
 Only the tags named change; the files' folders are rescanned.  It answers `403` unless file
 changes are on (`edit_files` in the settings) and the server has a login (`authorize`, a user
 name and a password): `blocked` and the settings' `edit_files_blocked` say which.
-`GET /api/v1/tags/edits` lists the changes made, newest first (`{batch, album, files,
-applied_at, undone_at}`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
+`GET /api/v1/tags/edits` lists the changes made, newest first (`{batch, kind, album, files,
+applied_at, undone_at}`, `kind` `tags` or `move`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
 they replaced, except in files changed again since.
+
+### Files
+
+`GET /api/v1/albums/{id}/files` shows where the album's files are and where the name template
+(`file_name_template` in the settings, or `?template=`) puts them, relative to their music
+folder:
+
+```json
+{"template": "{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}",
+ "files": [{"track_id": 101, "from": "incoming/nevermind/a.flac",
+            "to": "Nirvana/Nevermind (1991)/01 Smells Like Teen Spirit.flac", "changed": true},
+           {"from": "incoming/nevermind/cover.jpg", "to": "Nirvana/Nevermind (1991)/cover.jpg",
+            "changed": true}]}
+```
+
+A template is a path of literal text and tags: `{title}`, `{artist}`, `{album}`,
+`{album_artist}` (else the artist), `{track}`, `{track_total}`, `{disc}` (only when the album
+has several discs), `{disc_total}`, `{year}`, `{date}`, `{original_year}`, `{original_date}`,
+`{label}`, `{catalog_number}`; `{track:02}` pads a number.  Text in `[…]` is left out when a
+tag in it is empty.  The file's extension is kept.  Files without `track_id` are the other
+files of a folder whose audio all moves to one place.  `error` says why a file can't move:
+another file goes to the same place, a file is there already, it is a cue-sheet track.  A bad
+template answers `400`.
+
+`POST /api/v1/albums/{id}/files` (`{}`, or `{"template": …}`) moves them, under the same
+conditions as writing tags, and answers once the library has caught up:
+`{"batch": 8, "changed": 2, "failed": [], "album_id": 42}` (the album's id may change).
+Ratings, play history, saved playlists, favorites and players' queues follow the files.
+`POST /api/v1/tags/edits/{batch}/undo` moves them back.
 
 ### Folder entry
 
@@ -429,7 +459,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
  "musicbrainz_identified": 0, "musicbrainz_pending": 0, "albums_matched": 0,
  "albums_uncertain": 0, "albums_pending": 0, "edit_files": false,
- "edit_files_blocked": "…", "listenbrainz": false,
+ "edit_files_blocked": "…", "file_name_template": "{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}",
+ "listenbrainz": false,
  "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
  "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
  "scrobble_pending": 0, "scrobble_error": "…"}

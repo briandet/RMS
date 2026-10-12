@@ -512,14 +512,14 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: editId }, 'Change tags in music files',
         h('span', { class: 'muted small block' },
-          'Lets the album Tags page write tags into your files (from the MusicBrainz release, or by hand), with undo. Only with a login (Server → password protection), since anyone who can reach this page could otherwise change your music. The files must be writable by RMS. ',
+          'Lets the album Tags page write tags into your files (from the MusicBrainz release, or by hand) and move and rename them by a template, with undo. Only with a login (Server → password protection), since anyone who can reach this page could otherwise change your music. The files must be writable by RMS. ',
           editOn && settings.edit_files_blocked ? h('strong', {}, settings.edit_files_blocked) : '')));
     if (editOn) {
       getTagEdits(5).then((edits) => {
         if (!alive || !edits.length) return;
         recent.replaceChildren(h('label', {}, 'Recent tag changes'),
           h('ul', { class: 'plain-list' }, edits.map((e) => h('li', { class: 'inline-row' },
-            h('span', {}, `${e.album || 'Files'}: ${plural(e.files, 'file')}, ${new Date(e.applied_at * 1000).toLocaleString()}`),
+            h('span', {}, `${e.album || 'Files'}: ${e.kind === 'move' ? 'moved' : 'retagged'} ${plural(e.files, 'file')}, ${new Date(e.applied_at * 1000).toLocaleString()}`),
             e.undone_at ? h('span', { class: 'muted small' }, 'undone')
               : h('button', { class: 'btn btn-small', type: 'button', onclick: async (ev) => {
                 ev.target.disabled = true;

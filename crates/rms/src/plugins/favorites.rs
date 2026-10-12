@@ -100,6 +100,26 @@ impl Favorites {
         }
     }
 
+    /// Favorites of files that moved point to their new places; saved when any did.
+    pub fn replace_urls(&self, moves: &std::collections::HashMap<String, String>) -> usize {
+        fn walk(items: &mut [Fav], moves: &std::collections::HashMap<String, String>) -> usize {
+            let mut n = 0;
+            for f in items {
+                if let Some(new) = f.url.as_ref().and_then(|u| moves.get(u)) {
+                    f.url = Some(new.clone());
+                    n += 1;
+                }
+                n += walk(&mut f.children, moves);
+            }
+            n
+        }
+        let n = walk(&mut self.root.write(), moves);
+        if n > 0 {
+            self.save();
+        }
+        n
+    }
+
     pub fn all(&self) -> Vec<Fav> {
         self.root.read().clone()
     }

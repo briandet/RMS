@@ -393,8 +393,34 @@ pub fn tag_edits(server: &Server, limit: usize) -> Vec<TagEdit> {
             files: b.files,
             applied_at: b.applied_at,
             undone_at: b.undone_at,
+            kind: b.kind,
         })
         .collect()
+}
+
+/// An album's files and where `template` puts them, as the API has them.
+pub fn album_files(
+    server: &Server,
+    template: String,
+    plan: Vec<crate::tagedit::Planned>,
+) -> super::model::AlbumFiles {
+    let rel = |root: &std::path::Path, p: &std::path::Path| {
+        p.strip_prefix(root).unwrap_or(p).display().to_string()
+    };
+    super::model::AlbumFiles {
+        blocked: crate::tagedit::blocked(server),
+        template,
+        files: plan
+            .into_iter()
+            .map(|p| super::model::FileMove {
+                track_id: p.track_id,
+                changed: p.from != p.to,
+                from: rel(&p.root, &p.from),
+                to: rel(&p.root, &p.to),
+                error: p.error,
+            })
+            .collect(),
+    }
 }
 
 fn release_info(r: &rms_library::releases::Release) -> ReleaseInfo {

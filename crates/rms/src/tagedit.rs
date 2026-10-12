@@ -258,7 +258,7 @@ pub async fn apply(server: &Arc<Server>, changes: Vec<(i64, Values)>) -> Result<
             }
         }
         if !edits.is_empty() {
-            match s.library.record_edits(album.as_deref(), &edits) {
+            match s.library.record_edits("tags", album.as_deref(), &edits) {
                 Ok(b) => out.batch = Some(b),
                 Err(e) => warn!("tag changes: keeping the journal: {e}"),
             }
@@ -320,6 +320,14 @@ pub async fn undo(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
     if let Some(why) = blocked(server) {
         return Err(Error::Forbidden(why));
     }
+    let kind = server
+        .library
+        .edit_batch(batch)
+        .map(|(h, _)| h.kind)
+        .ok_or(Error::NotFound)?;
+    if kind == "move" {
+        return undo_moves(server, batch).await;
+    }
     let _guard = WRITING.lock().await;
     let s = server.clone();
     let (outcome, dirs) = tokio::task::spawn_blocking(move || {
@@ -377,19 +385,405 @@ pub async fn undo(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
 /// Scan the folders of rewritten files, once the scanner is free (the folder watcher may
 /// see them too: no harm).
 fn rescan(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
-    if dirs.is_empty() {
+    let s = server.clone();
+    tokio::spawn(async move { rescan_now(&s, dirs).await });
+}
+
+/// [`rescan`], waiting for it.  A folder that is gone is seen from its nearest parent.
+async fn rescan_now(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
+    let mut existing: BTreeSet<PathBuf> = dirs
+        .into_iter()
+        .filter_map(|d| d.ancestors().find(|a| a.is_dir()).map(Path::to_path_buf))
+        .collect();
+    // a folder inside another is scanned with it
+    let all: Vec<PathBuf> = existing.iter().cloned().collect();
+    existing.retain(|d| !all.iter().any(|o| o != d && d.starts_with(o)));
+    if existing.is_empty() {
         return;
     }
-    let s = server.clone();
-    tokio::spawn(async move {
-        for _ in 0..1200 {
-            if crate::control::commands::claim_scan(&s) {
-                let modes = dirs.into_iter().map(rms_library::ScanMode::Dir).collect();
-                crate::control::commands::run_scans(&s, modes).await;
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+    for _ in 0..1200 {
+        if crate::control::commands::claim_scan(server) {
+            let modes = existing
+                .into_iter()
+                .map(rms_library::ScanMode::Dir)
+                .collect();
+            crate::control::commands::run_scans(server, modes).await;
+            return;
         }
-        warn!("tag changes: the scanner stayed busy; rescan to see them");
-    });
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    warn!("file changes: the scanner stayed busy; rescan to see them");
+}
+
+// ---------------------------------------------------------------- moving and renaming
+
+/// Pref: where files go, relative to their music folder (`rms_library::organize`).
+pub const TEMPLATE_PREF: &str = "fileNameTemplate";
+
+pub fn template(server: &Server) -> String {
+    let t = server.prefs.server.get_str(TEMPLATE_PREF);
+    if t.trim().is_empty() {
+        rms_library::organize::DEFAULT_TEMPLATE.to_string()
+    } else {
+        t
+    }
+}
+
+/// One file of an album and where it belongs.
+#[derive(Debug, Clone)]
+pub struct Planned {
+    /// `None` for a file that is not a track (cover, booklet, log) going with the album.
+    pub track_id: Option<i64>,
+    /// The music folder it is in.
+    pub root: PathBuf,
+    pub from: PathBuf,
+    pub to: PathBuf,
+    /// Why it can't move, if it can't.
+    pub error: Option<String>,
+}
+
+/// Where the album's files belong by `template`.  Other files in a folder whose audio all
+/// moves to one place (covers, booklets, logs) go with it.
+pub fn move_plan(server: &Server, album_id: i64, template: &str) -> Result<Vec<Planned>, Error> {
+    use rms_library::organize::{self, Template};
+    let tpl = Template::parse(template).map_err(Error::Invalid)?;
+    let roots: Vec<PathBuf> = server
+        .prefs
+        .server
+        .get_string_list("mediadirs")
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
+    let ids = server.library.album_track_ids(album_id);
+    if ids.is_empty() {
+        return Err(Error::NotFound);
+    }
+    let mut out: Vec<Planned> = Vec::new();
+    let mut ok: Vec<(usize, Values)> = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (id, _) in ids {
+        let (path, err) = match track_path(server, id) {
+            Ok((p, _)) => (p, None),
+            Err(e) => {
+                let path = server
+                    .library
+                    .track_file(id)
+                    .and_then(|t| crate::util::path_from_file_url(&t.url))
+                    .unwrap_or_default();
+                (path, Some(error_text(&e)))
+            }
+        };
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let root = roots
+            .iter()
+            .filter(|r| path.starts_with(r))
+            .max_by_key(|r| r.as_os_str().len())
+            .cloned()
+            .unwrap_or_default();
+        let tags = if err.is_none() {
+            tagwrite::read(&path).map_err(|e| format!("can't read its tags: {e}"))
+        } else {
+            Err(String::new())
+        };
+        let error = err.or_else(|| tags.as_ref().err().cloned());
+        if let Ok(t) = tags {
+            ok.push((out.len(), t));
+        }
+        out.push(Planned {
+            track_id: Some(id),
+            root,
+            from: path.clone(),
+            to: path,
+            error,
+        });
+    }
+    // placed together, so the album decides about discs
+    let sources: Vec<organize::Source> = ok
+        .iter()
+        .map(|(i, t)| organize::Source {
+            path: &out[*i].from,
+            tags: t,
+        })
+        .collect();
+    let placed = organize::place(&tpl, Path::new(""), &sources);
+    for ((i, _), rel) in ok.iter().zip(placed) {
+        out[*i].to = out[*i].root.join(rel);
+    }
+    // the other files of folders whose audio all moves to one folder
+    let mut dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    for p in &out {
+        if let Some(d) = p.from.parent() {
+            dirs.insert(d.to_path_buf());
+        }
+    }
+    for dir in dirs {
+        let audio = server.library.audio_files_in(&dir);
+        let here: Vec<&Planned> = out
+            .iter()
+            .filter(|p| p.from.parent() == Some(dir.as_path()))
+            .collect();
+        let moving_all = audio.iter().all(|u| {
+            crate::util::path_from_file_url(u)
+                .is_some_and(|a| here.iter().any(|p| p.from == a && p.error.is_none()))
+        });
+        let targets: BTreeSet<&Path> = here.iter().filter_map(|p| p.to.parent()).collect();
+        if !moving_all || targets.len() != 1 {
+            continue;
+        }
+        let target = targets.into_iter().next().unwrap().to_path_buf();
+        if target == dir {
+            continue;
+        }
+        let root = here[0].root.clone();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut extras: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .map(|e| e.path())
+            .filter(|p| !here.iter().any(|h| h.from == *p))
+            .collect();
+        extras.sort();
+        for e in extras {
+            let to = target.join(e.file_name().unwrap_or_default());
+            out.push(Planned {
+                track_id: None,
+                root: root.clone(),
+                from: e,
+                to,
+                error: None,
+            });
+        }
+    }
+    // nowhere taken
+    let mut taken: BTreeSet<PathBuf> = BTreeSet::new();
+    for p in &mut out {
+        if p.error.is_some() || p.from == p.to {
+            continue;
+        }
+        if !p.to.starts_with(&p.root) {
+            p.error = Some("outside its music folder".into());
+        } else if !taken.insert(p.to.clone()) {
+            p.error = Some(format!("another file goes to {} too", p.to.display()));
+        } else if p.to.exists() && !same_file(&p.from, &p.to) {
+            p.error = Some(format!("{} exists already", p.to.display()));
+        }
+    }
+    Ok(out)
+}
+
+/// The same file under two names (a case-only rename on a case-insensitive disk).
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::metadata(a), std::fs::metadata(b)) {
+        (Ok(x), Ok(y)) => x.ino() == y.ino() && x.dev() == y.dev(),
+        _ => false,
+    }
+}
+
+/// What moving did.
+#[derive(Debug, Default)]
+pub struct Moved {
+    pub outcome: Outcome,
+    /// The album after the rescan (its id may change).
+    pub album_id: Option<i64>,
+}
+
+/// Move the album's files where `template` says.
+pub async fn move_album(
+    server: &Arc<Server>,
+    album_id: i64,
+    template: &str,
+) -> Result<Moved, Error> {
+    if let Some(why) = blocked(server) {
+        return Err(Error::Forbidden(why));
+    }
+    let _guard = WRITING.lock().await;
+    let s = server.clone();
+    let template = template.to_string();
+    let (outcome, moves, dirs) = tokio::task::spawn_blocking(move || {
+        let plan = move_plan(&s, album_id, &template)?;
+        let album = s
+            .library
+            .album_track_ids(album_id)
+            .first()
+            .and_then(|(id, _)| s.library.track_file(*id))
+            .and_then(|t| t.album);
+        let pairs: Vec<(Option<i64>, PathBuf, PathBuf, PathBuf)> = plan
+            .into_iter()
+            .filter(|p| p.from != p.to)
+            .filter_map(|p| match p.error {
+                Some(_) => None,
+                None => Some((p.track_id, p.root, p.from, p.to)),
+            })
+            .collect();
+        Ok::<_, Error>(do_moves(&s, true, album.as_deref(), &pairs))
+    })
+    .await
+    .map_err(|e| Error::Failed(e.to_string()))??;
+    follow_moves(server, &moves);
+    rescan_now(server, dirs).await;
+    let album_id = moves
+        .iter()
+        .find_map(|(_, new)| server.library.track_by_url(new))
+        .and_then(|t| t.album_id)
+        .or(Some(album_id));
+    Ok(Moved { outcome, album_id })
+}
+
+/// Rename files (`(track, music folder, from, to)`), journal them (with `journal`), and
+/// empty folders left behind go.  Returns what happened, the URL pairs moved and the folders to rescan.
+#[allow(clippy::type_complexity)]
+fn do_moves(
+    server: &Server,
+    journal: bool,
+    album: Option<&str>,
+    pairs: &[(Option<i64>, PathBuf, PathBuf, PathBuf)],
+) -> (Outcome, Vec<(String, String)>, BTreeSet<PathBuf>) {
+    let mut out = Outcome::default();
+    let mut edits = Vec::new();
+    let mut moves = Vec::new();
+    let mut dirs = BTreeSet::new();
+    for (track, root, from, to) in pairs {
+        let res = (|| -> std::io::Result<()> {
+            if let Some(d) = to.parent() {
+                std::fs::create_dir_all(d)?;
+            }
+            if to.exists() && !same_file(from, to) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!("{} exists already", to.display()),
+                ));
+            }
+            std::fs::rename(from, to)
+        })();
+        if let Err(e) = res {
+            out.failed
+                .push((track.unwrap_or(0), format!("{}: {e}", from.display())));
+            continue;
+        }
+        let (old, new) = (
+            rms_library::url::file_url_from_path(from),
+            rms_library::url::file_url_from_path(to),
+        );
+        let one = |u: &str| -> Values { [("url".to_string(), Some(u.to_string()))].into() };
+        edits.push(Edit {
+            url: new.clone(),
+            before: one(&old),
+            after: one(&new),
+        });
+        moves.push((old, new));
+        for d in [from.parent(), to.parent()].into_iter().flatten() {
+            dirs.insert(d.to_path_buf());
+        }
+        if track.is_some() {
+            out.changed += 1;
+        }
+        remove_empty_dirs(from.parent(), root);
+    }
+    if !edits.is_empty() {
+        if journal {
+            match server.library.record_edits("move", album, &edits) {
+                Ok(b) => out.batch = Some(b),
+                Err(e) => warn!("file moves: keeping the journal: {e}"),
+            }
+        }
+        if let Err(e) = server.library.rename_urls(&moves) {
+            warn!("file moves: {e}");
+        }
+    }
+    info!("moved {} files ({} failed)", edits.len(), out.failed.len());
+    (out, moves, dirs)
+}
+
+/// Remove `dir` and its parents while they are empty, up to (not including) `root`.
+fn remove_empty_dirs(dir: Option<&Path>, root: &Path) {
+    let mut d = dir;
+    while let Some(p) = d {
+        if p == root || !p.starts_with(root) || std::fs::remove_dir(p).is_err() {
+            break;
+        }
+        d = p.parent();
+    }
+}
+
+/// Favorites and players' queues follow moved files.
+fn follow_moves(server: &Server, moves: &[(String, String)]) {
+    if moves.is_empty() {
+        return;
+    }
+    let map: std::collections::HashMap<String, String> = moves.iter().cloned().collect();
+    server.favorites.replace_urls(&map);
+    let mut done: Vec<*const ()> = Vec::new();
+    for p in server.players() {
+        let c = p.controller();
+        // players synced together share their controller
+        let key = Arc::as_ptr(&c) as *const ();
+        if done.contains(&key) {
+            continue;
+        }
+        done.push(key);
+        c.lock().replace_urls(&map);
+    }
+}
+
+/// Move a batch of moved files back where they were.
+async fn undo_moves(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
+    let _guard = WRITING.lock().await;
+    let s = server.clone();
+    let (outcome, moves, dirs) = tokio::task::spawn_blocking(move || {
+        let (head, edits) = s.library.edit_batch(batch).ok_or(Error::NotFound)?;
+        if head.undone_at.is_some() {
+            return Err(Error::Invalid("already undone".into()));
+        }
+        let roots: Vec<PathBuf> = s
+            .prefs
+            .server
+            .get_string_list("mediadirs")
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        let path = |v: &Values| {
+            v.get("url")
+                .cloned()
+                .flatten()
+                .and_then(|u| crate::util::path_from_file_url(&u))
+        };
+        let mut pairs = Vec::new();
+        let mut out = Outcome::default();
+        for e in edits.iter().rev() {
+            let (Some(back), Some(now)) = (path(&e.before), path(&e.after)) else {
+                continue;
+            };
+            let id = s.library.track_by_url(&e.url).map(|t| t.id);
+            if !now.exists() {
+                out.failed.push((
+                    id.unwrap_or(0),
+                    format!("{}: gone; left as it is", now.display()),
+                ));
+                continue;
+            }
+            let root = roots
+                .iter()
+                .filter(|r| now.starts_with(r))
+                .max_by_key(|r| r.as_os_str().len())
+                .cloned()
+                .unwrap_or_default();
+            pairs.push((Some(id.unwrap_or(0)), root, now, back));
+        }
+        let (mut o, moves, dirs) = do_moves(&s, false, head.album.as_deref(), &pairs);
+        o.failed.extend(out.failed);
+        if let Err(e) = s.library.mark_undone(batch) {
+            warn!("file moves: {e}");
+        }
+        Ok((o, moves, dirs))
+    })
+    .await
+    .map_err(|e| Error::Failed(e.to_string()))??;
+    follow_moves(server, &moves);
+    rescan_now(server, dirs).await;
+    Ok(outcome)
 }

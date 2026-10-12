@@ -1988,6 +1988,49 @@ impl Controller {
             .count()
     }
 
+    /// Files that moved: the queue (and the songs lined up to stream) points to their new
+    /// places.  A song already streaming keeps reading the file it opened.
+    pub fn replace_urls(&mut self, moves: &std::collections::HashMap<String, String>) -> bool {
+        let mut changed = false;
+        for e in &mut self.playlist.entries {
+            if let Some(new) = moves.get(&e.url) {
+                e.url = new.clone();
+                changed = true;
+            }
+        }
+        for s in &mut self.queue {
+            let Some(new) = moves.get(&s.track.url) else {
+                continue;
+            };
+            let (Some(old_path), Some(new_path)) = (
+                crate::util::path_from_file_url(&s.track.url),
+                crate::util::path_from_file_url(new),
+            ) else {
+                continue;
+            };
+            s.track.url = new.clone();
+            if let Some(spec) = &mut s.spec {
+                match &mut spec.source {
+                    crate::stream::SourceKind::File { path, .. } if *path == old_path => {
+                        *path = new_path.clone();
+                    }
+                    crate::stream::SourceKind::Ffmpeg { args } => {
+                        let old = old_path.to_string_lossy();
+                        for a in args.iter_mut().filter(|a| **a == old) {
+                            *a = new_path.to_string_lossy().to_string();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            changed = true;
+        }
+        if changed {
+            self.save_playlist();
+        }
+        changed
+    }
+
     // ---- persistence ----------------------------------------------------------------
 
     pub fn save_playlist(&self) {
@@ -2121,6 +2164,25 @@ fn _assert_send() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moved_files_are_followed_in_the_queue() {
+        let mut c = Controller::placeholder(MacAddress::parse("00:04:20:00:00:01").unwrap());
+        c.playlist.entries = vec![
+            super::super::playlist::Entry::new("file:///m/a.flac"),
+            super::super::playlist::Entry::new("http://radio/stream"),
+        ];
+        let moves = [(
+            "file:///m/a.flac".to_string(),
+            "file:///m/A/01%20a.flac".to_string(),
+        )]
+        .into_iter()
+        .collect();
+        assert!(c.replace_urls(&moves));
+        assert_eq!(c.playlist.entries[0].url, "file:///m/A/01%20a.flac");
+        assert_eq!(c.playlist.entries[1].url, "http://radio/stream");
+        assert!(!c.replace_urls(&moves), "nothing left to follow");
+    }
 
     #[test]
     fn table_spot_checks() {

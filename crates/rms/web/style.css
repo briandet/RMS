@@ -576,6 +576,19 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .tag-table .tag-current { width: 34%; color: var(--muted); font-size: .9rem; }
 .tag-table tr.changed .tag-current { text-decoration: line-through; }
 .tag-table .tag-new input { width: 100%; }
+.tag-files { margin-top: 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
+.tag-files h2 { font-size: 1.1rem; }
+.file-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.file-table th, .file-table td { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; font-size: .9rem; }
+.file-table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.file-table td:first-child { color: var(--muted); }
+.file-table tr.blocked td { opacity: .75; }
+@media (max-width: 600px) {
+  .file-table thead { display: none; }
+  .file-table tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .file-table td { display: block; border: 0; padding: 2px 0; }
+  .file-table td + td::before { content: '→ '; color: var(--muted); }
+}
 .tag-ids summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: 6px 0; }
 .tag-footer { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0; margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 @media (max-width: 600px) {

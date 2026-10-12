@@ -29,6 +29,7 @@ pub mod discover;
 pub mod loudness;
 pub mod mix;
 pub mod musicbrainz;
+pub mod organize;
 pub mod playlist_files;
 pub mod portraits;
 pub mod print;
@@ -500,7 +501,7 @@ impl Library {
         Ok(dir.join(format!("{}.m3u", playlist_files::cleanup_filename(name))))
     }
 
-    fn write_playlist_file(
+    pub(crate) fn write_playlist_file(
         &self,
         c: &rusqlite::Connection,
         path: &Path,

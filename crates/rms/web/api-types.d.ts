@@ -306,7 +306,11 @@ changed: number, failed: Array<TagEditFailure>, };
 
 export type TagEditFailure = { track_id: number, error: string, };
 
-export type TagEdit = { batch: number, album?: string, 
+export type TagEdit = { batch: number, 
+/**
+ * `tags` or `move`.
+ */
+kind: string, album?: string, 
 /**
  * Files changed.
  */
@@ -315,6 +319,54 @@ files: number,
  * Unix time.
  */
 applied_at: number, undone_at?: number, };
+
+export type AlbumFiles = { 
+/**
+ * The template used (the setting's, or the one asked for).
+ */
+template: string, 
+/**
+ * Why files can't be moved now, if they can't.
+ */
+blocked?: string, files: Array<FileMove>, };
+
+export type FileMove = { 
+/**
+ * Absent for a file that is not a track (cover, booklet) going with the album.
+ */
+track_id?: number, 
+/**
+ * Relative to its music folder.
+ */
+from: string, to: string, 
+/**
+ * `to` differs from `from`.
+ */
+changed: boolean, 
+/**
+ * Why it can't move, if it can't.
+ */
+error?: string, };
+
+export type MoveRequest = { 
+/**
+ * Instead of the setting's.
+ */
+template?: string, };
+
+export type MoveResult = { 
+/**
+ * The change's entry in `GET /api/v1/tags/edits`, to undo it.
+ */
+batch?: number, 
+/**
+ * Tracks moved.
+ */
+changed: number, failed: Array<TagEditFailure>, 
+/**
+ * The album after the library caught up (its id can change).
+ */
+album_id?: number, };
 
 export type Genre = { id: number, name: string, };
 
@@ -441,6 +493,11 @@ edit_files: boolean,
  */
 edit_files_blocked: string | null, 
 /**
+ * Where an album's files go when organised, relative to their music folder
+ * (`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}`).
+ */
+file_name_template: string, 
+/**
  * Mixes take some songs from outside what was played, found with ListenBrainz.
  */
 listenbrainz: boolean, 
@@ -461,7 +518,7 @@ scrobble_spotify: boolean,
  */
 scrobble_pending: number, scrobble_error: string | null, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, listenbrainz?: boolean, scrobble_spotify?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

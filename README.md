@@ -270,6 +270,18 @@ rewritten in place (keeping its owner and permissions), each write is read back 
 put back if anything is off.  FLAC, Ogg, Opus, MP3, MP4/M4A, AIFF, WAV, APE and WavPack;
 not cue-sheet tracks.  Play counts, analysis and the release match stay with the files.
 
+The same page **moves and renames** the album's files by a template (Settings, or edited on
+the page and saved as the default), relative to the music folder they are in:
+`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}` gives
+`The Band/First Album (1991)/01 Opening.flac`.  A part in `[…]` is left out when its tags are
+empty; `{disc}` only appears for albums of several discs.  The page shows every file's
+current and new path first.  Names are made safe for any file system (no `/ \ : * ? " < > |`,
+no leading dots).  Covers, booklets and logs in the album's folder go along when all of its
+audio moves to one place, and folders left empty are removed.  Ratings and play history,
+saved playlists (and their `.m3u` files), favorites and the players' queues follow the files;
+undo moves everything back.  Files never leave their music folder, and a file already at the
+new path is never overwritten.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

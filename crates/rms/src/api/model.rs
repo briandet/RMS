@@ -561,11 +561,66 @@ pub struct TagEditFailure {
     pub error: String,
 }
 
-/// A change of tags made through RMS.
+/// `GET /api/v1/albums/{id}/files`: where the album's files are, and where they go.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumFiles {
+    /// The template used (the setting's, or the one asked for).
+    pub template: String,
+    /// Why files can't be moved now, if they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+    pub files: Vec<FileMove>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct FileMove {
+    /// Absent for a file that is not a track (cover, booklet) going with the album.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track_id: Option<i64>,
+    /// Relative to its music folder.
+    pub from: String,
+    pub to: String,
+    /// `to` differs from `from`.
+    pub changed: bool,
+    /// Why it can't move, if it can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `POST /api/v1/albums/{id}/files` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, Default, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct MoveRequest {
+    /// Instead of the setting's.
+    #[serde(default)]
+    pub template: Option<String>,
+}
+
+/// What moving an album's files did.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct MoveResult {
+    /// The change's entry in `GET /api/v1/tags/edits`, to undo it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch: Option<i64>,
+    /// Tracks moved.
+    pub changed: i64,
+    pub failed: Vec<TagEditFailure>,
+    /// The album after the library caught up (its id can change).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_id: Option<i64>,
+}
+
+/// A change of tags (or of files' places) made through RMS.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(optional_fields)]
 pub struct TagEdit {
     pub batch: i64,
+    /// `tags` or `move`.
+    pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
     /// Files changed.
@@ -759,6 +814,9 @@ pub struct ServerSettings {
     /// Why music files can't be changed now (off, or no login), if they can't.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edit_files_blocked: Option<String>,
+    /// Where an album's files go when organised, relative to their music folder
+    /// (`{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}`).
+    pub file_name_template: String,
     /// Mixes take some songs from outside what was played, found with ListenBrainz.
     pub listenbrainz: bool,
     /// Songs discovered so far, and of those played and rejected (skipped early).
@@ -815,6 +873,7 @@ pub struct ServerSettingsPatch {
     pub musicbrainz: Option<bool>,
     pub acoustid_key: Option<String>,
     pub edit_files: Option<bool>,
+    pub file_name_template: Option<String>,
     pub listenbrainz: Option<bool>,
     pub scrobble_spotify: Option<bool>,
 }

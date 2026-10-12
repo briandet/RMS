@@ -169,6 +169,10 @@ export const setAlbumRelease = (id, mbid) => api(`albums/${encodeURIComponent(id
 export const getAlbumTags = (id, release) => api(withQuery(`albums/${encodeURIComponent(id)}/tags`, { release }), { timeout: 60000 });
 /** @param {{track_id: number, tags: Record<string, string | null>}[]} changes @returns {Promise<TagEditResult>} */
 export const writeTags = (changes) => api('tags', { method: 'POST', body: { changes }, timeout: 300000 });
+/** @returns {Promise<import('./api-types').AlbumFiles>} */
+export const getAlbumFiles = (id, template) => api(withQuery(`albums/${encodeURIComponent(id)}/files`, { template }), { timeout: 60000 });
+/** @returns {Promise<import('./api-types').MoveResult>} */
+export const moveAlbumFiles = (id, template) => api(`albums/${encodeURIComponent(id)}/files`, { method: 'POST', body: template ? { template } : {}, timeout: 300000 });
 /** @returns {Promise<TagEdit[]>} */
 export const getTagEdits = (limit = 10) => api(withQuery('tags/edits', { limit }));
 /** @returns {Promise<TagEditResult>} */

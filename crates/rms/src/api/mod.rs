@@ -21,7 +21,7 @@ use axum::{Json, Router};
 use commands::CommandError;
 use library::{AlbumParams, FolderParams, LibraryError, ListParams};
 use model::{
-    ApiError, Command, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
+    ApiError, Command, MoveRequest, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
     ServerSettingsPatch, SpotifyLogin, SpotifyPatch, TagChanges,
 };
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,10 @@ pub fn router() -> Router<Arc<Server>> {
                 .delete(delete_album_release),
         )
         .route("/api/v1/albums/{id}/tags", get(get_album_tags))
+        .route(
+            "/api/v1/albums/{id}/files",
+            get(get_album_files).post(post_album_files),
+        )
         .route("/api/v1/tags", post(post_tags))
         .route("/api/v1/tags/edits", get(get_tag_edits))
         .route("/api/v1/tags/edits/{batch}/undo", post(post_tag_undo))
@@ -319,6 +323,57 @@ async fn post_tags(
     match crate::tagedit::apply(&s, changes).await {
         Ok(o) => Json(library::tag_edit_result(o)).into_response(),
         Err(e) => tag_error(e, "track"),
+    }
+}
+
+#[derive(Deserialize)]
+struct FilesQuery {
+    template: Option<String>,
+}
+
+async fn get_album_files(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<FilesQuery>,
+) -> Response {
+    let template = q
+        .template
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| crate::tagedit::template(&s));
+    let s2 = s.clone();
+    let t2 = template.clone();
+    match tokio::task::spawn_blocking(move || crate::tagedit::move_plan(&s2, id, &t2)).await {
+        Ok(Ok(plan)) => Json(library::album_files(&s, template, plan)).into_response(),
+        Ok(Err(e)) => tag_error(e, "album"),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+async fn post_album_files(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<MoveRequest>, JsonRejection>,
+) -> Response {
+    let req = match body(b) {
+        Ok(r) => r,
+        Err(r) => return r,
+    };
+    let template = req
+        .template
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| crate::tagedit::template(&s));
+    match crate::tagedit::move_album(&s, id, &template).await {
+        Ok(m) => {
+            let r = library::tag_edit_result(m.outcome);
+            Json(model::MoveResult {
+                batch: r.batch,
+                changed: r.changed,
+                failed: r.failed,
+                album_id: m.album_id,
+            })
+            .into_response()
+        }
+        Err(e) => tag_error(e, "album"),
     }
 }
 

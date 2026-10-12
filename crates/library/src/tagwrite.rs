@@ -466,6 +466,8 @@ pub struct Edit {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EditBatch {
     pub batch: i64,
+    /// `tags` or `move`.
+    pub kind: String,
     pub album: Option<String>,
     pub files: i64,
     pub applied_at: i64,
@@ -516,8 +518,13 @@ impl crate::Library {
         .ok()
     }
 
-    /// Remember files changed together; returns the batch's number.
-    pub fn record_edits(&self, album: Option<&str>, edits: &[Edit]) -> anyhow::Result<i64> {
+    /// Remember files changed together (`kind`: `tags` or `move`); returns the batch's number.
+    pub fn record_edits(
+        &self,
+        kind: &str,
+        album: Option<&str>,
+        edits: &[Edit],
+    ) -> anyhow::Result<i64> {
         let mut c = self.conn()?;
         let tx = c.transaction()?;
         let batch: i64 = tx.query_row(
@@ -528,15 +535,16 @@ impl crate::Library {
         let now = crate::scanner::now();
         for e in edits {
             tx.execute(
-                "INSERT INTO tag_edits (batch, url, album, before, after, applied_at)
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO tag_edits (batch, url, album, before, after, applied_at, kind)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
                 rusqlite::params![
                     batch,
                     e.url,
                     album,
                     serde_json::to_string(&e.before)?,
                     serde_json::to_string(&e.after)?,
-                    now
+                    now,
+                    kind
                 ],
             )?;
         }
@@ -550,7 +558,7 @@ impl crate::Library {
             return Vec::new();
         };
         c.prepare(
-            "SELECT batch, MAX(album), COUNT(*), MAX(applied_at), MAX(undone_at)
+            "SELECT batch, MAX(album), COUNT(*), MAX(applied_at), MAX(undone_at), MAX(kind)
              FROM tag_edits GROUP BY batch ORDER BY batch DESC LIMIT ?",
         )
         .and_then(|mut st| {
@@ -561,6 +569,7 @@ impl crate::Library {
                     files: r.get(2)?,
                     applied_at: r.get(3)?,
                     undone_at: r.get(4)?,
+                    kind: r.get(5)?,
                 })
             })?
             .collect()
@@ -599,5 +608,76 @@ impl crate::Library {
             rusqlite::params![crate::scanner::now(), batch],
         )?;
         Ok(())
+    }
+}
+
+impl crate::Library {
+    /// Files moved from one URL to another: what the library keeps by URL follows them (play
+    /// history, saved playlists and their files, the journal of tag changes).  The tracks
+    /// themselves are the scanner's to move.
+    pub fn rename_urls(&self, moves: &[(String, String)]) -> anyhow::Result<()> {
+        if moves.is_empty() {
+            return Ok(());
+        }
+        let mut c = self.conn()?;
+        let tx = c.transaction()?;
+        let mut playlists = std::collections::BTreeSet::new();
+        for (old, new) in moves {
+            tx.execute(
+                "UPDATE OR REPLACE track_stats SET url = ?2 WHERE url = ?1",
+                [old, new],
+            )?;
+            tx.execute(
+                "UPDATE tag_edits SET url = ?2 WHERE url = ?1 AND kind = 'tags'",
+                [old, new],
+            )?;
+            tx.execute(
+                "UPDATE OR REPLACE discovered SET url = ?2 WHERE url = ?1",
+                [old, new],
+            )?;
+            let mut st = tx.prepare(
+                "SELECT DISTINCT p.id FROM playlist_items i JOIN playlists p ON p.id = i.playlist_id
+                 WHERE i.url = ? AND p.kind = 'saved'",
+            )?;
+            for id in st.query_map([old], |r| r.get::<_, i64>(0))? {
+                playlists.insert(id?);
+            }
+            drop(st);
+            tx.execute(
+                "UPDATE playlist_items SET url = ?2 WHERE url = ?1",
+                [old, new],
+            )?;
+        }
+        tx.commit()?;
+        // saved playlists' files list the new places too
+        for id in playlists {
+            let Some((_, purl, urls)) = self.playlist_by_id(id) else {
+                continue;
+            };
+            if let Some(path) = crate::url::path_from_file_url(&purl) {
+                if let Err(e) = self.write_playlist_file(&c, &path, &urls) {
+                    tracing::warn!("rewriting playlist {}: {e}", path.display());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The URLs of the scanner's audio files directly in a folder.
+    pub fn audio_files_in(&self, dir: &Path) -> Vec<String> {
+        let Ok(c) = self.conn() else {
+            return Vec::new();
+        };
+        let prefix = crate::url::file_url_from_path(dir);
+        let prefix = format!("{}/", prefix.trim_end_matches('/'));
+        c.prepare("SELECT url FROM files WHERE kind = 'audio' AND substr(url, 1, length(?1)) = ?1")
+            .and_then(|mut st| {
+                st.query_map([&prefix], |r| r.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<String>>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|u: &String| !u[prefix.len()..].contains('/'))
+            .collect()
     }
 }

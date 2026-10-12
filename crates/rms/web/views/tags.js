@@ -2,7 +2,10 @@
 // into the files when applied (Settings → Library → "Change tags in music files", with a
 // login).  Route: #/library/tags/<album id>?name=
 
-import { getAlbumRelease, setAlbumRelease, getAlbumTags, writeTags, undoTagEdit } from '../api.js';
+import {
+  getAlbumRelease, setAlbumRelease, getAlbumTags, writeTags, undoTagEdit, getAlbumFiles, moveAlbumFiles,
+  patchSettings, getAlbums,
+} from '../api.js';
 import { h, icon, toast, plural } from '../util.js';
 import { enc, emptyBox, loadingBox } from './common.js';
 
@@ -46,6 +49,9 @@ export function releaseLabel(r) {
     .filter(Boolean).join(' · ');
 }
 
+/** What the last move did, carried to the album's page under its new id. */
+let carried = null;
+
 const MBID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
 
 export async function tagsPage(v, id) {
@@ -61,15 +67,18 @@ export async function tagsPage(v, id) {
   let data = null;
   /** track_id → field → {on, input} */
   let rows = new Map();
-  let lastResult = null;
+  let lastResult = carried;
+  carried = null;
+  let template = null;
 
   const top = h('div', { class: 'tag-top' });
   const tracksEl = h('div', { class: 'tag-tracks' });
   const footer = h('div', { class: 'tag-footer' });
+  const filesEl = h('section', { class: 'tag-files' });
   v.body.replaceChildren(h('header', { class: 'page-head' },
     h('div', { class: 'page-head-text' }, h('h1', {}, `Tags of ${name}`),
       h('div', { class: 'page-sub muted' }, 'What the files say, next to what the album’s MusicBrainz release says. Tick what to change, edit any value, then apply.'))),
-  top, tracksEl, footer);
+  top, tracksEl, footer, filesEl);
 
   async function load() {
     tracksEl.replaceChildren(loadingBox());
@@ -80,8 +89,66 @@ export async function tagsPage(v, id) {
       return;
     }
     if (!v.alive) return;
-    if (!data.release) showAll = true;
     render();
+    loadFiles();
+  }
+
+  // ---------------------------------------------------------------- folders and file names
+
+  async function loadFiles() {
+    let plan;
+    try {
+      plan = await getAlbumFiles(id, template);
+    } catch (e) {
+      if (v.alive) filesEl.replaceChildren(h('h2', {}, 'Folders and file names'), h('p', { class: 'muted' }, e.message));
+      return;
+    }
+    if (!v.alive) return;
+    template = plan.template;
+    const input = h('input', { type: 'text', value: plan.template, spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Name template' });
+    const preview = (e) => { e?.preventDefault(); template = input.value.trim() || null; loadFiles(); };
+    const moving = plan.files.filter((f) => f.changed && !f.error);
+    const tracks = moving.filter((f) => f.track_id != null).length;
+    const problems = plan.files.filter((f) => f.error);
+    const rowsEl = plan.files.filter((f) => f.changed || f.error).map((f) => h('tr', { class: f.error ? 'blocked' : '' },
+      h('td', { class: 'tag-current' }, f.from),
+      h('td', {}, f.error ? h('span', { class: 'muted' }, f.error) : f.to)));
+    const go = h('button', { class: 'btn btn-primary', type: 'button', disabled: !moving.length || !!plan.blocked, onclick: async () => {
+      go.disabled = true;
+      try {
+        const r = await moveAlbumFiles(id, template);
+        if (!v.alive) return;
+        if (r.failed?.length) toast(`${plural(r.failed.length, 'file')} not moved`, 'error');
+        carried = { ...r, moved: true };
+        if (r.album_id != null && r.album_id !== +id) {
+          location.hash = `#/library/tags/${enc(r.album_id)}?name=${enc(name)}`;
+        } else {
+          lastResult = carried; carried = null;
+          load();
+        }
+      } catch (e) {
+        toast(`Could not move the files: ${e.message}`, 'error');
+        go.disabled = false;
+      }
+    } }, icon('edit'), moving.length ? `Move ${plural(moving.length, 'file')}` : 'Nothing to move');
+    filesEl.replaceChildren(...[
+      h('h2', {}, 'Folders and file names'),
+      h('p', { class: 'muted small' }, 'Where the files go in their music folder, from their tags (apply tag changes first). ',
+        h('code', {}, '{album_artist} {album} {year} {disc} {track:02} {title} …'), '; a part in ',
+        h('code', {}, '[ ]'), ' is left out when its tags are empty. Covers and other files in the album’s folder go along.'),
+      h('form', { class: 'inline-row', onsubmit: preview }, input,
+        h('button', { class: 'btn', type: 'submit' }, 'Preview'),
+        h('button', { class: 'btn', type: 'button', onclick: async () => {
+          try { await patchSettings({ file_name_template: input.value.trim() }); toast('Template saved for every album'); } catch (e) { toast(`Could not save: ${e.message}`, 'error'); }
+        } }, 'Save as default')),
+      rowsEl.length
+        ? h('table', { class: 'file-table' },
+          h('thead', {}, h('tr', {}, h('th', {}, 'Now'), h('th', {}, 'New'))), h('tbody', {}, rowsEl))
+        : h('p', { class: 'muted small' }, 'Every file is where the template puts it.'),
+      problems.length ? h('p', { class: 'muted small' }, `${plural(problems.length, 'file')} can’t move (see above).`) : null,
+      h('div', { class: 'button-row' }, go,
+        tracks !== moving.length && moving.length ? h('span', { class: 'muted small' }, `${plural(tracks, 'track')}, ${plural(moving.length - tracks, 'other file')}`) : null),
+    ].filter(Boolean));
   }
 
   function render() {
@@ -255,13 +322,22 @@ export async function tagsPage(v, id) {
       e.target.disabled = true;
       try {
         const u = await undoTagEdit(r.batch);
-        toast(`Put back the tags of ${plural(u.changed, 'file')}`);
+        toast(r.moved ? `Moved ${plural(u.changed, 'file')} back` : `Put back the tags of ${plural(u.changed, 'file')}`);
         lastResult = null;
-        setTimeout(() => v.alive && load(), 1500);
+        if (r.moved) {
+          // the album may have a new id again: find it by its title
+          const found = await getAlbums({ q: name, limit: 20 }).catch(() => null);
+          const same = found?.items?.filter((a) => a.title === name) || [];
+          location.hash = same.length === 1
+            ? `#/library/tags/${enc(same[0].id)}?name=${enc(name)}`
+            : `#/library/albums`;
+        } else {
+          setTimeout(() => v.alive && load(), 1500);
+        }
       } catch (err) { toast(`Could not undo: ${err.message}`, 'error'); e.target.disabled = false; }
     } }, 'Undo');
     return h('div', { class: 'notice', role: 'status' },
-      h('p', {}, `Changed the tags of ${plural(r.changed, 'file')}.`),
+      h('p', {}, r.moved ? `Moved ${plural(r.changed, 'track')}.` : `Changed the tags of ${plural(r.changed, 'file')}.`),
       r.failed?.length ? h('ul', {}, r.failed.map((f) => h('li', {}, f.error))) : null,
       undo);
   }

@@ -32,6 +32,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V5_SCROBBLE,
     SCHEMA_V6_RELEASES,
     SCHEMA_V7_TAG_EDITS,
+    SCHEMA_V8_FILE_MOVES,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -471,6 +472,13 @@ CREATE TABLE tag_edits (
   undone_at  INTEGER
 ) STRICT;
 CREATE INDEX tag_edits_batch ON tag_edits (batch);
+"#;
+
+/// Files RMS moved or renamed ([`crate::organize`]) join the journal of tag changes.
+const SCHEMA_V8_FILE_MOVES: &str = r#"
+-- `tags`: `before` and `after` are tag values; `move`: a file moved, `{"url": …}` each
+-- (`url` is where it went).
+ALTER TABLE tag_edits ADD COLUMN kind TEXT NOT NULL DEFAULT 'tags';
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).
