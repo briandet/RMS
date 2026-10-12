@@ -394,6 +394,104 @@ pub struct AlbumDetail {
     pub tracks: Vec<Track>,
 }
 
+/// `GET /api/v1/albums/{id}/release`: the MusicBrainz release the album was matched to.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AlbumRelease {
+    pub status: ReleaseStatus,
+    /// How the release was found: `tag` (the tags name it), `auto` (best fit), `user` (chosen).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub how: Option<String>,
+    /// How well the album fits the release, 0–1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+    /// The album's tracks, and the release track each one is.
+    pub tracks: Vec<ReleaseTrackMatch>,
+    /// The releases considered, best first.
+    pub candidates: Vec<ReleaseCandidate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum ReleaseStatus {
+    /// Matched confidently (or chosen, or named by the tags): fills in what tags leave out.
+    Matched,
+    /// Matched, but not surely: worth checking.
+    Uncertain,
+    /// No release found.
+    None,
+    /// Not matched yet (MusicBrainz identification is off, or still busy).
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct ReleaseInfo {
+    pub mbid: String,
+    pub title: String,
+    pub artist: String,
+    /// `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; empty when unknown.
+    pub date: String,
+    /// The first release of this album (the original year).
+    pub original_date: String,
+    pub country: String,
+    /// `Official`, `Promotion`, `Bootleg`, …
+    pub status: String,
+    pub label: String,
+    pub catalog_number: String,
+    pub barcode: String,
+    /// The media: `CD`, `2×CD`, `Digital Media`, …
+    pub format: String,
+    /// `Album`, `Single`, `EP`, … and secondary types (`Compilation`, `Live`, …).
+    pub release_type: Vec<String>,
+    pub track_count: i64,
+    pub disc_count: i64,
+    /// The release's page on MusicBrainz.
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct ReleaseTrackMatch {
+    pub track_id: i64,
+    /// Where the track is on the release; absent when it is none of its tracks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disc: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub position: Option<i64>,
+    /// The track's number as printed ("A1", "3").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    /// Seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
+    /// MusicBrainz recording id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct ReleaseCandidate {
+    pub mbid: String,
+    pub score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseInfo>,
+}
+
+/// `PUT /api/v1/albums/{id}/release` body: the release the album is.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseChoice {
+    /// A MusicBrainz release id (from `candidates`, or from musicbrainz.org).
+    pub mbid: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct Genre {
     pub id: i64,
@@ -559,6 +657,11 @@ pub struct ServerSettings {
     pub musicbrainz_identified: i64,
     /// Recordings waiting to be looked up.
     pub musicbrainz_pending: i64,
+    /// Albums matched to their MusicBrainz release; matched only possibly (worth checking);
+    /// waiting to be matched.
+    pub albums_matched: i64,
+    pub albums_uncertain: i64,
+    pub albums_pending: i64,
     /// Mixes take some songs from outside what was played, found with ListenBrainz.
     pub listenbrainz: bool,
     /// Songs discovered so far, and of those played and rejected (skipped early).

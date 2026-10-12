@@ -36,6 +36,7 @@ own conventions:
 | `GET /api/v1/artists/{id}` | [Artist](#artist) |
 | `GET /api/v1/albums?sort=&artist=&genre=&year=&q=` | page of [Album](#album) |
 | `GET /api/v1/albums/{id}` | [Album](#album) with `duration` and `tracks` |
+| `GET`, `PUT`, `DELETE /api/v1/albums/{id}/release` | the album's [MusicBrainz release](#album-release) |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
 | `GET /api/v1/tracks?q=` | page of [Track](#track) |
@@ -269,6 +270,42 @@ Item `i` is entry `offset + i` of `total`.
 (newest first), and filters by `artist`, `genre` and `year` ids and by search words `q`.
 `GET /api/v1/albums/{id}` adds `duration` (seconds) and `tracks`, in disc and track order.
 
+### Album release
+
+With MusicBrainz identification on (`musicbrainz` in the [settings](#server-settings)), each
+album is matched to the MusicBrainz release it is, once its recordings are looked up: the
+release its tags name (`MUSICBRAINZ_ALBUMID`), else the best fit among the releases holding
+its recordings (or, without recording ids, found by title and artist), judged by how its tracks
+pair with the release's (same recording, title, length, position), how much of the release it
+holds, and its title and artist; of releases with the same tracks, the earliest.
+`GET /api/v1/albums/{id}/release`:
+
+```json
+{"status": "matched", "how": "auto", "score": 0.97,
+ "release": {"mbid": "1b022e01-…", "title": "Nevermind", "artist": "Nirvana",
+             "date": "1991-09-24", "original_date": "1991-09-24", "country": "US",
+             "status": "Official", "label": "DGC", "catalog_number": "DGCD-24425",
+             "barcode": "720642442524", "format": "CD", "release_type": ["Album"],
+             "track_count": 12, "disc_count": 1,
+             "url": "https://musicbrainz.org/release/1b022e01-…"},
+ "tracks": [{"track_id": 101, "disc": 1, "position": 1, "number": "1",
+             "title": "Smells Like Teen Spirit", "artist": "Nirvana", "length": 301.92,
+             "recording": "5fb524f1-…"}, "…"],
+ "candidates": [{"mbid": "1b022e01-…", "score": 0.97, "release": { "…": "as above" }}, "…"]}
+```
+
+`status`: `matched` (a confident match, or one the tags name or the user chose), `uncertain`
+(worth checking: `score` under 0.8), `none` (no release found; tried again after 90 days) or
+`pending` (not matched yet).  `how`: `tag`, `auto` or `user`.  `tracks` lists the album's
+tracks; one without `position` is none of the release's.  `candidates` are the releases
+considered, best first.  A `matched` release fills in what the tags leave out: the album's
+MusicBrainz id and year, the tracks' MusicBrainz ids, numbers and discs.  Files are never
+written.
+
+`PUT` with `{"mbid": "<release id>"}` matches the album to that release (fetched from
+MusicBrainz; `502` when it can't be asked) and returns the result; `DELETE` forgets the match,
+so the album is matched again.  A user's choice is kept when the album gains tracks.
+
 ### Folder entry
 
 ```json
@@ -357,7 +394,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 {"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true, "art_folder": "",
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
- "musicbrainz_identified": 0, "musicbrainz_pending": 0, "listenbrainz": false,
+ "musicbrainz_identified": 0, "musicbrainz_pending": 0, "albums_matched": 0,
+ "albums_uncertain": 0, "albums_pending": 0, "listenbrainz": false,
  "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
  "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
  "scrobble_pending": 0, "scrobble_error": "…"}
@@ -365,7 +403,8 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
 Unknown fields are an error.  `watch_folders` scans what changes in the music folders as
-it changes (see the README).  Changed music folders take effect with the next scan:
+it changes (see the README).  `albums_matched`, `albums_uncertain` and `albums_pending` count
+albums by [release match](#album-release).  Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and
 removed files), `{"mode": "playlists"}` or `{"mode": "full"}` (clear the library and scan

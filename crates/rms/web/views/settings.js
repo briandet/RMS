@@ -465,7 +465,8 @@ export function render(node, { ctx }) {
     const keyId = fieldId();
     const mbOn = !!settings.musicbrainz;
     const progress = mbOn
-      ? `${settings.musicbrainz_identified ?? 0} identified${settings.musicbrainz_pending ? `, ${settings.musicbrainz_pending} to look up` : ''}.`
+      ? `${settings.musicbrainz_identified ?? 0} identified${settings.musicbrainz_pending ? `, ${settings.musicbrainz_pending} to look up` : ''}; `
+        + `${settings.albums_matched ?? 0} albums matched to their release${settings.albums_uncertain ? `, ${settings.albums_uncertain} uncertain` : ''}${settings.albums_pending ? `, ${settings.albums_pending} to match` : ''}.`
       : '';
     const mbField = h('div', { class: 'field check' },
       h('input', { id: mbId, type: 'checkbox', checked: mbOn, onchange: async (e) => {
@@ -475,7 +476,7 @@ export function render(node, { ctx }) {
       } }),
       h('label', { for: mbId }, 'Identify recordings with MusicBrainz',
         h('span', { class: 'muted small block' },
-          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs. Your files are never changed and tags always win. One lookup a second, so a large library takes some hours the first time. ',
+          'Finds each track on MusicBrainz (by its MusicBrainz id or ISRC tag, its sound, or its artist, title and length) and each album's release, and fills in what the tags leave out: genres for tracks without one, MusicBrainz ids and ISRCs, album years, track numbers and discs. Your files are never changed and tags always win. One lookup a second, so a large library takes some hours the first time. ',
           progress)));
     const keyInput = h('input', { id: keyId, type: 'text', value: settings.acoustid_key ?? '', placeholder: 'AcoustID application key', spellcheck: 'false', autocomplete: 'off' });
     const keyForm = h('form', { class: 'field inline', hidden: !mbOn, onsubmit: async (e) => {

@@ -33,6 +33,7 @@ pub mod playlist_files;
 pub mod portraits;
 pub mod print;
 pub mod queries;
+pub mod releases;
 pub mod remote;
 pub mod rhythm;
 pub mod scanner;

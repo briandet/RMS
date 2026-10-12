@@ -18,6 +18,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let prefs = &server.prefs.server;
     let bitrate = prefs.get_i64("spotifyBitrate");
     let mb = server.library.musicbrainz_totals();
+    let albums = server.library.release_totals();
     let d = server.library.discovery_totals();
     let (pending, scrobble_error) = crate::plugins::scrobble::pending(server);
     ServerSettings {
@@ -36,6 +37,9 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         acoustid_key: prefs.get_str(crate::plugins::musicbrainz::KEY_PREF),
         musicbrainz_identified: mb.identified,
         musicbrainz_pending: mb.pending,
+        albums_matched: albums.matched,
+        albums_uncertain: albums.uncertain,
+        albums_pending: albums.pending,
         listenbrainz: prefs.get_bool(crate::plugins::listenbrainz::PREF),
         discovered: d.proposed,
         discovered_played: d.played,

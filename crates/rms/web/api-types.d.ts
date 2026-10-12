@@ -176,6 +176,78 @@ artwork?: string,
  */
 letter?: string, };
 
+export type AlbumRelease = { status: ReleaseStatus, 
+/**
+ * How the release was found: `tag` (the tags name it), `auto` (best fit), `user` (chosen).
+ */
+how?: string, 
+/**
+ * How well the album fits the release, 0–1.
+ */
+score?: number, release?: ReleaseInfo, 
+/**
+ * The album's tracks, and the release track each one is.
+ */
+tracks: Array<ReleaseTrackMatch>, 
+/**
+ * The releases considered, best first.
+ */
+candidates: Array<ReleaseCandidate>, };
+
+export type ReleaseStatus = "matched" | "uncertain" | "none" | "pending";
+
+export type ReleaseInfo = { mbid: string, title: string, artist: string, 
+/**
+ * `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; empty when unknown.
+ */
+date: string, 
+/**
+ * The first release of this album (the original year).
+ */
+original_date: string, country: string, 
+/**
+ * `Official`, `Promotion`, `Bootleg`, …
+ */
+status: string, label: string, catalog_number: string, barcode: string, 
+/**
+ * The media: `CD`, `2×CD`, `Digital Media`, …
+ */
+format: string, 
+/**
+ * `Album`, `Single`, `EP`, … and secondary types (`Compilation`, `Live`, …).
+ */
+release_type: Array<string>, track_count: number, disc_count: number, 
+/**
+ * The release's page on MusicBrainz.
+ */
+url: string, };
+
+export type ReleaseTrackMatch = { track_id: number, 
+/**
+ * Where the track is on the release; absent when it is none of its tracks.
+ */
+disc?: number, position?: number, 
+/**
+ * The track's number as printed ("A1", "3").
+ */
+number?: string, title?: string, artist?: string, 
+/**
+ * Seconds.
+ */
+length?: number, 
+/**
+ * MusicBrainz recording id.
+ */
+recording?: string, };
+
+export type ReleaseCandidate = { mbid: string, score: number, release?: ReleaseInfo, };
+
+export type ReleaseChoice = { 
+/**
+ * A MusicBrainz release id (from `candidates`, or from musicbrainz.org).
+ */
+mbid: string, };
+
 export type Genre = { id: number, name: string, };
 
 export type Year = { 
@@ -287,6 +359,11 @@ musicbrainz_identified: number,
  * Recordings waiting to be looked up.
  */
 musicbrainz_pending: number, 
+/**
+ * Albums matched to their MusicBrainz release; matched only possibly (worth checking);
+ * waiting to be matched.
+ */
+albums_matched: number, albums_uncertain: number, albums_pending: number, 
 /**
  * Mixes take some songs from outside what was played, found with ListenBrainz.
  */

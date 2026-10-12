@@ -250,6 +250,13 @@ Spotify tracks get their genres the same way, so mixes weigh them like your file
 are never written, and tags always win.  A large library takes some hours the first time;
 `--musicbrainz-url` points RMS at a local MusicBrainz mirror instead, without the rate limit.
 
+Then each album is matched to the release it is (the edition, not just the songs): the one
+its tags name, else the best fit among the releases holding its recordings, by how its tracks
+pair up with the release's (recording, title, length, position), how much of the release it
+holds, and its title and artist.  A confident match fills in the album's year and MusicBrainz id and the tracks'
+numbers and discs where tags have none; uncertain ones can be checked and another release
+chosen through the API (`/api/v1/albums/{id}/release`, [docs/api.md](docs/api.md#album-release)).
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

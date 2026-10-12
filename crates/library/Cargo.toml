@@ -22,6 +22,8 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 md5 = "0.8"
 unicode-normalization = "0.1"
 deunicode = "1"
+# Name similarity for matching albums to MusicBrainz releases.
+strsim = "0.11"
 percent-encoding = "2"
 encoding_rs = "0.8"
 chrono = "0.4"

@@ -21,8 +21,8 @@ use axum::{Json, Router};
 use commands::CommandError;
 use library::{AlbumParams, FolderParams, LibraryError, ListParams};
 use model::{
-    ApiError, Command, NewFavorite, PlayerSettingsPatch, ScanRequest, ServerSettingsPatch,
-    SpotifyLogin, SpotifyPatch,
+    ApiError, Command, NewFavorite, PlayerSettingsPatch, ReleaseChoice, ScanRequest,
+    ServerSettingsPatch, SpotifyLogin, SpotifyPatch,
 };
 use serde::{Deserialize, Serialize};
 use services::MenuParams;
@@ -48,6 +48,12 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/artists/{id}", get(get_artist))
         .route("/api/v1/albums", get(get_albums))
         .route("/api/v1/albums/{id}", get(get_album))
+        .route(
+            "/api/v1/albums/{id}/release",
+            get(get_album_release)
+                .put(put_album_release)
+                .delete(delete_album_release),
+        )
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
         .route("/api/v1/tracks", get(get_tracks))
@@ -237,6 +243,38 @@ async fn get_albums(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<AlbumPar
 
 async fn get_album(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
     library_reply(library::album_by_id(&s, id).await, "album")
+}
+
+async fn get_album_release(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::album_release(&s, id).await, "album")
+}
+
+async fn put_album_release(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<ReleaseChoice>, JsonRejection>,
+) -> Response {
+    let choice = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    choose_release(&s, id, Some(choice.mbid.trim())).await
+}
+
+async fn delete_album_release(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    choose_release(&s, id, None).await
+}
+
+/// Match the album to a release (`Some`), or have it matched again (`None`); answers with
+/// the album's release as `GET` does.
+async fn choose_release(s: &Arc<Server>, id: i64, mbid: Option<&str>) -> Response {
+    use crate::plugins::musicbrainz::ChooseError;
+    match crate::plugins::musicbrainz::choose_release(s, id, mbid).await {
+        Ok(_) => library_reply(library::album_release(s, id).await, "album"),
+        Err(ChooseError::NotFound) => error(StatusCode::NOT_FOUND, "no such album"),
+        Err(ChooseError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
+        Err(ChooseError::Failed(m)) => error(StatusCode::BAD_GATEWAY, m),
+    }
 }
 
 async fn get_genres(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {

@@ -4,8 +4,8 @@
 //! resources here.
 
 use super::model::{
-    Album, AlbumDetail, Artist, FolderEntry, FolderEntryType, Genre, Page, Playlist, SearchResults,
-    Track, Year,
+    Album, AlbumDetail, AlbumRelease, Artist, FolderEntry, FolderEntryType, Genre, Page, Playlist,
+    ReleaseCandidate, ReleaseInfo, ReleaseStatus, ReleaseTrackMatch, SearchResults, Track, Year,
 };
 use super::state::{int, string, track_from_row};
 use crate::server::Server;
@@ -252,6 +252,104 @@ pub async fn album_by_id(server: &Arc<Server>, id: i64) -> Result<AlbumDetail, L
         duration: (duration * 1000.0).round() / 1000.0,
         tracks,
     })
+}
+
+/// The MusicBrainz release the album was matched to.
+pub async fn album_release(server: &Arc<Server>, id: i64) -> Result<AlbumRelease, LibraryError> {
+    let lib = server.library.clone();
+    tokio::task::spawn_blocking(move || {
+        if lib.album_job(id).is_none() {
+            return Err(LibraryError::NotFound);
+        }
+        let Some(m) = lib.album_match(id) else {
+            return Ok(AlbumRelease {
+                status: ReleaseStatus::Pending,
+                how: None,
+                score: None,
+                release: None,
+                tracks: Vec::new(),
+                candidates: Vec::new(),
+            });
+        };
+        let status = if m.release_mbid.is_none() {
+            ReleaseStatus::None
+        } else if m.confident() {
+            ReleaseStatus::Matched
+        } else {
+            ReleaseStatus::Uncertain
+        };
+        let tracks = m
+            .tracks
+            .iter()
+            .map(|(track_id, pos)| {
+                let rt = pos.and_then(|(d, p)| {
+                    m.release
+                        .as_ref()?
+                        .media
+                        .iter()
+                        .find(|x| x.position == d)?
+                        .tracks
+                        .iter()
+                        .find(|t| t.position == p)
+                });
+                let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
+                ReleaseTrackMatch {
+                    track_id: *track_id,
+                    disc: pos.map(|p| p.0),
+                    position: pos.map(|p| p.1),
+                    number: rt.and_then(|t| some(&t.number)),
+                    title: rt.and_then(|t| some(&t.title)),
+                    artist: rt.and_then(|t| some(&t.artist)),
+                    length: rt.and_then(|t| t.length),
+                    recording: rt.and_then(|t| some(&t.recording)),
+                }
+            })
+            .collect();
+        let mut candidates: Vec<ReleaseCandidate> = m
+            .candidates
+            .iter()
+            .map(|(mbid, score, r)| ReleaseCandidate {
+                mbid: mbid.clone(),
+                score: *score,
+                release: r.as_ref().map(release_info),
+            })
+            .collect();
+        candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+        Ok(AlbumRelease {
+            status,
+            how: (m.how != "none").then(|| m.how.clone()),
+            score: m.score,
+            release: m.release.as_ref().map(release_info),
+            tracks,
+            candidates,
+        })
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?
+}
+
+fn release_info(r: &rms_library::releases::Release) -> ReleaseInfo {
+    ReleaseInfo {
+        mbid: r.mbid.clone(),
+        title: r.title.clone(),
+        artist: r.artist.clone(),
+        date: r.date.clone(),
+        original_date: r.original_date.clone(),
+        country: r.country.clone(),
+        status: r.status.clone(),
+        label: r.label.clone(),
+        catalog_number: r.catalog_number.clone(),
+        barcode: r.barcode.clone(),
+        format: r.format(),
+        release_type: std::iter::once(&r.primary_type)
+            .chain(&r.secondary_types)
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .collect(),
+        track_count: r.track_count() as i64,
+        disc_count: r.media.len() as i64,
+        url: format!("https://musicbrainz.org/release/{}", r.mbid),
+    }
 }
 
 pub async fn genres(server: &Arc<Server>, p: ListParams) -> Result<Page<Genre>, LibraryError> {

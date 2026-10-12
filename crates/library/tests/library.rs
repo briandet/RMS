@@ -1091,6 +1091,7 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TABLE track_musicbrainz;
              DROP TABLE discovered; DROP TABLE web_cache;
              DROP TABLE scrobble_queue;
+             DROP TABLE mb_releases; DROP TABLE track_release;
              ALTER TABLE track_stats DROP COLUMN skip_count;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
@@ -1099,13 +1100,15 @@ fn the_search_index_is_built_for_an_older_database() {
     }
     let lib = Library::open(&db, &f.dir.path().join("cache")).unwrap();
     assert_eq!(titles_found(&lib, "mp3"), ["The Mp3 Song"]);
-    // and version 3's tables
+    // and the later versions' tables
     let c = rusqlite::Connection::open(&db).unwrap();
     for t in [
         "remote_tracks",
         "track_rhythm",
         "track_chromaprint",
         "track_musicbrainz",
+        "track_release",
+        "mb_releases",
     ] {
         let n: i64 = c
             .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
