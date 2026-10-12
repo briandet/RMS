@@ -42,6 +42,7 @@ own conventions:
 | `GET /api/v1/albums/{id}/tags?release=` | the album's [tags](#tags), and what the release says |
 | `POST /api/v1/tags` | [write tags](#tags) into files |
 | `GET /api/v1/albums/{id}/files?template=`, `POST` | where the album's [files](#files) go, and moving them |
+| `GET /api/v1/albums/{id}/cover-art?release=`, `POST` | [cover art](#cover-art) from the Cover Art Archive |
 | `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes and moves](#tags), and undoing one |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
@@ -347,7 +348,7 @@ Only the tags named change; the files' folders are rescanned.  It answers `403` 
 changes are on (`edit_files` in the settings) and the server has a login (`authorize`, a user
 name and a password): `blocked` and the settings' `edit_files_blocked` say which.
 `GET /api/v1/tags/edits` lists the changes made, newest first (`{batch, kind, album, files,
-applied_at, undone_at}`, `kind` `tags` or `move`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
+applied_at, undone_at}`, `kind` `tags`, `move` or `cover`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
 they replaced, except in files changed again since.
 
 ### Files
@@ -400,6 +401,30 @@ among the music and cue sheets are the music's own (400); make a copy with `item
 order and removes the others.  Entries whose files are missing aren't listed; they are kept,
 at the end.  `POST …/tracks` adds what an [Item](#commands) stands for before track
 `position`, or at the end; Spotify and radio menu items can't be added.
+
+### Cover art
+
+`GET /api/v1/albums/{id}/cover-art` lists the Cover Art Archive's images of the album's
+release (`?release=` another release; the release group's when the release has none), front
+cover first, and what the album has now:
+
+```json
+{"release_mbid": "1b022e01-…", "files": 12, "embedded": 0, "folder_image": "folder.jpg",
+ "images": [{"id": "1234", "types": ["Front"], "front": true,
+             "thumbnail": "https://coverartarchive.org/release/…/1234-500.jpg"}, "…"]}
+```
+
+`embedded` counts the files with an embedded front cover, which players and RMS show before a
+picture in the folder (`folder_image`).  Without a matched release `images` is empty.
+`502` when the archive can't be asked.
+
+`POST` with `{"image": "1234", "folder": true, "embed": true}` downloads that image (only one
+the archive lists for the release; about 1200 pixels, JPEG or PNG) and saves it as
+`cover.jpg` (`.png`) in the album's folder, embeds it as each file's front cover, or both —
+under the same conditions as writing tags.  A `cover`, `folder`, `album` or `thumb` picture
+in the folder is set aside; the files' other pictures and tags stay.  The answer is like
+writing tags' (`{batch, changed, failed}`), and `POST /api/v1/tags/edits/{batch}/undo` puts
+the old covers back.
 
 ### Folder entry
 

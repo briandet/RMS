@@ -53,6 +53,15 @@ pub struct Config {
     )]
     pub musicbrainz_url: String,
 
+    /// Cover Art Archive, for albums' cover art.
+    #[arg(
+        long,
+        env = "RMS_COVERART_URL",
+        default_value = "https://coverartarchive.org",
+        hide = true
+    )]
+    pub coverart_url: String,
+
     /// ListenBrainz "labs" API, for similar recordings and artists.
     #[arg(
         long,

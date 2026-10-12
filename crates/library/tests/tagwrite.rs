@@ -138,3 +138,60 @@ fn unknown_tags_and_unwritable_files_are_refused() {
     assert!(tagwrite::write(&path, &bad, &dir.path().join("s")).is_err());
     assert!(tagwrite::check_writable(&dir.path().join("x.wma")).is_err());
 }
+
+#[test]
+fn the_front_cover_is_embedded_replaced_and_removed() {
+    if !common::ffmpeg_available() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let scratch = dir.path().join("scratch");
+    let jpeg = |color: &str| {
+        let p = dir.path().join(format!("{color}.jpg"));
+        common::make_image(&p, color, 40, 40);
+        (std::fs::read(&p).unwrap(), "image/jpeg".to_string())
+    };
+    let (red, blue) = (jpeg("red"), jpeg("blue"));
+    let cases: &[(&str, &[&str])] = &[
+        ("a.flac", &["-c:a", "flac"]),
+        ("b.ogg", &["-c:a", "libvorbis"]),
+        ("c.opus", &["-c:a", "libopus"]),
+        ("d.mp3", &["-c:a", "libmp3lame", "-id3v2_version", "4"]),
+        ("e.m4a", &["-c:a", "aac"]),
+        ("f.aiff", &["-c:a", "pcm_s16be", "-write_id3v2", "1"]),
+        ("g.wv", &["-c:a", "wavpack"]),
+    ];
+    for (name, args) in cases {
+        let path = dir.path().join(name);
+        gen(&path, args, &[("title", "Keep"), ("comment", "keep me")]);
+        let audio = audio_fingerprint(&path);
+        let tags = tagwrite::read(&path).unwrap();
+        assert_eq!(tagwrite::read_front_cover(&path).unwrap(), None, "{name}");
+
+        tagwrite::write_front_cover(&path, Some(&red), &scratch)
+            .unwrap_or_else(|e| panic!("{name}: {e:#}"));
+        assert_eq!(
+            tagwrite::read_front_cover(&path).unwrap().unwrap().0,
+            red.0,
+            "{name}"
+        );
+        // the scanner sees it too
+        let (seen, _) = rms_library::tags::read_embedded_cover(&path)
+            .unwrap_or_else(|| panic!("{name}: the scanner sees no cover"));
+        assert_eq!(seen, red.0, "{name}");
+        tagwrite::write_front_cover(&path, Some(&blue), &scratch).unwrap();
+        assert_eq!(
+            tagwrite::read_front_cover(&path).unwrap().unwrap().0,
+            blue.0,
+            "{name}"
+        );
+        tagwrite::write_front_cover(&path, None, &scratch).unwrap();
+        assert_eq!(tagwrite::read_front_cover(&path).unwrap(), None, "{name}");
+
+        assert_eq!(tagwrite::read(&path).unwrap(), tags, "{name}: tags changed");
+        let t = read_tags(&path, &TagOptions::default()).unwrap();
+        assert!(t.attrs.keys().any(|k| k.starts_with("COMMENT")), "{name}");
+        assert_eq!(audio_fingerprint(&path), audio, "{name}: the audio changed");
+    }
+    assert_eq!(std::fs::read_dir(&scratch).unwrap().count(), 0);
+}

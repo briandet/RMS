@@ -197,31 +197,50 @@ pub fn write(path: &Path, changes: &Values, scratch: &Path) -> anyhow::Result<()
     if changes.is_empty() {
         return Ok(());
     }
+    guarded(
+        path,
+        ft,
+        scratch,
+        |f| edit(f, ft, &changes),
+        || {
+            let now = read(path)?;
+            for (fd, want) in &changes {
+                let have = now.get(fd.name).cloned().flatten();
+                if have.as_deref() != *want {
+                    anyhow::bail!(
+                        "{} reads back as {:?}, not {:?}",
+                        fd.name,
+                        have.unwrap_or_default(),
+                        want.unwrap_or_default()
+                    );
+                }
+            }
+            Ok(())
+        },
+    )
+}
+
+/// Rewrite a file in place with `edit`, then `check` it: with a copy to put it back from if
+/// either fails, or the audio's length changed.
+fn guarded(
+    path: &Path,
+    ft: FileType,
+    scratch: &Path,
+    edit: impl FnOnce(&mut File) -> anyhow::Result<()>,
+    check: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     let before = audio_length(path, ft)?;
     let backup = Backup::new(path, scratch)?;
     let res = (|| -> anyhow::Result<()> {
         let mut f = OpenOptions::new().read(true).write(true).open(path)?;
-        edit(&mut f, ft, &changes)?;
+        edit(&mut f)?;
         f.sync_all()?;
         drop(f);
-        // read back: the tags as asked, the audio as long as before
         let after = audio_length(path, ft)?;
         if (after - before).abs() > 0.05 {
             anyhow::bail!("the audio changed length ({before:.2}s → {after:.2}s)");
         }
-        let now = read(path)?;
-        for (fd, want) in &changes {
-            let have = now.get(fd.name).cloned().flatten();
-            if have.as_deref() != *want {
-                anyhow::bail!(
-                    "{} reads back as {:?}, not {:?}",
-                    fd.name,
-                    have.unwrap_or_default(),
-                    want.unwrap_or_default()
-                );
-            }
-        }
-        Ok(())
+        check()
     })();
     match res {
         Ok(()) => {
@@ -679,5 +698,283 @@ impl crate::Library {
             .into_iter()
             .filter(|u: &String| !u[prefix.len()..].contains('/'))
             .collect()
+    }
+}
+
+// ---------------------------------------------------------------- the front cover
+
+/// An embedded picture: its bytes and MIME type.
+pub type Cover = (Vec<u8>, String);
+
+fn mime(m: &str) -> lofty::picture::MimeType {
+    use lofty::picture::MimeType;
+    match m {
+        "image/jpeg" | "image/jpg" => MimeType::Jpeg,
+        "image/png" => MimeType::Png,
+        "image/gif" => MimeType::Gif,
+        other => MimeType::Unknown(other.to_string()),
+    }
+}
+
+fn front<'a>(mut pics: impl Iterator<Item = &'a lofty::picture::Picture>) -> Option<Cover> {
+    pics.find(|p| p.pic_type() == lofty::picture::PictureType::CoverFront)
+        .map(|p| {
+            (
+                p.data().to_vec(),
+                p.mime_type()
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_else(|| "image/jpeg".into()),
+            )
+        })
+}
+
+const APE_FRONT: &str = "Cover Art (Front)";
+
+pub(crate) fn ape_front(tag: &lofty::ape::ApeTag) -> Option<Cover> {
+    let lofty::tag::ItemValue::Binary(b) = tag.get(APE_FRONT)?.value() else {
+        return None;
+    };
+    let data = b.splitn(2, |c| *c == 0).nth(1)?.to_vec();
+    let m = if data.starts_with(b"\x89PNG") {
+        "image/png"
+    } else {
+        "image/jpeg"
+    };
+    Some((data, m.to_string()))
+}
+
+/// The file's embedded front cover, if it has one.
+pub fn read_front_cover(path: &Path) -> anyhow::Result<Option<Cover>> {
+    use lofty::ogg::OggPictureStorage;
+    let ft = file_type(path).ok_or_else(|| anyhow::anyhow!("unsupported file type"))?;
+    let mut f = File::open(path)?;
+    let po = parse_options();
+    let generic = |t: Option<Tag>| t.and_then(|t| front(t.pictures().iter()));
+    Ok(match ft {
+        FileType::Flac => {
+            let ff = lofty::flac::FlacFile::read_from(&mut f, po)?;
+            front(ff.pictures().iter().map(|(p, _)| p))
+        }
+        FileType::Vorbis => {
+            let vf = lofty::ogg::VorbisFile::read_from(&mut f, po)?;
+            front(vf.vorbis_comments().pictures().iter().map(|(p, _)| p))
+        }
+        FileType::Opus => {
+            let of = lofty::ogg::OpusFile::read_from(&mut f, po)?;
+            front(of.vorbis_comments().pictures().iter().map(|(p, _)| p))
+        }
+        FileType::Mpeg => generic(
+            lofty::mpeg::MpegFile::read_from(&mut f, po)?
+                .id3v2()
+                .map(|t| t.clone().split_tag().1),
+        ),
+        FileType::Aiff => generic(
+            lofty::iff::aiff::AiffFile::read_from(&mut f, po)?
+                .id3v2()
+                .map(|t| t.clone().split_tag().1),
+        ),
+        FileType::Wav => generic(
+            lofty::iff::wav::WavFile::read_from(&mut f, po)?
+                .id3v2()
+                .map(|t| t.clone().split_tag().1),
+        ),
+        // MP4 pictures have no types: the cover is the first
+        FileType::Mp4 => lofty::mp4::Mp4File::read_from(&mut f, po)?
+            .ilst()
+            .map(|t| t.clone().split_tag().1)
+            .and_then(|t| {
+                t.pictures().first().map(|p| {
+                    (
+                        p.data().to_vec(),
+                        p.mime_type()
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_else(|| "image/jpeg".into()),
+                    )
+                })
+            }),
+        FileType::Ape => lofty::ape::ApeFile::read_from(&mut f, po)?
+            .ape()
+            .and_then(ape_front),
+        FileType::WavPack => lofty::wavpack::WavPackFile::read_from(&mut f, po)?
+            .ape()
+            .and_then(ape_front),
+        _ => None,
+    })
+}
+
+/// Make `cover` the file's embedded front cover (`None`: remove it), leaving its other
+/// pictures and tags as they are.
+pub fn write_front_cover(path: &Path, cover: Option<&Cover>, scratch: &Path) -> anyhow::Result<()> {
+    use lofty::ogg::OggPictureStorage;
+    use lofty::picture::{Picture, PictureInformation, PictureType};
+    let ft = file_type(path).ok_or_else(|| anyhow::anyhow!("unsupported file type"))?;
+    let picture = cover.map(|(data, m)| {
+        Picture::new_unchecked(PictureType::CoverFront, Some(mime(m)), None, data.clone())
+    });
+    let edit = |f: &mut File| -> anyhow::Result<()> {
+        let po = parse_options();
+        let wo = WriteOptions::default();
+        macro_rules! ogg {
+            ($file:ty, $store:ident) => {{
+                let mut file = <$file>::read_from(f, po)?;
+                {
+                    let store = file.$store();
+                    store.remove_picture_type(PictureType::CoverFront);
+                    if let Some(p) = &picture {
+                        let info = PictureInformation::from_picture(p).ok();
+                        store.insert_picture(p.clone(), info)?;
+                    }
+                }
+                f.seek(SeekFrom::Start(0))?;
+                file.save_to(f, wo)?;
+            }};
+        }
+        macro_rules! generic {
+            ($file:ty, $take:ident, $set:ident, $tag:ty) => {{
+                let mut file = <$file>::read_from(f, po)?;
+                let tag: $tag = file.$take().unwrap_or_default();
+                let (rest, mut generic) = tag.split_tag();
+                generic.remove_picture_type(PictureType::CoverFront);
+                if ft == FileType::Mp4 {
+                    // (MP4 pictures have no types: the first is the cover)
+                    if !generic.pictures().is_empty() {
+                        generic.remove_picture(0);
+                    }
+                }
+                if let Some(p) = &picture {
+                    generic.push_picture(p.clone());
+                }
+                file.$set(rest.merge_tag(generic));
+                f.seek(SeekFrom::Start(0))?;
+                file.save_to(f, wo)?;
+            }};
+        }
+        // APE keeps the front cover as a binary item: a file name, NUL, the image
+        macro_rules! ape {
+            ($file:ty) => {{
+                let mut file = <$file>::read_from(f, po)?;
+                let mut tag = file.remove_ape().unwrap_or_default();
+                tag.remove(APE_FRONT);
+                if let Some((data, m)) = cover {
+                    let ext = if m == "image/png" { "png" } else { "jpg" };
+                    let mut v = format!("cover.{ext}").into_bytes();
+                    v.push(0);
+                    v.extend_from_slice(data);
+                    tag.insert(lofty::ape::ApeItem::new(
+                        APE_FRONT.to_string(),
+                        lofty::tag::ItemValue::Binary(v),
+                    )?);
+                }
+                file.set_ape(tag);
+                f.seek(SeekFrom::Start(0))?;
+                file.save_to(f, wo)?;
+            }};
+        }
+        match ft {
+            FileType::Flac => {
+                let mut file = lofty::flac::FlacFile::read_from(f, po)?;
+                file.remove_picture_type(PictureType::CoverFront);
+                if let Some(p) = &picture {
+                    let info = PictureInformation::from_picture(p).ok();
+                    file.insert_picture(p.clone(), info)?;
+                }
+                f.seek(SeekFrom::Start(0))?;
+                file.save_to(f, wo)?;
+            }
+            FileType::Vorbis => ogg!(lofty::ogg::VorbisFile, vorbis_comments_mut),
+            FileType::Opus => ogg!(lofty::ogg::OpusFile, vorbis_comments_mut),
+            FileType::Mpeg => generic!(
+                lofty::mpeg::MpegFile,
+                remove_id3v2,
+                set_id3v2,
+                lofty::id3::v2::Id3v2Tag
+            ),
+            FileType::Aiff => generic!(
+                lofty::iff::aiff::AiffFile,
+                remove_id3v2,
+                set_id3v2,
+                lofty::id3::v2::Id3v2Tag
+            ),
+            FileType::Wav => generic!(
+                lofty::iff::wav::WavFile,
+                remove_id3v2,
+                set_id3v2,
+                lofty::id3::v2::Id3v2Tag
+            ),
+            FileType::Mp4 => generic!(lofty::mp4::Mp4File, remove_ilst, set_ilst, lofty::mp4::Ilst),
+            FileType::Ape => ape!(lofty::ape::ApeFile),
+            FileType::WavPack => ape!(lofty::wavpack::WavPackFile),
+            _ => anyhow::bail!("unsupported file type"),
+        }
+        Ok(())
+    };
+    guarded(path, ft, scratch, edit, || {
+        let now = read_front_cover(path)?;
+        if now.as_ref().map(|c| &c.0) != cover.map(|c| &c.0) {
+            anyhow::bail!("the front cover did not read back as written");
+        }
+        Ok(())
+    })
+}
+
+impl crate::Library {
+    /// The picture file of a folder changed (written, removed, replaced): its tracks without
+    /// an embedded cover take the folder's picture now, under a new cover id (so no copy of the
+    /// old one is served), and so do their albums.  The scanner only looks again when a track's
+    /// audio file changes.
+    pub fn refresh_folder_art(&self, dir: &Path) -> anyhow::Result<()> {
+        let cfg = self.config();
+        let art = crate::scanner::find_standalone_artwork(dir, &cfg.cover_art);
+        let stat = art
+            .as_ref()
+            .and_then(|p| crate::scanner::file_stat(p))
+            .map(|(m, s, _)| (m, s));
+        // (the picture's content counts too: a new one of the same size, within the same
+        // second, still gets a new id)
+        let digest = art
+            .as_ref()
+            .and_then(|p| std::fs::read(p).ok())
+            .map(|b| format!("{:x}", md5::compute(b)))
+            .unwrap_or_default();
+        let urls = self.audio_files_in(dir);
+        let mut c = self.conn()?;
+        let tx = c.transaction()?;
+        for u in urls {
+            let rows: Vec<(i64, Option<String>, Option<String>)> = tx
+                .prepare(
+                    "SELECT id, cover, cover_id FROM tracks WHERE url = ? OR url LIKE ? || '#%'",
+                )?
+                .query_map(rusqlite::params![u, u], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            for (id, cover, old) in rows {
+                // an embedded picture wins: nothing changes
+                if cover.as_deref().is_some_and(|c| {
+                    !c.is_empty() && c.chars().all(|d| d.is_ascii_digit()) && c != "0"
+                }) {
+                    continue;
+                }
+                let (cover, cid) = match (&art, stat) {
+                    (Some(p), Some((m, sz))) => (
+                        p.to_string_lossy().into_owned(),
+                        crate::scanner::image_id(&format!("{u}#{digest}"), m, sz),
+                    ),
+                    _ => ("0".to_string(), None),
+                };
+                tx.execute(
+                    "UPDATE tracks SET cover = ?, cover_id = ? WHERE id = ?",
+                    rusqlite::params![cover, cid, id],
+                )?;
+                if let Some(old) = old {
+                    tx.execute(
+                        "UPDATE albums SET artwork = ? WHERE artwork = ?",
+                        rusqlite::params![cid, old],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 }

@@ -519,7 +519,7 @@ export function render(node, { ctx }) {
         if (!alive || !edits.length) return;
         recent.replaceChildren(h('label', {}, 'Recent tag changes'),
           h('ul', { class: 'plain-list' }, edits.map((e) => h('li', { class: 'inline-row' },
-            h('span', {}, `${e.album || 'Files'}: ${e.kind === 'move' ? 'moved' : 'retagged'} ${plural(e.files, 'file')}, ${new Date(e.applied_at * 1000).toLocaleString()}`),
+            h('span', {}, `${e.album || 'Files'}: ${({ move: 'moved', cover: 'new cover for' })[e.kind] || 'retagged'} ${plural(e.files, 'file')}, ${new Date(e.applied_at * 1000).toLocaleString()}`),
             e.undone_at ? h('span', { class: 'muted small' }, 'undone')
               : h('button', { class: 'btn btn-small', type: 'button', onclick: async (ev) => {
                 ev.target.disabled = true;

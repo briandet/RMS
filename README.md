@@ -282,6 +282,14 @@ saved playlists (and their `.m3u` files), favorites and the players' queues foll
 undo moves everything back.  Files never leave their music folder, and a file already at the
 new path is never overwritten.
 
+**Cover art** on the same page comes from the [Cover Art Archive](https://coverartarchive.org)
+for the album's MusicBrainz release (or its release group): pick an image (front cover first)
+and save it as `cover.jpg` in the album's folder, embed it as the front cover of each file, or
+both.  A picture embedded in a file is shown before one in the folder, so embedding is
+suggested when the files already have one.  A `cover`/`folder`/`album` picture already in the
+folder is set aside, and the files' old embedded covers are kept, so undo puts back exactly
+what was there (`<data-dir>/cover-backup`).  The album shows the new cover at once.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

@@ -340,8 +340,23 @@ pub fn http_json_as(
 
 /// A GET returning (status, header block, body bytes).
 pub fn http_bytes(port: u16, path: &str) -> (u16, String, Vec<u8>) {
+    get_bytes(port, path, "")
+}
+
+/// [`http_bytes`] signed in as `user:password`.
+#[allow(dead_code)]
+pub fn http_bytes_as(port: u16, login: &str, path: &str) -> (u16, String, Vec<u8>) {
+    use base64::Engine;
+    let auth = format!(
+        "Authorization: Basic {}\r\n",
+        base64::engine::general_purpose::STANDARD.encode(login)
+    );
+    get_bytes(port, path, &auth)
+}
+
+fn get_bytes(port: u16, path: &str, headers: &str) -> (u16, String, Vec<u8>) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    write!(s, "GET {} HTTP/1.0\r\n\r\n", path).unwrap();
+    write!(s, "GET {} HTTP/1.0\r\n{}\r\n", path, headers).unwrap();
     let mut resp = Vec::new();
     s.read_to_end(&mut resp).unwrap();
     let split = resp

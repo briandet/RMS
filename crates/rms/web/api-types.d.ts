@@ -316,7 +316,7 @@ export type TagEditFailure = { track_id: number, error: string, };
 
 export type TagEdit = { batch: number, 
 /**
- * `tags` or `move`.
+ * `tags`, `move` or `cover`.
  */
 kind: string, album?: string, 
 /**
@@ -375,6 +375,53 @@ changed: number, failed: Array<TagEditFailure>,
  * The album after the library caught up (its id can change).
  */
 album_id?: number, };
+
+export type CoverArt = { 
+/**
+ * The MusicBrainz release the images are of; absent while the album isn't matched.
+ */
+release_mbid?: string, 
+/**
+ * Front cover first.
+ */
+images: Array<CoverImage>, 
+/**
+ * The album's files, and how many have an embedded front cover (it wins over a picture
+ * in the folder).
+ */
+files: number, embedded: number, 
+/**
+ * The picture file in the album's folder that stands for it, if any.
+ */
+folder_image?: string, 
+/**
+ * Why covers can't be written now, if they can't.
+ */
+blocked?: string, };
+
+export type CoverImage = { id: string, 
+/**
+ * `Front`, `Back`, `Booklet`, …
+ */
+types: Array<string>, front: boolean, 
+/**
+ * A small version, on coverartarchive.org.
+ */
+thumbnail: string, };
+
+export type CoverChoice = { 
+/**
+ * One of `images`.
+ */
+image: string, 
+/**
+ * Save it as `cover.jpg` (or `.png`) in the album's folder.
+ */
+folder: boolean, 
+/**
+ * Embed it as the front cover of each of the album's files.
+ */
+embed: boolean, };
 
 export type Genre = { id: number, name: string, };
 
