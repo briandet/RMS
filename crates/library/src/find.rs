@@ -329,6 +329,23 @@ impl Library {
         Ok(find(&c, &rules, f)?)
     }
 
+    /// The tracks of the file at `url`: the whole file, or the tracks of its embedded cue
+    /// sheet (`url#start-end`), in order.
+    pub fn tracks_of_file(&self, url: &str) -> Vec<i64> {
+        let Ok(c) = self.conn() else {
+            return Vec::new();
+        };
+        let Ok(mut st) = c.prepare(
+            "SELECT id FROM tracks WHERE url = ?1 OR substr(url, 1, length(?1) + 1) = ?1 || '#'
+             ORDER BY COALESCE(cue_start, 0), id",
+        ) else {
+            return Vec::new();
+        };
+        st.query_map([url], |r| r.get(0))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
     /// The facts about each of `ids` that [`FindTracks`] filters on (ids that aren't library
     /// tracks are left out).
     pub fn track_details(&self, ids: &[i64]) -> HashMap<i64, TrackDetail> {

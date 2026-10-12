@@ -645,6 +645,16 @@ async fn add_details(server: &Arc<Server>, tracks: &mut [Track]) -> Result<(), L
     Ok(())
 }
 
+/// Library tracks in the order of `ids`, with their `detail`.
+pub async fn tracks_with_detail(
+    server: &Arc<Server>,
+    ids: Vec<i64>,
+) -> Result<Vec<Track>, LibraryError> {
+    let mut t = tracks_by_ids(server, ids).await?;
+    add_details(server, &mut t).await?;
+    Ok(t)
+}
+
 /// One library track, with its `detail`.
 pub async fn track_detail(server: &Arc<Server>, id: i64) -> Result<Track, LibraryError> {
     let mut t = tracks_by_ids(server, vec![id]).await?;

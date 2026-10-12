@@ -393,7 +393,7 @@ fn rescan(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
 }
 
 /// [`rescan`], waiting for it.  A folder that is gone is seen from its nearest parent.
-async fn rescan_now(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
+pub(crate) async fn rescan_now(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
     let mut existing: BTreeSet<PathBuf> = dirs
         .into_iter()
         .filter_map(|d| d.ancestors().find(|a| a.is_dir()).map(Path::to_path_buf))

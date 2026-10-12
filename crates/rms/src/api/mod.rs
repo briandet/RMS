@@ -80,7 +80,12 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/tags/edits/{batch}/undo", post(post_tag_undo))
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
-        .route("/api/v1/tracks", get(get_tracks))
+        .route(
+            "/api/v1/tracks",
+            get(get_tracks).merge(post(post_track).layer(axum::extract::DefaultBodyLimit::max(
+                crate::upload::MAX_BYTES,
+            ))),
+        )
         .route("/api/v1/tracks/{id}", get(get_track))
         .route("/api/v1/tracks/{id}/similar", get(get_track_similar))
         .route("/api/v1/similar", post(post_similar))
@@ -584,6 +589,38 @@ async fn get_years(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParam
 
 async fn get_tracks(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<TrackParams>) -> Response {
     library_reply(library::tracks(&s, p).await, "track")
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct UploadParams {
+    name: Option<String>,
+    folder: Option<String>,
+}
+
+/// `POST /api/v1/tracks?name=&folder=`: the body is a music file; answers the tracks it
+/// became, with their detail.
+async fn post_track(
+    State(s): State<Arc<Server>>,
+    ApiQuery(q): ApiQuery<UploadParams>,
+    data: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Response {
+    let data = match data {
+        Ok(b) => b,
+        Err(e) => return error(e.status(), e.body_text()),
+    };
+    let Some(name) = q.name.filter(|n| !n.trim().is_empty()) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "name is missing (the file name, like \"01 Song.flac\")",
+        );
+    };
+    match crate::upload::upload(&s, &name, q.folder.as_deref(), &data).await {
+        Ok(ids) => match library::tracks_with_detail(&s, ids).await {
+            Ok(tracks) => (StatusCode::CREATED, Json(tracks)).into_response(),
+            Err(e) => library_reply::<()>(Err(e), "track"),
+        },
+        Err(e) => tag_error(e, "track"),
+    }
 }
 
 async fn get_track(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {

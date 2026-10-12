@@ -17,6 +17,7 @@ mod strings;
 mod subsonic;
 mod tagedit;
 mod ui;
+mod upload;
 mod util;
 mod watch;
 mod web;

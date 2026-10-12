@@ -48,6 +48,7 @@ own conventions:
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
 | `GET /api/v1/tracks?q=&sort=&genre=&bpm_min=&…` | page of [Track](#track): [finding tracks](#finding-tracks) |
+| `POST /api/v1/tracks?name=&folder=` | [upload](#uploading-music) a music file → its [Track](#track)s |
 | `GET /api/v1/tracks/{id}` | [Track](#track) with its `detail` |
 | `GET /api/v1/tracks/{id}/similar?limit=&detail=` | [Track](#track)s: [similar songs](#similar-songs) |
 | `POST /api/v1/similar` | [Track](#track)s: [similar songs](#similar-songs) to several seeds |
@@ -507,6 +508,29 @@ tracks by what the library knows about them; every one given must hold:
 ```sh
 # upbeat, rated, not heard for a month, in keys that mix with A minor
 curl 'http://localhost:9000/api/v1/tracks?bpm_min=118&bpm_max=130&rating_min=60&not_played_since=1789000000&compatible_with=8A&sort=random&limit=30&detail=true'
+```
+
+### Uploading music
+
+`POST /api/v1/tracks?name=01%20Song.flac` with a music file as the body adds it to the
+library: it is written into `Uploads/` of the first music folder (`folder=Artist/Album` puts
+it in a folder inside that), scanned, and answered with `201` and the [Track](#track)s it
+became, with their `detail` — one, or several for a file with an embedded cue sheet.  Then it
+is a library track like any other: MusicBrainz identification and the
+[file name template](#files) apply to it.
+
+* `name` is only a file name (any path in it is dropped); its extension must be an audio
+  type the scanner reads.  A name already taken gets a number: `01 Song (2).flac`.  Files are
+  never overwritten.
+* `folder` is a relative path inside `Uploads/`: plain folder names only.
+* At most 1 GB.  A file the scanner can't read as audio (damaged, or not what its name says)
+  is removed again and answered with `400`.
+* Like [changing tags](#tags), it needs file changes on (`edit_files`) and a login, else
+  `403` says why.
+
+```sh
+curl -u me:secret -X POST --data-binary @song.flac \
+     'http://localhost:9000/api/v1/tracks?name=Song.flac&folder=New%20Band/Debut'
 ```
 
 ### Similar songs
