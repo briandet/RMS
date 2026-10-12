@@ -42,6 +42,7 @@ own conventions:
 | `GET /api/v1/albums/{id}/tags?release=` | the album's [tags](#tags), and what the release says |
 | `POST /api/v1/tags` | [write tags](#tags) into files |
 | `GET /api/v1/albums/{id}/files?template=`, `POST` | where the album's [files](#files) go, and moving them |
+| `GET /api/v1/albums/{id}/cover-art?release=`, `POST` | [cover art](#cover-art) from the Cover Art Archive |
 | `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes and moves](#tags), and undoing one |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
@@ -309,7 +310,7 @@ holds, and its title and artist; of releases with the same tracks, the earliest.
 ```
 
 `status`: `matched` (a confident match, or one the tags name or the user chose), `uncertain`
-(worth checking: `score` under 0.8), `none` (no release found; tried again after 90 days) or
+(worth checking: `score` under 0.8, or a release whose title isn't the album's), `none` (no release found; tried again after 90 days) or
 `pending` (not matched yet).  `how`: `tag`, `auto` or `user`.  `tracks` lists the album's
 tracks; one without `position` is none of the release's.  `candidates` are the releases
 considered, best first.  A `matched` release fills in what the tags leave out: the album's
@@ -347,7 +348,7 @@ Only the tags named change; the files' folders are rescanned.  It answers `403` 
 changes are on (`edit_files` in the settings) and the server has a login (`authorize`, a user
 name and a password): `blocked` and the settings' `edit_files_blocked` say which.
 `GET /api/v1/tags/edits` lists the changes made, newest first (`{batch, kind, album, files,
-applied_at, undone_at}`, `kind` `tags` or `move`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
+applied_at, undone_at}`, `kind` `tags`, `move` or `cover`), and `POST /api/v1/tags/edits/{batch}/undo` puts back the tags
 they replaced, except in files changed again since.
 
 ### Files
@@ -400,6 +401,34 @@ among the music and cue sheets are the music's own (400); make a copy with `item
 order and removes the others.  Entries whose files are missing aren't listed; they are kept,
 at the end.  `POST …/tracks` adds what an [Item](#commands) stands for before track
 `position`, or at the end; Spotify and radio menu items can't be added.
+
+### Cover art
+
+`GET /api/v1/albums/{id}/cover-art` lists the Cover Art Archive's images of the album's
+release (`?release=` another release; the release group's when the release has none), front
+cover first, and what the album has now:
+
+```json
+{"release_mbid": "1b022e01-…", "files": 12, "embedded": 0, "folder_image": "folder.jpg", "archive": false,
+ "images": [{"id": "1234", "types": ["Front"], "front": true,
+             "thumbnail": "https://coverartarchive.org/release/…/1234-500.jpg"}, "…"]}
+```
+
+`embedded` counts the files with an embedded front cover, which players and RMS show before a
+picture in the folder (`folder_image`).  `folder_shared` is true when the album's folder holds other music
+too (other albums' files, or tracks without an album tag): a picture there would be theirs as
+well, so `folder` is refused (400).  `archive` is true when the album, having no art of its
+own, shows the archive's front cover of its release (fetched in the background with
+MusicBrainz identification on; the files are not changed).  Without a matched release `images` is empty.
+`502` when the archive can't be asked.
+
+`POST` with `{"image": "1234", "folder": true, "embed": true}` downloads that image (only one
+the archive lists for the release; about 1200 pixels, JPEG or PNG) and saves it as
+`cover.jpg` (`.png`) in the album's folder, embeds it as each file's front cover, or both —
+under the same conditions as writing tags.  A `cover`, `folder`, `album` or `thumb` picture
+in the folder is set aside; the files' other pictures and tags stay.  The answer is like
+writing tags' (`{batch, changed, failed}`), and `POST /api/v1/tags/edits/{batch}/undo` puts
+the old covers back.
 
 ### Folder entry
 

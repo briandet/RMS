@@ -253,9 +253,11 @@ are never written, and tags always win.  A large library takes some hours the fi
 Then each album is matched to the release it is (the edition, not just the songs): the one
 its tags name, else the best fit among the releases holding its recordings, by how its tracks
 pair up with the release's (recording, title, length, position), how much of the release it
-holds, and its title and artist.  A confident match fills in the album's year and MusicBrainz id and the tracks'
-numbers and discs where tags have none; uncertain ones can be checked and another release
-chosen through the API (`/api/v1/albums/{id}/release`, [docs/api.md](docs/api.md#album-release)).
+holds, and its title and artist.  The album's title must agree for a confident match, so a
+lone file tagged with its album matches the album rather than a single of the song.  A
+confident match fills in the album's year and MusicBrainz id and the tracks' numbers and discs
+where tags have none; uncertain ones can be checked and another release chosen through the API
+(`/api/v1/albums/{id}/release`, [docs/api.md](docs/api.md#album-release)).
 
 **Changing tags** (Settings → Library, *Change tags in music files*, off by default): an
 album's *Tags* page shows its files' tags next to what its MusicBrainz release says — title,
@@ -281,6 +283,28 @@ audio moves to one place, and folders left empty are removed.  Ratings and play 
 saved playlists (and their `.m3u` files), favorites and the players' queues follow the files;
 undo moves everything back.  Files never leave their music folder, and a file already at the
 new path is never overwritten.
+
+**Cover art** on the same page comes from the [Cover Art Archive](https://coverartarchive.org)
+for the album's MusicBrainz release (or its release group): pick an image (front cover first)
+and save it as `cover.jpg` in the album's folder, embed it as the front cover of each file, or
+both.  A picture embedded in a file is shown before one in the folder, so embedding is
+suggested when the files already have one.  A `cover`/`folder`/`album` picture already in the
+folder is set aside, and the files' old embedded covers are kept, so undo puts back exactly
+what was there (`<data-dir>/cover-backup`).  The album shows the new cover at once.
+
+Tracks **without any art** of their own get it anyway, with MusicBrainz identification on.
+A track on an album confidently matched to its release shows that release's front cover from
+the Cover Art Archive; a track on its own (no album tag, or an album not surely identified)
+shows the cover of its recording's release: the album its tags name, else its original album
+(never a compilation's or a live album's).  Covers are fetched at 1200 pixels (about 100–300
+KB each, kept in `<data-dir>/cache/release-art`) and every client shows them: the web UI,
+Squeezer, the players' screens, Subsonic apps.  Your files are not changed, and your own art
+always wins: a picture embedded in the files, or in an album's own folder.  A folder is a hint,
+not what identifies a track: a picture in a folder of several albums' files or loose tracks (a
+downloads folder) isn't each track's own, so identified tracks there show their own releases'
+covers, and the Tags page offers to embed a cover rather than put it in such a folder.  The
+tracks without an album tag aren't an album there either: each is changed on its own, and they
+aren't moved together.
 
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*

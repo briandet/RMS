@@ -62,6 +62,10 @@ pub fn router() -> Router<Arc<Server>> {
         )
         .route("/api/v1/albums/{id}/tags", get(get_album_tags))
         .route(
+            "/api/v1/albums/{id}/cover-art",
+            get(get_cover_art).post(post_cover_art),
+        )
+        .route(
             "/api/v1/albums/{id}/files",
             get(get_album_files).post(post_album_files),
         )
@@ -389,6 +393,116 @@ async fn post_album_files(
             })
             .into_response()
         }
+        Err(e) => tag_error(e, "album"),
+    }
+}
+
+#[derive(Deserialize)]
+struct CoverQuery {
+    release: Option<String>,
+}
+
+/// The release to take cover art from: asked for, or the album's.
+fn cover_release(s: &Server, id: i64, asked: Option<String>) -> Option<(String, Option<String>)> {
+    match asked.filter(|r| !r.is_empty()) {
+        Some(r) => {
+            let rg = s
+                .library
+                .cached_release(&r, i64::MAX)
+                .map(|x| x.release_group)
+                .filter(|g| !g.is_empty());
+            Some((r, rg))
+        }
+        None => crate::tagedit::album_release(s, id),
+    }
+}
+
+async fn get_cover_art(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<CoverQuery>,
+) -> Response {
+    let (s2, s3) = (s.clone(), s.clone());
+    let Ok(Some(((state, archive), release))) = tokio::task::spawn_blocking(move || {
+        s2.library.album_job(id)?;
+        Some((
+            (
+                crate::tagedit::cover_state(&s2, id),
+                s2.library.album_uses_release_art(id),
+            ),
+            cover_release(&s2, id, q.release),
+        ))
+    })
+    .await
+    else {
+        return error(StatusCode::NOT_FOUND, "no such album");
+    };
+    let images = match &release {
+        Some((r, rg)) => match crate::plugins::coverart::images(&s3, r, rg.as_deref()).await {
+            Ok(i) => i,
+            Err(e) => return error(StatusCode::BAD_GATEWAY, e),
+        },
+        None => Vec::new(),
+    };
+    Json(model::CoverArt {
+        release_mbid: release.map(|r| r.0),
+        images: images
+            .into_iter()
+            .map(|i| model::CoverImage {
+                id: i.id,
+                types: i.types,
+                front: i.front,
+                thumbnail: i.thumbnail,
+            })
+            .collect(),
+        files: state.files as i64,
+        embedded: state.embedded as i64,
+        folder_image: state
+            .folder
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())),
+        archive,
+        folder_shared: state.folder_shared,
+        blocked: crate::tagedit::blocked(&s),
+    })
+    .into_response()
+}
+
+async fn post_cover_art(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    ApiQuery(q): ApiQuery<CoverQuery>,
+    b: Result<Json<model::CoverChoice>, JsonRejection>,
+) -> Response {
+    let choice = match body(b) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    if let Some(why) = crate::tagedit::blocked(&s) {
+        return error(StatusCode::FORBIDDEN, why);
+    }
+    // only an image the archive lists for the album's release
+    let Some((release, rg)) = cover_release(&s, id, q.release) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "the album isn't matched to a release",
+        );
+    };
+    let images = match crate::plugins::coverart::images(&s, &release, rg.as_deref()).await {
+        Ok(i) => i,
+        Err(e) => return error(StatusCode::BAD_GATEWAY, e),
+    };
+    let Some(image) = images.into_iter().find(|i| i.id == choice.image) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("no image {} for the release", choice.image),
+        );
+    };
+    let cover = match crate::plugins::coverart::download(&s, &image).await {
+        Ok(c) => c,
+        Err(e) => return error(StatusCode::BAD_GATEWAY, e),
+    };
+    match crate::tagedit::apply_cover(&s, id, cover, choice.folder, choice.embed).await {
+        Ok(o) => Json(library::tag_edit_result(o)).into_response(),
         Err(e) => tag_error(e, "album"),
     }
 }

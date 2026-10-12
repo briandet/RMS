@@ -346,9 +346,15 @@ pub fn album_tags(
         }
         Some(v.to_string())
     };
+    let loose = tracks
+        .first()
+        .and_then(|t| server.library.track(t.track_id))
+        .and_then(|t| t.album_id)
+        .is_some_and(|a| server.library.is_no_album(a));
     AlbumTags {
         release: release.as_ref().map(release_info),
         blocked: crate::tagedit::blocked(server),
+        loose,
         tracks: tracks
             .into_iter()
             .map(|t| TrackTags {

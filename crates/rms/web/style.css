@@ -581,6 +581,15 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .tag-table .tag-new input { width: 100%; }
 .tag-files { margin-top: 28px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
 .tag-files h2 { font-size: 1.1rem; }
+.cover-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.cover-now { margin: 0 12px 0 0; display: grid; gap: 4px; justify-items: start; }
+.cover-now img, .cover-none, .cover-pick img { width: 150px; height: 150px; object-fit: cover; border-radius: var(--radius-sm); background: var(--surface-2); }
+.cover-none { display: grid; place-items: center; }
+.cover-pick { display: grid; gap: 4px; padding: 4px; border: 2px solid transparent; border-radius: var(--radius); background: none; color: inherit; cursor: pointer; text-align: left; }
+.cover-pick.chosen { border-color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 600px) {
+  .cover-now img, .cover-none, .cover-pick img { width: 104px; height: 104px; }
+}
 .file-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .file-table th, .file-table td { padding: 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; font-size: .9rem; }
 .file-table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }

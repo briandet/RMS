@@ -328,6 +328,9 @@ pub async fn undo(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
     if kind == "move" {
         return undo_moves(server, batch).await;
     }
+    if kind == "cover" {
+        return undo_cover(server, batch).await;
+    }
     let _guard = WRITING.lock().await;
     let s = server.clone();
     let (outcome, dirs) = tokio::task::spawn_blocking(move || {
@@ -446,6 +449,11 @@ pub struct Planned {
 /// moves to one place (covers, booklets, logs) go with it.
 pub fn move_plan(server: &Server, album_id: i64, template: &str) -> Result<Vec<Planned>, Error> {
     use rms_library::organize::{self, Template};
+    if server.library.is_no_album(album_id) {
+        return Err(Error::Invalid(
+            "these are loose tracks, not an album: tag their albums first".into(),
+        ));
+    }
     let tpl = Template::parse(template).map_err(Error::Invalid)?;
     let roots: Vec<PathBuf> = server
         .prefs
@@ -786,4 +794,318 @@ async fn undo_moves(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> 
     follow_moves(server, &moves);
     rescan_now(server, dirs).await;
     Ok(outcome)
+}
+
+// ---------------------------------------------------------------- cover art
+
+/// The album's MusicBrainz release and release group, as matched.
+pub fn album_release(server: &Server, album_id: i64) -> Option<(String, Option<String>)> {
+    let m = server.library.album_match(album_id)?;
+    let mbid = m.release_mbid?;
+    let rg = m.release.map(|r| r.release_group).filter(|g| !g.is_empty());
+    Some((mbid, rg))
+}
+
+/// What the album's files have for a cover now.
+#[derive(Debug, Default)]
+pub struct CoverState {
+    /// Files of the album, and of those with an embedded front cover.
+    pub files: usize,
+    pub embedded: usize,
+    /// The picture file in the album's folder the scanner takes, if any.
+    pub folder: Option<PathBuf>,
+    /// The folder also holds other albums' files (or loose tracks): a picture there would be
+    /// theirs too.
+    pub folder_shared: bool,
+}
+
+/// The album's audio files that RMS can change (whole files, in a music folder).
+fn album_files(server: &Server, album_id: i64) -> Vec<(i64, PathBuf, Option<String>)> {
+    let mut seen = BTreeSet::new();
+    server
+        .library
+        .album_track_ids(album_id)
+        .into_iter()
+        .filter_map(|(id, _)| {
+            let (p, tf) = track_path(server, id).ok()?;
+            seen.insert(p.clone()).then_some((id, p, tf.fingerprint))
+        })
+        .collect()
+}
+
+/// The folder an album's files are in (the first file's, when they are in several).
+fn album_dir(files: &[(i64, PathBuf, Option<String>)]) -> Option<PathBuf> {
+    files
+        .first()
+        .and_then(|(_, p, _)| p.parent().map(Path::to_path_buf))
+}
+
+pub fn cover_state(server: &Server, album_id: i64) -> CoverState {
+    let files = album_files(server, album_id);
+    let embedded = files
+        .iter()
+        .filter(|(_, p, _)| matches!(tagwrite::read_front_cover(p), Ok(Some(_))))
+        .count();
+    let cover_art = server.library.config().cover_art;
+    let dir = album_dir(&files);
+    CoverState {
+        files: files.len(),
+        embedded,
+        folder: dir
+            .as_ref()
+            .and_then(|d| rms_library::scanner::find_standalone_artwork(d, &cover_art)),
+        folder_shared: dir
+            .as_ref()
+            .is_none_or(|d| !server.library.folder_is_album(d, album_id)),
+    }
+}
+
+/// Names the scanner looks for first in a folder (`find_standalone_artwork`).
+const COVER_NAMES: &[&str] = &["cover", "folder", "album", "thumb"];
+
+/// A place for a copy kept to undo with.
+fn cover_backup(server: &Server, data: &[u8]) -> std::io::Result<PathBuf> {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = server.config.data_dir.join("cover-backup");
+    std::fs::create_dir_all(&dir)?;
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let p = dir.join(format!(
+        "{}-{}-{n}",
+        rms_library::scanner::now(),
+        std::process::id()
+    ));
+    std::fs::write(&p, data)?;
+    Ok(p)
+}
+
+fn values(pairs: &[(&str, Option<String>)]) -> Values {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
+}
+
+/// Make `cover` the album's cover: as `cover.<ext>` in its folder (`folder`), embedded in
+/// each of its files (`embed`), or both.
+pub async fn apply_cover(
+    server: &Arc<Server>,
+    album_id: i64,
+    cover: tagwrite::Cover,
+    folder: bool,
+    embed: bool,
+) -> Result<Outcome, Error> {
+    if let Some(why) = blocked(server) {
+        return Err(Error::Forbidden(why));
+    }
+    if !folder && !embed {
+        return Err(Error::Invalid(
+            "nothing to do: choose folder, embed or both".into(),
+        ));
+    }
+    let _guard = WRITING.lock().await;
+    let s = server.clone();
+    let (out, dirs) = tokio::task::spawn_blocking(move || {
+        let files = album_files(&s, album_id);
+        if files.is_empty() {
+            return Err(Error::NotFound);
+        }
+        if folder && album_dir(&files).is_none_or(|d| !s.library.folder_is_album(&d, album_id)) {
+            return Err(Error::Invalid(
+                "the album's folder holds other music too: embed the cover instead".into(),
+            ));
+        }
+        let album = s.library.track_file(files[0].0).and_then(|t| t.album);
+        let scratch = s.config.data_dir.join("tag-backup");
+        let mut out = Outcome::default();
+        let mut edits = Vec::new();
+        let mut dirs = BTreeSet::new();
+        if folder {
+            match save_folder_cover(&s, &files, &cover) {
+                Ok(e) => {
+                    edits.push(e);
+                    out.changed += 1;
+                }
+                Err(e) => out.failed.push((files[0].0, e)),
+            }
+            if let Some(d) = album_dir(&files) {
+                if let Err(e) = s.library.refresh_folder_art(&d) {
+                    warn!("cover art: {e}");
+                }
+                dirs.insert(d);
+            }
+        }
+        if embed {
+            for (id, path, fp) in &files {
+                let res = (|| -> Result<Edit, String> {
+                    tagwrite::check_writable(path)?;
+                    let old = tagwrite::read_front_cover(path).map_err(|e| e.to_string())?;
+                    let backup = old
+                        .as_ref()
+                        .map(|(d, _)| cover_backup(&s, d))
+                        .transpose()
+                        .map_err(|e| e.to_string())?;
+                    tagwrite::write_front_cover(path, Some(&cover), &scratch)
+                        .map_err(|e| format!("{e:#}"))?;
+                    // (FLAC's and Ogg's fingerprint covers the whole file)
+                    if let (Some(old), Some(new)) = (fp, tagwrite::file_fingerprint(path)) {
+                        let _ = s.library.refingerprint(old, &new);
+                    }
+                    Ok(Edit {
+                        url: rms_library::url::file_url_from_path(path),
+                        before: values(&[
+                            ("backup", backup.map(|b| b.display().to_string())),
+                            ("mime", old.map(|(_, m)| m)),
+                        ]),
+                        after: values(&[("cover", Some("embedded".into()))]),
+                    })
+                })();
+                match res {
+                    Ok(e) => {
+                        edits.push(e);
+                        out.changed += 1;
+                        if let Some(d) = path.parent() {
+                            dirs.insert(d.to_path_buf());
+                        }
+                    }
+                    Err(e) => out.failed.push((*id, format!("{}: {e}", path.display()))),
+                }
+            }
+        }
+        if !edits.is_empty() {
+            match s.library.record_edits("cover", album.as_deref(), &edits) {
+                Ok(b) => out.batch = Some(b),
+                Err(e) => warn!("cover art: keeping the journal: {e}"),
+            }
+        }
+        info!(
+            "cover art: {} changes ({} failed)",
+            out.changed,
+            out.failed.len()
+        );
+        Ok((out, dirs))
+    })
+    .await
+    .map_err(|e| Error::Failed(e.to_string()))??;
+    rescan_now(server, dirs).await;
+    Ok(out)
+}
+
+/// Write `cover.<ext>` in the album's folder.  A picture the scanner would take before it
+/// (`cover.png`, `folder.jpg`, …) is set aside, kept for undo.
+fn save_folder_cover(
+    server: &Server,
+    files: &[(i64, PathBuf, Option<String>)],
+    cover: &tagwrite::Cover,
+) -> Result<Edit, String> {
+    let dir = album_dir(files).ok_or("no folder")?;
+    let ext = if cover.1 == "image/png" { "png" } else { "jpg" };
+    let target = dir.join(format!("cover.{ext}"));
+    let cover_art = server.library.config().cover_art;
+    // the picture there now: replaced when it is one of the usual names, or the new one's
+    let current = rms_library::scanner::find_standalone_artwork(&dir, &cover_art).filter(|p| {
+        p == &target
+            || p.file_stem().is_some_and(|s| {
+                COVER_NAMES.contains(&s.to_string_lossy().to_ascii_lowercase().as_str())
+            })
+    });
+    let backup = match &current {
+        Some(p) => Some(
+            std::fs::read(p)
+                .and_then(|d| cover_backup(server, &d))
+                .map_err(|e| format!("{}: {e}", p.display()))?,
+        ),
+        None => None,
+    };
+    if target.exists() && current.as_ref() != Some(&target) {
+        return Err(format!("{} exists already", target.display()));
+    }
+    std::fs::write(&target, &cover.0).map_err(|e| format!("{}: {e}", target.display()))?;
+    if let Some(p) = current.as_ref().filter(|p| **p != target) {
+        if let Err(e) = std::fs::remove_file(p) {
+            warn!("cover art: {}: {e}", p.display());
+        }
+    }
+    Ok(Edit {
+        url: rms_library::url::file_url_from_path(&target),
+        before: values(&[
+            ("replaced", current.map(|p| p.display().to_string())),
+            ("backup", backup.map(|b| b.display().to_string())),
+        ]),
+        after: values(&[
+            ("cover", Some("folder".into())),
+            ("file", Some(target.display().to_string())),
+        ]),
+    })
+}
+
+/// Put back the covers a batch replaced.
+async fn undo_cover(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
+    let _guard = WRITING.lock().await;
+    let s = server.clone();
+    let (out, dirs) = tokio::task::spawn_blocking(move || {
+        let (head, edits) = s.library.edit_batch(batch).ok_or(Error::NotFound)?;
+        if head.undone_at.is_some() {
+            return Err(Error::Invalid("already undone".into()));
+        }
+        let scratch = s.config.data_dir.join("tag-backup");
+        let mut out = Outcome::default();
+        let mut dirs = BTreeSet::new();
+        let get = |v: &Values, k: &str| v.get(k).cloned().flatten();
+        for e in edits.iter().rev() {
+            let res = (|| -> Result<PathBuf, String> {
+                let backup = get(&e.before, "backup").map(PathBuf::from);
+                let old = match &backup {
+                    Some(b) => Some(std::fs::read(b).map_err(|e| format!("{}: {e}", b.display()))?),
+                    None => None,
+                };
+                if get(&e.after, "cover").as_deref() == Some("folder") {
+                    let file = PathBuf::from(get(&e.after, "file").ok_or("journal")?);
+                    let _ = std::fs::remove_file(&file);
+                    if let (Some(p), Some(d)) = (get(&e.before, "replaced"), old) {
+                        std::fs::write(&p, d).map_err(|e| format!("{p}: {e}"))?;
+                    }
+                    if let Some(d) = file.parent() {
+                        let _ = s.library.refresh_folder_art(d);
+                        // (no picture of its own again: the archive's, if it has one)
+                        s.library.apply_release_art();
+                    }
+                    Ok(file)
+                } else {
+                    let path = crate::util::path_from_file_url(&e.url).ok_or("journal")?;
+                    let fp = s
+                        .library
+                        .track_by_url(&e.url)
+                        .and_then(|t| s.library.track_file(t.id).and_then(|f| f.fingerprint));
+                    let mime = get(&e.before, "mime").unwrap_or_else(|| "image/jpeg".into());
+                    let cover = old.map(|d| (d, mime));
+                    tagwrite::write_front_cover(&path, cover.as_ref(), &scratch)
+                        .map_err(|e| format!("{}: {e:#}", path.display()))?;
+                    if let (Some(old), Some(new)) = (fp, tagwrite::file_fingerprint(&path)) {
+                        let _ = s.library.refingerprint(&old, &new);
+                    }
+                    Ok(path)
+                }
+            })();
+            match res {
+                Ok(p) => {
+                    out.changed += 1;
+                    if let Some(d) = p.parent() {
+                        dirs.insert(d.to_path_buf());
+                    }
+                    if let Some(b) = get(&e.before, "backup") {
+                        let _ = std::fs::remove_file(b);
+                    }
+                }
+                Err(err) => out.failed.push((0, err)),
+            }
+        }
+        if let Err(e) = s.library.mark_undone(batch) {
+            warn!("cover art: {e}");
+        }
+        Ok((out, dirs))
+    })
+    .await
+    .map_err(|e| Error::Failed(e.to_string()))??;
+    rescan_now(server, dirs).await;
+    Ok(out)
 }

@@ -3,6 +3,7 @@
 
 pub mod alarm;
 pub mod artist_images;
+pub mod coverart;
 pub mod dstm;
 pub mod favorites;
 pub mod listenbrainz;

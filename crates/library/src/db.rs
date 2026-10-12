@@ -33,6 +33,8 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V6_RELEASES,
     SCHEMA_V7_TAG_EDITS,
     SCHEMA_V8_FILE_MOVES,
+    SCHEMA_V9_RELEASE_ART,
+    SCHEMA_V10_TRACK_COVERS,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -479,6 +481,32 @@ const SCHEMA_V8_FILE_MOVES: &str = r#"
 -- `tags`: `before` and `after` are tag values; `move`: a file moved, `{"url": …}` each
 -- (`url` is where it went).
 ALTER TABLE tag_edits ADD COLUMN kind TEXT NOT NULL DEFAULT 'tags';
+"#;
+
+/// The Cover Art Archive's front covers of releases ([`crate::releaseart`]), for albums without
+/// art of their own.  Kept across wipes.
+const SCHEMA_V9_RELEASE_ART: &str = r#"
+-- `path`: the front cover, in the library's cache folder (`release-art/`); NULL: the archive
+-- has none (asked again after a while).
+CREATE TABLE release_art (
+  release_mbid TEXT PRIMARY KEY,
+  path         TEXT,
+  fetched_at   INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+"#;
+
+/// The release whose cover stands for a track outside a matched album
+/// ([`crate::releaseart`]).  Kept across wipes.
+const SCHEMA_V10_TRACK_COVERS: &str = r#"
+-- For the audio with that fingerprint: the release of its recording whose front cover it shows
+-- when it has no art of its own and isn't on a confidently matched album (the album its tags
+-- name, else the recording's original album).  NULL: none fits (asked again after a while).
+CREATE TABLE track_cover_release (
+  fingerprint   TEXT PRIMARY KEY,
+  release_mbid  TEXT,
+  release_group TEXT,
+  chosen_at     INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
 "#;
 
 /// Library tables a wipe empties (user data, `track_stats` and `track_analysis`, stays).

@@ -498,6 +498,8 @@ pub struct AlbumTags {
     /// Why the files can't be changed now (see `edit_files_blocked` in the settings).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<String>,
+    /// Not an album: the tracks without an album tag, each on its own.
+    pub loose: bool,
     pub tracks: Vec<TrackTags>,
 }
 
@@ -617,12 +619,64 @@ pub struct MoveResult {
     pub album_id: Option<i64>,
 }
 
+/// `GET /api/v1/albums/{id}/cover-art`: the album's cover now, and the Cover Art Archive's
+/// images of its release.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct CoverArt {
+    /// The MusicBrainz release the images are of; absent while the album isn't matched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_mbid: Option<String>,
+    /// Front cover first.
+    pub images: Vec<CoverImage>,
+    /// The album's files, and how many have an embedded front cover (it wins over a picture
+    /// in the folder).
+    pub files: i64,
+    pub embedded: i64,
+    /// The picture file in the album's folder that stands for it, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder_image: Option<String>,
+    /// The album's folder holds other music too: a picture there would be theirs as well, so
+    /// the cover can only be embedded.
+    pub folder_shared: bool,
+    /// The album shows the archive's front cover of its release: it has no art of its own
+    /// (the files are not changed; saving it in the folder or the files keeps it).
+    pub archive: bool,
+    /// Why covers can't be written now, if they can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct CoverImage {
+    pub id: String,
+    /// `Front`, `Back`, `Booklet`, …
+    pub types: Vec<String>,
+    pub front: bool,
+    /// A small version, on coverartarchive.org.
+    pub thumbnail: String,
+}
+
+/// `POST /api/v1/albums/{id}/cover-art` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct CoverChoice {
+    /// One of `images`.
+    pub image: String,
+    /// Save it as `cover.jpg` (or `.png`) in the album's folder.
+    #[serde(default)]
+    pub folder: bool,
+    /// Embed it as the front cover of each of the album's files.
+    #[serde(default)]
+    pub embed: bool,
+}
+
 /// A change of tags (or of files' places) made through RMS.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(optional_fields)]
 pub struct TagEdit {
     pub batch: i64,
-    /// `tags` or `move`.
+    /// `tags`, `move` or `cover`.
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,

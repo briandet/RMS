@@ -1370,6 +1370,25 @@ pub fn read_embedded_cover(path: &Path) -> Option<(Vec<u8>, String)> {
         }
         FileType::Ape | FileType::WavPack | FileType::Mpc => {
             use lofty::prelude::TaggedFileExt;
+            // the standard "Cover Art (Front)" item, which lofty's generic tag leaves out
+            let ape = match ft {
+                FileType::Ape => lofty::ape::ApeFile::read_from(&mut f, po)
+                    .ok()?
+                    .ape()
+                    .cloned(),
+                FileType::WavPack => lofty::wavpack::WavPackFile::read_from(&mut f, po)
+                    .ok()?
+                    .ape()
+                    .cloned(),
+                _ => lofty::musepack::MpcFile::read_from(&mut f, po)
+                    .ok()?
+                    .ape()
+                    .cloned(),
+            };
+            if let Some((data, _)) = ape.as_ref().and_then(crate::tagwrite::ape_front) {
+                let mime = sniff_image_type(&data).to_string();
+                return Some((data, mime));
+            }
             drop(f);
             let tf = lofty::read_from_path(path).ok()?;
             let t = tf.primary_tag().or_else(|| tf.first_tag())?;

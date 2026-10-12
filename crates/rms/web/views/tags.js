@@ -4,7 +4,7 @@
 
 import {
   getAlbumRelease, setAlbumRelease, getAlbumTags, writeTags, undoTagEdit, getAlbumFiles, moveAlbumFiles,
-  patchSettings, getAlbums,
+  patchSettings, getAlbums, getAlbum, getCoverArt, setCoverArt, sizedArtwork,
 } from '../api.js';
 import { h, icon, toast, plural } from '../util.js';
 import { enc, emptyBox, loadingBox } from './common.js';
@@ -74,11 +74,12 @@ export async function tagsPage(v, id) {
   const top = h('div', { class: 'tag-top' });
   const tracksEl = h('div', { class: 'tag-tracks' });
   const footer = h('div', { class: 'tag-footer' });
+  const coverEl = h('section', { class: 'tag-files' });
   const filesEl = h('section', { class: 'tag-files' });
   v.body.replaceChildren(h('header', { class: 'page-head' },
     h('div', { class: 'page-head-text' }, h('h1', {}, `Tags of ${name}`),
       h('div', { class: 'page-sub muted' }, 'What the files say, next to what the album’s MusicBrainz release says. Tick what to change, edit any value, then apply.'))),
-  top, tracksEl, footer, filesEl);
+  top, tracksEl, footer, coverEl, filesEl);
 
   async function load() {
     tracksEl.replaceChildren(loadingBox());
@@ -91,6 +92,94 @@ export async function tagsPage(v, id) {
     if (!v.alive) return;
     render();
     loadFiles();
+    loadCover();
+  }
+
+  // ---------------------------------------------------------------- cover art
+
+  let coverResult = null;
+
+  async function loadCover() {
+    const title = h('h2', {}, 'Cover art');
+    let art, album;
+    try {
+      [art, album] = await Promise.all([getCoverArt(id, releaseId), getAlbum(id)]);
+    } catch (e) {
+      if (v.alive) coverEl.replaceChildren(title, h('p', { class: 'muted' }, `Could not load the cover art: ${e.message}`));
+      return;
+    }
+    if (!v.alive) return;
+    const now = sizedArtwork(album.artwork, 300);
+    const current = h('figure', { class: 'cover-now' },
+      now ? h('img', { src: now, alt: 'The cover now', width: 150, height: 150 }) : h('div', { class: 'cover-none muted' }, 'No cover'),
+      h('figcaption', { class: 'muted small' }, art.archive ? 'From the Cover Art Archive (not in your files)' : [
+        art.embedded ? `In ${art.embedded} of ${plural(art.files, 'file')}` : null,
+        art.folder_image ? `${art.embedded ? '; f' : 'F'}older: ${art.folder_image}` : null,
+      ].filter(Boolean).join('') || 'Now'));
+    if (art.archive) current.title = 'Shown because the album has no picture of its own. Save it to keep it with your music.';
+    if (!art.release_mbid) {
+      coverEl.replaceChildren(title, current,
+        h('p', { class: 'muted small' }, 'Match the album to a MusicBrainz release (above) to choose cover art from the Cover Art Archive.'));
+      return;
+    }
+    if (!art.images.length) {
+      coverEl.replaceChildren(title, current,
+        h('p', { class: 'muted small' }, 'The Cover Art Archive has no images of this release.'));
+      return;
+    }
+    let chosen = art.images[0].id;
+    const picks = art.images.map((im) => {
+      const b = h('button', { class: `cover-pick${im.id === chosen ? ' chosen' : ''}`, type: 'button', 'aria-pressed': String(im.id === chosen),
+        onclick: () => {
+          chosen = im.id;
+          for (const x of picks) { x.classList.toggle('chosen', x === b); x.setAttribute('aria-pressed', String(x === b)); }
+        } },
+      h('img', { src: im.thumbnail, alt: (im.types || []).join(', ') || 'Image', loading: 'lazy', width: 150, height: 150 }),
+      h('span', { class: 'small' }, (im.types || []).join(', ') || 'Image'));
+      return b;
+    });
+    // a folder holding other music too: a picture there would be theirs as well
+    const folderBox = h('input', { type: 'checkbox', id: 'cover-folder', checked: !art.folder_shared, disabled: art.folder_shared });
+    const embedBox = h('input', { type: 'checkbox', id: 'cover-embed', checked: art.embedded > 0 || art.folder_shared });
+    const hint = h('p', { class: 'muted small', hidden: !(art.embedded > 0) || embedBox.checked },
+      'Pictures embedded in the files are shown before one in the folder: embed it too, or the old one stays.');
+    embedBox.addEventListener('change', () => { hint.hidden = !(art.embedded > 0) || embedBox.checked; });
+    const go = h('button', { class: 'btn btn-primary', type: 'button', disabled: !!art.blocked, onclick: async () => {
+      if (!folderBox.checked && !embedBox.checked) { toast('Choose where to put it', 'error'); return; }
+      go.disabled = true;
+      try {
+        const r = await setCoverArt(id, { image: chosen, folder: folderBox.checked, embed: embedBox.checked }, releaseId);
+        if (!v.alive) return;
+        if (r.failed?.length) toast(r.failed.map((f) => f.error).join('; '), 'error');
+        coverResult = r;
+        loadCover();
+      } catch (e) {
+        toast(`Could not change the cover: ${e.message}`, 'error');
+        go.disabled = false;
+      }
+    } }, icon('edit'), 'Use this cover');
+    const done = coverResult && h('div', { class: 'notice', role: 'status' },
+      h('p', {}, `Changed the cover (${plural(coverResult.changed, 'change')}).`),
+      coverResult.batch != null && h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          await undoTagEdit(coverResult.batch);
+          toast('Put the old cover back');
+          coverResult = null;
+          loadCover();
+        } catch (err) { toast(`Could not undo: ${err.message}`, 'error'); e.target.disabled = false; }
+      } }, 'Undo'));
+    coverEl.replaceChildren(...[
+      title,
+      h('div', { class: 'cover-row' }, current, ...picks),
+      h('p', { class: 'muted small' }, 'From the Cover Art Archive. Pick one, then where it goes.'),
+      h('div', { class: 'field check' }, folderBox, h('label', { for: 'cover-folder' }, 'Save it in the album’s folder (cover.jpg)',
+        art.folder_shared ? h('span', { class: 'muted small block' }, 'The folder holds other music too, which would take the picture as well: embed it instead.') : null)),
+      h('div', { class: 'field check' }, embedBox, h('label', { for: 'cover-embed' }, `Embed it in each file (${plural(art.files, 'file')})`)),
+      hint,
+      done,
+      h('div', { class: 'button-row' }, go),
+    ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- folders and file names
@@ -154,7 +243,11 @@ export async function tagsPage(v, id) {
   function render() {
     renderTop();
     rows = new Map(data.tracks.map((t) => [t.track_id, new Map()]));
-    tracksEl.replaceChildren(renderAlbum(), ...data.tracks.map(renderTrack));
+    // loose tracks (no album tag) aren't an album: each on its own, album tags included
+    tracksEl.replaceChildren(...[
+      data.loose ? h('p', { class: 'notice' }, 'These tracks have no album tag, so they are not an album: each is changed on its own. Give them their album’s name to group them.') : renderAlbum(),
+      ...data.tracks.map(renderTrack),
+    ]);
     renderFooter();
   }
 
@@ -255,7 +348,7 @@ export async function tagsPage(v, id) {
     const disabled = !!(t.error || data.blocked);
     const trs = [], ids = [];
     for (const x of t.tags) {
-      if (ALBUM_FIELDS.includes(x.field) || !(x.changed || showAll)) continue;
+      if ((ALBUM_FIELDS.includes(x.field) && !data.loose) || !(x.changed || showAll)) continue;
       const row = tagRow(x.field, x.current, x.proposed, x.changed, disabled, disabled ? [] : [[t.track_id, x.current]]);
       (ID_FIELDS.has(x.field) ? ids : trs).push(row);
     }
