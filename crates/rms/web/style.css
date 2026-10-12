@@ -301,14 +301,16 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .drag-handle .icon { width: 20px; height: 20px; }
 .thumb { width: 40px; height: 40px; border-radius: 6px; flex: none; }
 .thumb .art-fallback { width: 55%; height: 55%; }
-.q-item.dragging { z-index: 5; box-shadow: var(--shadow-lg); background: var(--surface); opacity: .95; }
-.queue-list.is-dragging { user-select: none; }
-.queue-list.is-dragging .drag-handle { cursor: grabbing; }
-.q-item.drop-before::before, .q-item.drop-after::after {
+.q-item.dragging, .sortable > li.dragging { z-index: 5; box-shadow: var(--shadow-lg); background: var(--surface); opacity: .95; }
+.is-dragging { user-select: none; }
+.is-dragging .drag-handle { cursor: grabbing; }
+.sortable > li { position: relative; }
+.q-item.drop-before::before, .q-item.drop-after::after,
+.sortable > li.drop-before::before, .sortable > li.drop-after::after {
   content: ""; position: absolute; left: 8px; right: 8px; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none;
 }
-.q-item.drop-before::before { top: -2px; }
-.q-item.drop-after::after { bottom: -2px; }
+.q-item.drop-before::before, .sortable > li.drop-before::before { top: -2px; }
+.q-item.drop-after::after, .sortable > li.drop-after::after { bottom: -2px; }
 @media (hover: hover) {
   .q-remove { opacity: 0; }
   .q-item:hover .q-remove, .q-remove:focus-visible { opacity: 1; }
@@ -613,7 +615,3 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .chip.off { color: var(--muted); padding-left: 14px; background: transparent; border: 1px dashed var(--border); }
 .chip-art { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex: none; }
 .chip-art img { width: 100%; height: 100%; object-fit: cover; }
-
-/* playlist editing: the buttons stay visible */
-.edit-list .actions.compact { opacity: 1 !important; }
-.edit-list .actions.compact .icon-btn { display: inline-grid !important; }

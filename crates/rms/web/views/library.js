@@ -22,6 +22,7 @@ import {
   deletePlaylist, reorderPlaylist,
 } from '../api.js';
 import { withMenu, itemEntries, askName } from './menu.js';
+import { sortable, moved } from './sortable.js';
 import { h, icon, fmtDuration, plural, storage, toast } from '../util.js';
 import {
   enc, pager, list, row, trackRow, albumCard, albumGrid, actionButtons, bigActions,
@@ -339,27 +340,66 @@ const ROUTES = {
     const p = await getPlaylist(id).catch(() => null);
     if (!v.alive) return;
     const name = p?.name || v.query.get('name') || 'Playlist';
+    const editable = !!p?.editable;
     v.crumbs([crumbRoot('playlists'), { label: name }]);
     const sub = h('span');
     const actions = bigActions(v.ctx, 'playlist_id', id, name);
-    if (p?.editable) {
-      actions.push(
-        h('button', { class: 'btn', type: 'button', onclick: () => editPlaylist(v, p) }, icon('edit'), 'Edit'),
-        h('button', { class: 'icon-btn', type: 'button', title: 'More', 'aria-label': `More options for ${name}`, 'aria-haspopup': 'menu',
-          onclick: (e) => openPlaylistMenu(v, p, e.currentTarget) }, icon('more')));
+    if (editable) {
+      actions.push(h('button', { class: 'icon-btn', type: 'button', title: 'More', 'aria-label': `More options for ${name}`, 'aria-haspopup': 'menu',
+        onclick: (e) => openPlaylistMenu(v, p, e.currentTarget) }, icon('more')));
     }
     v.body.append(pageHeader({ title: name, sub, actions, iconName: 'playlist' }));
     const ul = list(`Tracks of ${name}`);
     ul.classList.add('tracks');
     v.body.append(ul);
-    let duration = 0, n = 0;
-    pager(v, ul, (offset, limit) => getPlaylistTracks(id, { offset, limit }), (t, i) => {
+    // `total`: the playlist's tracks (all of them, not just those loaded yet)
+    let duration = 0, n = 0, total = 0;
+    const showCount = () => { sub.textContent = `${plural(n, 'track')}${duration ? ' · ' + fmtDuration(duration) : ''}`; };
+    const indexOf = (li) => [...ul.children].indexOf(li);
+    // changes go to the server one after another, each from the order the one before left
+    let saving = Promise.resolve();
+    const save = (order, what, done) => {
+      saving = saving.then(() => reorderPlaylist(id, order)).then(() => done?.(), (e) => {
+        toast(`Could not ${what}: ${e.message}`, 'error');
+        v.ctx.reload();
+      });
+    };
+    pager(v, ul, (offset, limit) => getPlaylistTracks(id, { offset, limit }), (t) => {
       duration += +t.duration || 0;
       n++;
-      sub.textContent = `${plural(n, 'track')}${duration ? ' · ' + fmtDuration(duration) : ''}`;
-      const menuExtra = p?.editable ? [{ label: 'Remove from playlist', icon: 'close', danger: true, run: () => removeFromPlaylist(v, p, i) }] : [];
-      return trackRow(v.ctx, t, { showAlbum: true, onPlay: () => playFrom(v.ctx, 'playlist_id', id, i, t.title), menuExtra });
-    }, { empty: p?.editable ? 'This playlist is empty. Add to it with “Add to playlist…” in the ⋯ menu of any track or album.' : 'This playlist is empty.' });
+      showCount();
+      let li = null;
+      const remove = () => {
+        const i = indexOf(li);
+        if (i < 0) return;
+        const order = Array.from({ length: total }, (_, k) => k).filter((k) => k !== i);
+        total--; n--; duration -= +t.duration || 0;
+        li.remove();
+        showCount();
+        save(order, 'remove the track', () => toast(`Removed ${t.title || 'the track'}`));
+      };
+      const menuExtra = editable ? [{ label: 'Remove from playlist', icon: 'close', danger: true, run: remove }] : [];
+      li = trackRow(v.ctx, t, { showAlbum: true, onPlay: () => playFrom(v.ctx, 'playlist_id', id, indexOf(li), t.title), menuExtra });
+      if (editable) {
+        li.prepend(h('button', { class: 'icon-btn drag-handle', type: 'button', title: 'Drag to reorder',
+          'aria-label': `Move ${t.title || 'track'}. Use the up and down arrow keys to reorder.` }, icon('drag')));
+      }
+      return li;
+    }, {
+      empty: editable ? 'This playlist is empty. Add to it with “Add to playlist…” in the ⋯ menu of any track or album.' : 'This playlist is empty.',
+      onFirst: (t) => { total = t; },
+    });
+    if (editable) {
+      ul.classList.add('sortable');
+      sortable(ul, {
+        onDrop: (from, to) => {
+          if (to === from) return;
+          const rows = [...ul.children];
+          if (to > from) rows[to].after(rows[from]); else rows[to].before(rows[from]);
+          save(moved(total, from, to), 'move the track');
+        },
+      });
+    }
   },
 
   // ------------------------------------------------------------ favorites
@@ -511,61 +551,6 @@ function playlistEntries(v, p) {
 async function openPlaylistMenu(v, p, anchor) {
   const { openMenu } = await import('./menu.js');
   openMenu(anchor, p.name, playlistEntries(v, p));
-}
-
-async function removeFromPlaylist(v, p, index) {
-  try {
-    const { items } = await getPlaylistTracks(p.id, { offset: 0, limit: 10000 });
-    const order = items.map((_, i) => i).filter((i) => i !== index);
-    await reorderPlaylist(p.id, order);
-    toast('Removed from the playlist');
-    v.ctx.reload();
-  } catch (e) { toast(`Could not remove: ${e.message}`, 'error'); }
-}
-
-/** Reorder and remove a playlist's tracks, then save. */
-async function editPlaylist(v, p) {
-  let items;
-  try { ({ items } = await getPlaylistTracks(p.id, { offset: 0, limit: 10000 })); } catch (e) {
-    toast(`Could not load the playlist: ${e.message}`, 'error');
-    return;
-  }
-  if (!v.alive) return;
-  let order = items.map((t, i) => ({ t, i }));
-  const ul = h('ol', { class: 'list tracks edit-list', 'aria-label': `Edit ${p.name}` });
-  const draw = (focusIdx, focusSel) => {
-    ul.replaceChildren(...order.map(({ t }, k) => h('li', { class: 'row' },
-      h('span', { class: 'row-main' }, h('span', { class: 'track-no' }, k + 1),
-        h('span', { class: 'row-text' }, h('span', { class: 'row-title' }, t.title || 'Untitled'),
-          h('span', { class: 'row-sub' }, [t.artist, t.album].filter(Boolean).join(' · ')))),
-      h('div', { class: 'actions compact always' },
-        h('button', { class: 'icon-btn', type: 'button', 'data-k': k, 'data-op': 'up', disabled: k === 0, 'aria-label': `Move ${t.title} up`, onclick: () => move(k, -1) }, icon('up')),
-        h('button', { class: 'icon-btn', type: 'button', 'data-k': k, 'data-op': 'down', disabled: k === order.length - 1, 'aria-label': `Move ${t.title} down`, onclick: () => move(k, 1) }, icon('down')),
-        h('button', { class: 'icon-btn', type: 'button', 'data-k': k, 'data-op': 'remove', 'aria-label': `Remove ${t.title}`, onclick: () => remove(k) }, icon('close'))))));
-    if (focusIdx != null) (ul.querySelector(`[data-k="${focusIdx}"][data-op="${focusSel}"]:not([disabled])`) || ul.querySelector('button:not([disabled])'))?.focus();
-  };
-  const move = (k, d) => {
-    const j = k + d;
-    if (j < 0 || j >= order.length) return;
-    [order[k], order[j]] = [order[j], order[k]];
-    draw(j, d < 0 ? 'up' : 'down');
-  };
-  const remove = (k) => { order.splice(k, 1); draw(Math.min(k, order.length - 1), 'remove'); };
-  const save = async () => {
-    try {
-      await reorderPlaylist(p.id, order.map((o) => o.i));
-      toast('Playlist saved');
-      v.ctx.reload();
-    } catch (e) { toast(`Could not save: ${e.message}`, 'error'); }
-  };
-  draw();
-  v.body.replaceChildren(
-    pageHeader({ title: `Editing ${p.name}`, sub: 'Move tracks up or down, or remove them, then save.', iconName: 'playlist',
-      actions: [
-        h('button', { class: 'btn btn-primary', type: 'button', onclick: save }, icon('save'), 'Save'),
-        h('button', { class: 'btn', type: 'button', onclick: () => v.ctx.reload() }, 'Cancel'),
-      ] }),
-    order.length ? ul : emptyBox('This playlist is empty.'));
 }
 
 async function playFrom(ctx, key, id, index, label) {

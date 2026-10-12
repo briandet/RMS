@@ -3,10 +3,11 @@
 // from the cache when the server can't be reached; the API, streams and artwork are never
 // cached.
 
-const CACHE = 'rms-shell-v3';
+const CACHE = 'rms-shell-v4';
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'api.js', 'store.js', 'util.js', 'browser-player.js', 'pcm-worklet.js', 'pcm-output.js', 'decoders.js', 'demux.js',
-  'views/common.js', 'views/library.js', 'views/nowplaying.js', 'views/queue.js', 'views/search.js',
+  'views/common.js', 'views/library.js', 'views/menu.js', 'views/nowplaying.js', 'views/queue.js',
+  'views/search.js', 'views/sortable.js',
   'views/settings.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png',
 ];
 const LIVE = /\/(api|rest|stream(\.mp3)?|music|contributor|imageproxy|jsonrpc\.js|cometd)(\/|$|\?)/;
