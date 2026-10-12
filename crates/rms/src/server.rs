@@ -110,6 +110,12 @@ impl Server {
         }
         if let Some(pd) = &config.playlist_dir {
             prefs.server.set("playlistdir", json!(pd.to_string_lossy()));
+        } else if prefs.server.get_str("playlistdir").is_empty() {
+            // somewhere to save playlists from the start
+            let pd = config.data_dir.join("playlists");
+            if std::fs::create_dir_all(&pd).is_ok() {
+                prefs.server.set("playlistdir", json!(pd.to_string_lossy()));
+            }
         }
         if let Some(name) = &config.name {
             prefs.server.set("libraryname", json!(name));

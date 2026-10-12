@@ -114,7 +114,7 @@
     "firmwareUpgrade": 0
   },
   "menu": {
-    "count": 30,
+    "count": 31,
     "offset": 0,
     "item_loop": [
       {
@@ -659,6 +659,25 @@
           }
         },
         "homeMenuText": "Music Folder"
+      },
+      {
+        "text": "Playlists",
+        "id": "myMusicPlaylists",
+        "node": "myMusic",
+        "weight": 80,
+        "actions": {
+          "go": {
+            "cmd": [
+              "browselibrary",
+              "items"
+            ],
+            "params": {
+              "menu": 1,
+              "mode": "playlists"
+            }
+          }
+        },
+        "homeMenuText": "Playlists"
       },
       {
         "text": "Search",

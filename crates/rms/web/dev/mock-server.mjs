@@ -252,6 +252,7 @@ const letter = (s) => (s[0] || '').toUpperCase();
 const artistOut = (a) => ({ id: a.id, name: a.name, ...(a.portrait ? { portrait: a.portrait } : {}), letter: letter(a.name) });
 const albumOut = (a, withLetter = 'title') => ({
   id: a.id, title: a.title, artist: a.artist, artist_id: a.artist_id, ...(a.year ? { year: a.year } : {}), compilation: false,
+  release_type: ['album', 'album', 'album', 'ep', 'single'][a.id % 5],
   artwork: `music/c${a.id}/cover`, ...(withLetter ? { letter: letter(withLetter === 'artist' ? a.artist : a.title) } : {}),
 });
 
@@ -524,6 +525,11 @@ function route(method, parts, q, body) {
       break;
     }
     case 'artists': {
+      if (id && r2 === 'top-tracks') return tracks.filter((t) => t.artist_id === +id).slice(0, 5).map(trackNative);
+      if (id && r2 === 'similar') {
+        return artists.filter((x) => x.id !== +id).slice(0, 5).map((x) => ({ name: x.name, artist: artistOut(x) }))
+          .concat([{ name: 'Not In Library' }, { name: 'Someone Else' }]);
+      }
       if (id) { const a = artists.find((x) => x.id === +id); if (!a) throw notFound('artist'); return artistOut(a); }
       return page(artists.filter((a) => matches(a.name, q.get('q'))), q, artistOut);
     }
@@ -550,11 +556,40 @@ function route(method, parts, q, body) {
     case 'years': return page([...new Set(albums.map((a) => a.year))].sort((a, b) => b - a).map((year) => ({ year })), q);
     case 'tracks': return page(tracks.filter((t) => matches(t.title, q.get('q'))), q, trackNative);
     case 'playlists': {
-      if (!id) return page(playlists.filter((p) => matches(p.name, q.get('q'))), q, ({ id: pid, name }) => ({ id: pid, name }));
+      const itemIds = (it) => {
+        if (!it) return [];
+        if (it.type === 'track') return [it.id];
+        if (it.type === 'album') return (albumById.get(it.id)?.tracks || []).map((t) => t.id);
+        if (it.type === 'playlist') return playlists.find((x) => x.id === it.id)?.trackIds.slice() || [];
+        if (it.type === 'artist') return tracks.filter((t) => t.artist_id === it.id).map((t) => t.id);
+        return [];
+      };
+      if (!id && method === 'POST') {
+        const name = (body.name || '').trim();
+        if (!name) throw new HttpError(400, 'a playlist needs a name');
+        if (playlists.some((x) => x.name === name)) throw new HttpError(400, `there already is a playlist named ${name}`);
+        const fromQueue = body.from_player ? (players.find((x) => x.playerid === body.from_player)?.queue || []).map((t) => t.id).filter((x) => x != null) : [];
+        const pl = { id: Math.max(...playlists.map((x) => x.id), 9000) + 1, name, trackIds: body.item ? itemIds(body.item) : fromQueue };
+        playlists.push(pl);
+        return { id: pl.id, name: pl.name, editable: true };
+      }
+      if (!id) return page(playlists.filter((p) => matches(p.name, q.get('q'))), q, ({ id: pid, name }) => ({ id: pid, name, editable: true }));
       const pl = playlists.find((x) => x.id === +id);
       if (!pl) throw notFound('playlist');
-      if (!r2) return { id: pl.id, name: pl.name };
-      if (r2 === 'tracks') return page(pl.trackIds.map((t) => trackById.get(t)), q, trackNative);
+      if (!r2) {
+        if (method === 'PATCH') { pl.name = body.name.trim(); }
+        if (method === 'DELETE') { playlists.splice(playlists.indexOf(pl), 1); return {}; }
+        return { id: pl.id, name: pl.name, editable: true };
+      }
+      if (r2 === 'tracks') {
+        if (method === 'PUT') { pl.trackIds = body.order.map((i) => pl.trackIds[i]); return {}; }
+        if (method === 'POST') {
+          const add = itemIds(body.item);
+          pl.trackIds.splice(body.position ?? pl.trackIds.length, 0, ...add);
+          return { count: add.length };
+        }
+        return page(pl.trackIds.map((t) => trackById.get(t)), q, trackNative);
+      }
       break;
     }
     case 'folders': {

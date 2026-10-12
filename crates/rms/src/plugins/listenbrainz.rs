@@ -507,6 +507,33 @@ pub fn blend(mut mix: Vec<i64>, discovered: Vec<i64>, keep_first: bool) -> Vec<i
     mix
 }
 
+/// Artists ListenBrainz finds similar to one (by MusicBrainz id): (name, MusicBrainz id),
+/// most similar first.  Only with discovery on or a ListenBrainz account: it tells
+/// ListenBrainz what is being looked at.
+pub async fn similar_artists(server: &Arc<Server>, mbid: &str) -> Vec<(String, String)> {
+    if !enabled(server) && super::scrobble::accounts(server).is_empty() {
+        return Vec::new();
+    }
+    let base = server
+        .config
+        .listenbrainz_url
+        .trim_end_matches('/')
+        .to_string();
+    let url =
+        format!("{base}/similar-artists/json?artist_mbids={mbid}&algorithm={ARTISTS_ALGORITHM}");
+    fetch(server, &url)
+        .await
+        .into_iter()
+        .filter_map(|x| {
+            Some((
+                x["name"].as_str()?.to_string(),
+                x["artist_mbid"].as_str()?.to_string(),
+            ))
+        })
+        .take(12)
+        .collect()
+}
+
 // ---------------------------------------------------------------- with an account
 
 /// What ListenBrainz recommends for an account's user: (score, recording) pairs.  (Its

@@ -665,6 +665,73 @@ impl Library {
         .ok()
     }
 
+    /// Whether a playlist can be edited: an m3u saved in the playlist folder (not a playlist
+    /// file among the music, nor a cue sheet).
+    pub fn playlist_editable(&self, id: i64) -> Option<bool> {
+        let c = self.conn().ok()?;
+        c.query_row("SELECT kind, url FROM playlists WHERE id = ?", [id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .optional()
+        .ok()
+        .flatten()
+        .map(|(kind, u)| {
+            let u = u.to_lowercase();
+            kind == "saved" && (u.ends_with(".m3u") || u.ends_with(".m3u8"))
+        })
+    }
+
+    /// Positions (in the playlist's stored entries) of those listed as its tracks: entries
+    /// whose file is gone are not listed, so the listed index `i` is entry `visible[i]`.
+    fn listed_entries(c: &rusqlite::Connection, urls: &[String]) -> Vec<usize> {
+        urls.iter()
+            .enumerate()
+            .filter(|(_, u)| track::load_by_url(c, u).is_some() || url::is_remote_url(u))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Keep a playlist's listed tracks in `order` (their listed indexes): the others listed
+    /// are removed.  Entries not listed (files gone for now) stay, at the end.
+    pub fn reorder_playlist(&self, id: i64, order: &[usize]) -> anyhow::Result<()> {
+        let (name, _, urls) = self
+            .playlist_by_id(id)
+            .ok_or_else(|| anyhow::anyhow!("playlist {} not found", id))?;
+        let listed = Self::listed_entries(&*self.conn()?, &urls);
+        if let Some(i) = order.iter().find(|i| **i >= listed.len()) {
+            anyhow::bail!("no track {i} in the playlist ({} tracks)", listed.len());
+        }
+        let mut out: Vec<String> = order.iter().map(|i| urls[listed[*i]].clone()).collect();
+        out.extend(
+            urls.iter()
+                .enumerate()
+                .filter(|(i, _)| !listed.contains(i))
+                .map(|(_, u)| u.clone()),
+        );
+        self.save_playlist(&name, &out)?;
+        Ok(())
+    }
+
+    /// Add entries to a playlist: before its listed track `at`, or at the end.
+    pub fn add_to_playlist(
+        &self,
+        id: i64,
+        add: &[String],
+        at: Option<usize>,
+    ) -> anyhow::Result<()> {
+        let (name, _, mut urls) = self
+            .playlist_by_id(id)
+            .ok_or_else(|| anyhow::anyhow!("playlist {} not found", id))?;
+        let listed = Self::listed_entries(&*self.conn()?, &urls);
+        let pos = match at {
+            Some(i) if i < listed.len() => listed[i],
+            _ => urls.len(),
+        };
+        urls.splice(pos..pos, add.iter().cloned());
+        self.save_playlist(&name, &urls)?;
+        Ok(())
+    }
+
     /// `playlists edit cmd:up|down|delete|add|move`
     pub fn playlist_edit(&self, id: i64, op: PlaylistEditOp) -> anyhow::Result<()> {
         let (name, _, mut urls) = self

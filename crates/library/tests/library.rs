@@ -1823,3 +1823,31 @@ fn listens_carry_what_the_library_knows_and_wait_in_a_queue() {
     f.lib.drop_listens("listenbrainz:b");
     assert_eq!(f.lib.listens_pending("listenbrainz:b").0, 0);
 }
+
+#[test]
+fn playlist_edits_keep_entries_whose_files_are_gone() {
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let url = |title: &str| all.iter().find(|t| t.title == title).unwrap().url.clone();
+    let gone = "file:///no/such/file.flac".to_string();
+    let id = f
+        .lib
+        .save_playlist("Edits", &[url("Song One"), gone.clone(), url("Song Two")])
+        .unwrap();
+    assert_eq!(f.lib.playlist_editable(id), Some(true));
+    // listed: Song One, Song Two (the missing file isn't)
+    f.lib.reorder_playlist(id, &[1, 0]).unwrap();
+    let (_, _, urls) = f.lib.playlist_by_id(id).unwrap();
+    assert_eq!(urls, [url("Song Two"), url("Song One"), gone.clone()]);
+    assert!(f.lib.reorder_playlist(id, &[2]).is_err(), "only two listed");
+    f.lib
+        .add_to_playlist(id, &[url("The Mp3 Song")], Some(1))
+        .unwrap();
+    let (_, _, urls) = f.lib.playlist_by_id(id).unwrap();
+    assert_eq!(
+        urls,
+        [url("Song Two"), url("The Mp3 Song"), url("Song One"), gone]
+    );
+}

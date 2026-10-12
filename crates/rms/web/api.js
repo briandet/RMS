@@ -115,6 +115,18 @@ export const getGenres = (p) => api(withQuery('genres', p));
 export const getYears = (p) => api(withQuery('years', p));
 /** @returns {Promise<Page<Playlist>>} */
 export const getPlaylists = (p) => api(withQuery('playlists', p));
+/** New playlist: `{name, item?}` (what an Item stands for) or `{name, from_player}` (a queue). @returns {Promise<import('./api-types').Playlist>} */
+export const createPlaylist = (body) => api('playlists', { method: 'POST', body });
+export const renamePlaylist = (id, name) => api(`playlists/${encodeURIComponent(id)}`, { method: 'PATCH', body: { name } });
+export const deletePlaylist = (id) => api(`playlists/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Keep the playlist's tracks (indexes) in this order; the others are removed. */
+export const reorderPlaylist = (id, order) => api(`playlists/${encodeURIComponent(id)}/tracks`, { method: 'PUT', body: { order } });
+/** Add what an Item stands for, before track `position` or at the end. @returns {Promise<{count: number}>} */
+export const addToPlaylist = (id, item, position) => api(`playlists/${encodeURIComponent(id)}/tracks`, { method: 'POST', body: { item, position } });
+/** @returns {Promise<import('./api-types').Track[]>} */
+export const getArtistTopTracks = (id) => api(`artists/${encodeURIComponent(id)}/top-tracks`);
+/** @returns {Promise<import('./api-types').SimilarArtist[]>} */
+export const getSimilarArtists = (id) => api(`artists/${encodeURIComponent(id)}/similar`);
 /** @returns {Promise<Playlist>} */
 export const getPlaylist = (id) => api(`playlists/${encodeURIComponent(id)}`);
 /** @returns {Promise<Page<Track>>} */

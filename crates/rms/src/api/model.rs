@@ -377,6 +377,9 @@ pub struct Album {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i64>,
     pub compilation: bool,
+    /// `album`, `ep`, `single`, `compilation`, `live`, … (as tagged).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release_type: Option<String>,
     /// Like `Track.artwork`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artwork: Option<String>,
@@ -410,6 +413,54 @@ pub struct Year {
 pub struct Playlist {
     pub id: i64,
     pub name: String,
+    /// Saved in the playlist folder, so it can be changed (a playlist file among the music or
+    /// a cue sheet can't).
+    pub editable: bool,
+}
+
+/// `POST /api/v1/playlists` body: a new playlist with what `item` stands for, or the queue
+/// of `from_player`, or nothing.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct NewPlaylist {
+    pub name: String,
+    pub item: Option<Item>,
+    pub from_player: Option<String>,
+}
+
+/// `PATCH /api/v1/playlists/{id}` body.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PlaylistPatch {
+    pub name: String,
+}
+
+/// `PUT /api/v1/playlists/{id}/tracks` body: the playlist's tracks (their indexes) in their
+/// new order; those left out are removed.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct PlaylistOrder {
+    pub order: Vec<usize>,
+}
+
+/// `POST /api/v1/playlists/{id}/tracks` body: add what `item` stands for, before track
+/// `position` or at the end.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct PlaylistAdd {
+    pub item: Item,
+    pub position: Option<usize>,
+}
+
+/// An artist ListenBrainz finds similar, and the library's artist of that name if any.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct SimilarArtist {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<Artist>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

@@ -5,7 +5,7 @@
 use crate::text::TextRules;
 use crate::track::{self, Track};
 use crate::Library;
-use rusqlite::{params_from_iter, types::Value as SqlValue, Connection, Row};
+use rusqlite::{params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row};
 
 /// An artist who has albums.
 #[derive(Debug, Clone, PartialEq)]
@@ -502,5 +502,80 @@ impl Library {
             ));
         }
         out
+    }
+}
+
+impl Library {
+    /// The artist's most played tracks (played at least once), most played first.
+    pub fn most_played_by_artist(&self, artist_id: i64, n: usize) -> Vec<i64> {
+        let Ok(c) = self.conn() else {
+            return Vec::new();
+        };
+        let Ok(mut st) = c.prepare(&format!(
+            "SELECT t.id FROM tracks t
+             JOIN track_artists ta ON ta.track_id = t.id
+             JOIN track_stats s ON s.url = t.url
+             WHERE ta.artist_id = ? AND s.play_count > 0
+             GROUP BY t.id
+             ORDER BY MAX(s.play_count) DESC, MAX(s.last_played) DESC
+             LIMIT {n}"
+        )) else {
+            return Vec::new();
+        };
+        st.query_map([artist_id], |r| r.get(0))
+            .map(|rows| rows.flatten().collect())
+            .unwrap_or_default()
+    }
+
+    /// The artist's MusicBrainz id: from the tags, else as its tracks were identified.
+    pub fn artist_mbid(&self, artist_id: i64) -> Option<String> {
+        let c = self.conn().ok()?;
+        let tagged: Option<String> = c
+            .query_row("SELECT mbid FROM artists WHERE id = ?", [artist_id], |r| {
+                r.get(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+            .flatten();
+        if tagged.is_some() {
+            return tagged;
+        }
+        c.query_row(
+            "SELECT m.artist_mbid FROM tracks t
+             JOIN track_musicbrainz m ON m.fingerprint = t.fingerprint
+             WHERE t.artist_id = ? AND m.artist_mbid IS NOT NULL
+             GROUP BY m.artist_mbid ORDER BY COUNT(*) DESC LIMIT 1",
+            [artist_id],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+    }
+
+    /// The library's artist with this MusicBrainz id, else this name.
+    pub fn artist_in_library(&self, mbid: Option<&str>, name: &str) -> Option<i64> {
+        let c = self.conn().ok()?;
+        if let Some(m) = mbid {
+            let id = c
+                .query_row("SELECT id FROM artists WHERE mbid = ? LIMIT 1", [m], |r| {
+                    r.get(0)
+                })
+                .optional()
+                .ok()
+                .flatten();
+            if id.is_some() {
+                return id;
+            }
+        }
+        c.query_row(
+            "SELECT id FROM artists WHERE name_search = ? LIMIT 1",
+            [self.rules().search_key(name)],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
     }
 }
