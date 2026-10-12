@@ -239,6 +239,34 @@ impl Request {
         }
         out
     }
+
+    /// The params with secret values masked, for logs.
+    pub fn masked_params(&self) -> IndexMap<String, Option<String>> {
+        let mut params = self.params.clone();
+        for k in SECRET_PARAMS {
+            if let Some(v @ Some(_)) = params.get_mut(*k) {
+                *v = Some(MASK.to_string());
+            }
+        }
+        params
+    }
+}
+
+/// Parameters whose values are secrets: the OAuth code of `spotify login code:…`.
+const SECRET_PARAMS: &[&str] = &["code"];
+
+/// Stands in for a secret, as in the CLI's echo of `login`.
+const MASK: &str = "******";
+
+/// `words` with the values of secret parameters masked, for logs and notifications.
+pub fn mask_secrets(words: &[String]) -> Vec<String> {
+    words
+        .iter()
+        .map(|w| match w.split_once(':') {
+            Some((k, _)) if SECRET_PARAMS.contains(&k) => format!("{}:{}", k, MASK),
+            _ => w.clone(),
+        })
+        .collect()
 }
 
 /// `Request::normalize`: returns (valid, start, end) for paging over `count` items.
@@ -269,6 +297,32 @@ mod tests {
         assert_eq!(normalize(Some(0), Some(0), 3), (false, 0, 0));
         assert_eq!(normalize(Some(1), None, 3), (true, 1, 2));
         assert_eq!(normalize(Some(-2), Some(2), 3), (true, 0, 1));
+    }
+
+    #[test]
+    fn secrets_are_masked() {
+        let words: Vec<String> = [
+            "spotify",
+            "login",
+            "code:http://127.0.0.1:5588/login?code=AQDsecret",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(mask_secrets(&words), ["spotify", "login", "code:******"]);
+        let plain: Vec<String> = ["playlist", "play", "spotify:track:abc"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(mask_secrets(&plain), plain);
+
+        let mut r = Request::blank();
+        r.params.insert("code".into(), Some("AQDsecret".into()));
+        r.params.insert("tags".into(), Some("a".into()));
+        let masked = r.masked_params();
+        assert_eq!(masked["code"].as_deref(), Some("******"));
+        assert_eq!(masked["tags"].as_deref(), Some("a"));
+        assert_eq!(r.params["code"].as_deref(), Some("AQDsecret"));
     }
 
     #[test]

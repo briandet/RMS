@@ -203,7 +203,7 @@ pub async fn execute(server: &Arc<Server>, mut req: Request) -> Request {
         "execute {:?} {:?} {:?}",
         req.client.map(|c| c.to_string()),
         req.terms,
-        req.params
+        req.masked_params()
     );
     // mark user activity
     if let Some(p) = req.client.and_then(|c| server.player(&c)) {
