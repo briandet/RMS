@@ -37,6 +37,12 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/players/{id}/queue", get(get_queue))
         .route("/api/v1/players/{id}/command", post(post_command))
         .route(
+            "/api/v1/players/{id}/announce",
+            post(post_announce).layer(axum::extract::DefaultBodyLimit::max(
+                crate::player::announce::MAX_BYTES,
+            )),
+        )
+        .route(
             "/api/v1/players/{id}/settings",
             get(get_player_settings).patch(patch_player_settings),
         )
@@ -186,6 +192,43 @@ async fn post_command(
         Err(r) => return r,
     };
     reply(commands::run(&server, &p, cmd).await)
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AnnounceParams {
+    volume: Option<i32>,
+}
+
+/// `POST /api/v1/players/{id}/announce`: the body is the clip, its `Content-Type` an audio
+/// type.  Answers once the clip is queued; the player is put back when it ends.
+async fn post_announce(
+    State(server): State<Arc<Server>>,
+    Path(id): Path<String>,
+    ApiQuery(q): ApiQuery<AnnounceParams>,
+    headers: axum::http::HeaderMap,
+    clip: Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>,
+) -> Response {
+    use crate::player::announce::{announce, AnnounceError};
+    let Some(p) = server.resolve_client(&id) else {
+        return unknown_player(&id);
+    };
+    let clip = match clip {
+        Ok(b) => b,
+        Err(e) => return error(e.status(), e.body_text()),
+    };
+    let content_type = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    match announce(&server, &p, &clip, content_type, q.volume) {
+        Ok(()) => (StatusCode::ACCEPTED, Json(serde_json::json!({}))).into_response(),
+        Err(AnnounceError::Invalid(m)) => error(StatusCode::BAD_REQUEST, m),
+        Err(AnnounceError::Busy) => error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "an announcement is already playing on this player's group",
+        ),
+        Err(AnnounceError::Failed(m)) => error(StatusCode::UNPROCESSABLE_ENTITY, m),
+    }
 }
 
 fn reply<T: Serialize>(r: Result<T, CommandError>) -> Response {

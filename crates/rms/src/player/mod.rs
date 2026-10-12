@@ -1,6 +1,7 @@
 //! Players: identity, connection, capabilities and audio settings (`Slim::Player::Client`
 //! / `Slim::Player::Squeezebox2` / `Slim::Player::SqueezePlay`).
 
+pub mod announce;
 pub mod command;
 pub mod connection;
 pub mod controller;

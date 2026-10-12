@@ -138,7 +138,8 @@ The script builds a release binary (the web UI is built in), installs it as
   (`crates/rms/web/api-types.d.ts`).  For clients that choose songs themselves (an assistant
   building a playlist), it also finds tracks by tempo, key, genre, year, rating and
   listening history, lists songs similar to any seeds without playing them, and queues or
-  saves a list of tracks in one go.
+  saves a list of tracks in one go.  Announcements interrupt a player for a clip (a doorbell,
+  a spoken message) and then carry on where it was.
 * **Subsonic API** (`/rest/*`, [docs/subsonic.md](docs/subsonic.md)): Subsonic 1.16.1 with
   the OpenSubsonic additions, for the apps that browse a library and stream it to the
   phone or computer they run on, transcoding with ffmpeg when asked; stars are RMS
