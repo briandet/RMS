@@ -104,6 +104,16 @@ fn fixture() -> Fixture {
     }
     // no rescans by themselves while clients look (tests/watch.rs tests those)
     rpc(&server, "", json!(["pref", "autorescan", "0"]));
+    // every track added at once: tracks are stamped as the scan stores them (and history
+    // with the files' times), so a scan or a file write crossing a second would reorder
+    // "newest" and "recently added" between runs
+    let db = rusqlite::Connection::open(server._dir.path().join("library.sqlite")).unwrap();
+    db.busy_timeout(Duration::from_secs(10)).unwrap();
+    db.execute_batch(
+        "UPDATE tracks SET added_at = (SELECT MIN(added_at) FROM tracks);
+         UPDATE track_stats SET added_at = (SELECT MIN(added_at) FROM track_stats);",
+    )
+    .unwrap();
     let mut squeezelite = FakePlayer::connect(server.slim);
     squeezelite.expect(b"setd", Duration::from_secs(5));
     squeezelite.send(b"SETD", b"\0Kitchen\0");
