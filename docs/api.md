@@ -34,6 +34,8 @@ own conventions:
 | `GET /api/v1/browser-player` | WebSocket: [this browser as a player](#browser-player) |
 | `GET /api/v1/artists?q=` | page of [Artist](#artist) |
 | `GET /api/v1/artists/{id}` | [Artist](#artist) |
+| `GET /api/v1/artists/{id}/top-tracks` | [Track](#track)s: the artist's most played |
+| `GET /api/v1/artists/{id}/similar` | `[{"name", "artist"?: Artist}]`: similar artists ([ListenBrainz](#listenbrainz)) |
 | `GET /api/v1/albums?sort=&artist=&genre=&year=&q=` | page of [Album](#album) |
 | `GET /api/v1/albums/{id}` | [Album](#album) with `duration` and `tracks` |
 | `GET`, `PUT`, `DELETE /api/v1/albums/{id}/release` | the album's [MusicBrainz release](#album-release) |
@@ -44,9 +46,14 @@ own conventions:
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
 | `GET /api/v1/tracks?q=` | page of [Track](#track) |
-| `GET /api/v1/playlists?q=` | page of `{id, name}` (saved playlists) |
-| `GET /api/v1/playlists/{id}` | `{id, name}` |
+| `GET /api/v1/playlists?q=` | page of `{id, name, editable}` (saved playlists) |
+| `GET /api/v1/playlists/{id}` | `{id, name, editable}` |
 | `GET /api/v1/playlists/{id}/tracks` | page of [Track](#track) |
+| `POST /api/v1/playlists` | a new [playlist](#playlists) → `{id, name, editable}` |
+| `PATCH /api/v1/playlists/{id}` | `{"name": …}`: rename |
+| `DELETE /api/v1/playlists/{id}` | delete |
+| `PUT /api/v1/playlists/{id}/tracks` | `{"order": [indexes]}`: reorder, removing those left out |
+| `POST /api/v1/playlists/{id}/tracks` | `{"item": Item, "position"?: n}` → `{"count"}`: add |
 | `GET /api/v1/folders?id=` | page of [folder entries](#folder-entry) |
 | `GET /api/v1/search?q=&limit=` | [search results](#search) |
 | `GET /api/v1/favorites?id=` | page of [BrowseItem](#browseitem) |
@@ -267,8 +274,11 @@ Item `i` is entry `offset + i` of `total`.
 
 ```json
 {"id": 42, "title": "Kind of Blue", "artist": "Miles Davis", "artist_id": 7, "year": 1959,
- "compilation": false, "artwork": "music/ef34ab/cover", "letter": "K"}
+ "compilation": false, "release_type": "album", "artwork": "music/ef34ab/cover", "letter": "K"}
 ```
+
+`release_type` is the tagged release type, in lower case (`album`, `ep`, `single`,
+`compilation`, `live`, …), when release types aren't ignored in the settings.
 
 `GET /api/v1/albums` sorts by `title` (default), `artist` (then year), `year` or `added`
 (newest first), and filters by `artist`, `genre` and `year` ids and by search words `q`.
@@ -368,6 +378,28 @@ conditions as writing tags, and answers once the library has caught up:
 `{"batch": 8, "changed": 2, "failed": [], "album_id": 42}` (the album's id may change).
 Ratings, play history, saved playlists, favorites and players' queues follow the files.
 `POST /api/v1/tags/edits/{batch}/undo` moves them back.
+
+### Artist pages
+
+`GET /api/v1/artists/{id}/top-tracks` lists up to 10 of the artist's tracks that have been
+played, most played first (empty until some have).  `GET /api/v1/artists/{id}/similar` lists
+up to 12 artists [ListenBrainz](#listenbrainz) finds similar, those in the library first with
+their `artist`; it is empty unless discovery is on or a ListenBrainz account is added (it asks
+ListenBrainz about the artist), and for artists without a MusicBrainz id.
+
+### Playlists
+
+Saved playlists live as `.m3u` files in the playlist folder (`<data dir>/playlists` unless
+set).  `POST /api/v1/playlists` makes one: `{"name": "Road trip"}` (empty),
+`{"name": …, "item": Item}` (what the item stands for: a track, an album, another playlist, …)
+or `{"name": …, "from_player": "<player id>"}` (that player's queue).  Names are unique (400
+for one taken).  Only `editable` playlists can be renamed, deleted or changed: playlist files
+among the music and cue sheets are the music's own (400); make a copy with `item`.
+
+`PUT …/tracks` with `{"order": [2, 0, 1]}` keeps the tracks listed at those indexes in that
+order and removes the others.  Entries whose files are missing aren't listed; they are kept,
+at the end.  `POST …/tracks` adds what an [Item](#commands) stands for before track
+`position`, or at the end; Spotify and radio menu items can't be added.
 
 ### Folder entry
 

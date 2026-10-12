@@ -2,6 +2,7 @@
 
 import { h, icon, fmtTime } from '../util.js';
 import { sizedArtwork } from '../api.js';
+import { withMenu, trackEntries, itemEntries } from './menu.js';
 
 export const enc = encodeURIComponent;
 
@@ -162,7 +163,7 @@ export function row({ href, onActivate, title, sub, meta, art, iconName = 'note'
 }
 
 /** A row for a native `Track`. */
-export function trackRow(ctx, t, { onPlay, showArtist = true, showAlbum = false, number, cls = '' } = {}) {
+export function trackRow(ctx, t, { onPlay, showArtist = true, showAlbum = false, number, cls = '', menuExtra = [] } = {}) {
   const title = t.title || 'Untitled';
   const subParts = [];
   if (showArtist && t.artist) subParts.push(t.artist);
@@ -179,6 +180,7 @@ export function trackRow(ctx, t, { onPlay, showArtist = true, showAlbum = false,
     cls: `track ${cls}`,
   });
   if (numEl) r.querySelector('.row-main').prepend(numEl);
+  withMenu(r, () => [title, trackEntries(ctx, t, menuExtra)], r.querySelector('.actions') || r);
   return r;
 }
 
@@ -188,12 +190,15 @@ export function albumCard(ctx, a) {
   const title = a.title || 'Unknown album';
   const sub = [a.artist, +a.year ? a.year : null].filter(Boolean).join(' · ');
   const href = `#/library/album/${enc(id)}?name=${enc(title)}`;
-  return h('div', { class: 'card', role: 'listitem' },
+  const actions = actionButtons(ctx, 'album_id', id, title);
+  const card = h('div', { class: 'card', role: 'listitem' },
     h('a', { class: 'card-link', href, 'aria-label': `${title}${a.artist ? ' by ' + a.artist : ''}` },
       lazyArt(sizedArtwork(a.artwork, 300), { fallback: 'album' }),
       h('span', { class: 'card-title' }, title),
       h('span', { class: 'card-sub' }, sub || ' ')),
-    actionButtons(ctx, 'album_id', id, title));
+    actions);
+  const artist = a.artist_id != null && !a.compilation ? { id: a.artist_id, name: a.artist } : null;
+  return withMenu(card, () => [title, itemEntries(ctx, 'album_id', id, title, { artist })], actions);
 }
 
 export function albumGrid() {

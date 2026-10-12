@@ -138,6 +138,46 @@ fn play_album_with_fake_player() {
     );
 }
 
+/// A track that cannot be opened while the one before it plays out (a Spotify track that is
+/// no longer available, here a deleted file) is skipped: the next one is streamed.
+#[test]
+fn a_next_track_that_cannot_be_opened_is_skipped() {
+    let (music, files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"setd", Duration::from_secs(5));
+    p.expect(b"audg", Duration::from_secs(5));
+    p.send(b"SETD", b"\0Kitchen\0");
+
+    let dir = music.path().to_str().unwrap();
+    cli(
+        server.cli,
+        &format!("{} playlist play {}", MAC_S, dir.replace(' ', "%20")),
+    );
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    p.send(b"DSCO", &[0]);
+    std::thread::sleep(Duration::from_millis(300));
+
+    // track 2 disappears; track 1's decoder finishes. Track 2 fails before anything is sent to
+    // the player, and track 3 is streamed while track 1 still plays out (one strm for track 2
+    // would fail to fetch here).
+    std::fs::remove_file(&files[1]).unwrap();
+    p.stat(b"STMd", 3000);
+    let strm3 = p.expect_strm(b's', Duration::from_secs(5));
+    assert_eq!(
+        fetch_stream(server.http, &strm3),
+        std::fs::read(&files[2]).unwrap()
+    );
+    p.stat(b"STMc", 3500);
+    p.stat(b"STMs", 0);
+    std::thread::sleep(Duration::from_millis(300));
+    let st = cli(server.cli, &format!("{} status - 1", MAC_S));
+    assert_eq!(field(&st, "playlist_cur_index").as_deref(), Some("2"));
+}
+
 #[test]
 fn cometd_and_cli_notifications() {
     let (music, _files) = make_music();

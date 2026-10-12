@@ -5,6 +5,7 @@ pub mod commands;
 pub mod events;
 pub mod library;
 pub mod model;
+pub mod playlists;
 pub mod services;
 pub mod settings;
 pub mod state;
@@ -46,6 +47,11 @@ pub fn router() -> Router<Arc<Server>> {
         )
         .route("/api/v1/artists", get(get_artists))
         .route("/api/v1/artists/{id}", get(get_artist))
+        .route(
+            "/api/v1/artists/{id}/top-tracks",
+            get(get_artist_top_tracks),
+        )
+        .route("/api/v1/artists/{id}/similar", get(get_artist_similar))
         .route("/api/v1/albums", get(get_albums))
         .route("/api/v1/albums/{id}", get(get_album))
         .route(
@@ -65,9 +71,19 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/genres", get(get_genres))
         .route("/api/v1/years", get(get_years))
         .route("/api/v1/tracks", get(get_tracks))
-        .route("/api/v1/playlists", get(get_playlists))
-        .route("/api/v1/playlists/{id}", get(get_playlist))
-        .route("/api/v1/playlists/{id}/tracks", get(get_playlist_tracks))
+        .route("/api/v1/playlists", get(get_playlists).post(post_playlist))
+        .route(
+            "/api/v1/playlists/{id}",
+            get(get_playlist)
+                .patch(patch_playlist)
+                .delete(delete_playlist),
+        )
+        .route(
+            "/api/v1/playlists/{id}/tracks",
+            get(get_playlist_tracks)
+                .put(put_playlist_tracks)
+                .post(post_playlist_tracks),
+        )
         .route("/api/v1/folders", get(get_folder))
         .route("/api/v1/search", get(get_search))
         .route("/api/v1/favorites", get(get_favorites).post(post_favorite))
@@ -427,6 +443,79 @@ async fn get_playlist_tracks(
     ApiQuery(p): ApiQuery<ListParams>,
 ) -> Response {
     library_reply(library::playlist_tracks(&s, id, p).await, "playlist")
+}
+
+async fn post_playlist(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<model::NewPlaylist>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(p) => library_reply(playlists::create(&s, p).await, "playlist"),
+        Err(r) => r,
+    }
+}
+
+async fn patch_playlist(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<model::PlaylistPatch>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(p) => library_reply(playlists::rename(&s, id, p).await, "playlist"),
+        Err(r) => r,
+    }
+}
+
+async fn delete_playlist(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(
+        playlists::delete(&s, id)
+            .await
+            .map(|()| serde_json::json!({})),
+        "playlist",
+    )
+}
+
+async fn put_playlist_tracks(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<model::PlaylistOrder>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(p) => library_reply(
+            playlists::reorder(&s, id, p)
+                .await
+                .map(|()| serde_json::json!({})),
+            "playlist",
+        ),
+        Err(r) => r,
+    }
+}
+
+async fn post_playlist_tracks(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+    b: Result<Json<model::PlaylistAdd>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(p) => library_reply(
+            playlists::add(&s, id, p)
+                .await
+                .map(|n| serde_json::json!({ "count": n })),
+            "playlist",
+        ),
+        Err(r) => r,
+    }
+}
+
+async fn get_artist_top_tracks(
+    State(s): State<Arc<Server>>,
+    ApiPath(id): ApiPath<i64>,
+) -> Response {
+    library_reply(library::top_tracks(&s, id).await, "artist")
+}
+
+async fn get_artist_similar(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::similar_artists(&s, id).await, "artist")
 }
 
 async fn get_folder(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<FolderParams>) -> Response {

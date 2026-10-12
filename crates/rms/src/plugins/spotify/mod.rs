@@ -685,6 +685,49 @@ impl Spotify {
         self.meta.get(url).map(|m| m.clone())
     }
 
+    /// Whether a track can be played, by librespot's rule (`Player::find_available_alternative`):
+    /// it is available and has audio files, or one of its alternatives (relinked tracks) is
+    /// available.  When that cannot be found out (no session, metadata error) the track counts
+    /// as playable and the stream has the last word.
+    pub async fn track_playable(&self, url: &str) -> bool {
+        use librespot_metadata::audio::AudioItem;
+        let Some((kind, id)) = parse_url(url) else {
+            return true;
+        };
+        if kind != "track" {
+            return true;
+        }
+        let Ok(uri) = librespot_core::SpotifyUri::from_uri(&format!("spotify:track:{id}")) else {
+            return true;
+        };
+        let Ok(session) = self.session().await else {
+            return true;
+        };
+        let Ok(item) = AudioItem::get_file(&session, uri).await else {
+            return true;
+        };
+        let alternatives = item.alternatives.map(|t| t.0).unwrap_or_default();
+        match playable(
+            item.availability.is_ok(),
+            !item.files.is_empty(),
+            alternatives,
+        ) {
+            Playable::Yes => true,
+            Playable::No => false,
+            Playable::IfAnyOf(alternatives) => {
+                for alt in alternatives {
+                    if AudioItem::get_file(&session, alt)
+                        .await
+                        .is_ok_and(|a| a.availability.is_ok())
+                    {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+
     /// The tracks a Spotify URL stands for (an album, playlist, artist's top tracks, liked
     /// songs, or a single track), as track URLs.
     pub async fn expand(&self, url: &str) -> Result<Vec<String>, String> {
@@ -756,6 +799,28 @@ impl Spotify {
     }
 }
 
+/// librespot's playability rule for a track, before its alternatives are looked up.
+#[derive(Debug, PartialEq)]
+enum Playable<T> {
+    Yes,
+    No,
+    /// Playable if one of these alternatives is available.
+    IfAnyOf(Vec<T>),
+}
+
+fn playable<T>(available: bool, has_files: bool, alternatives: Vec<T>) -> Playable<T> {
+    if !available {
+        Playable::No
+    } else if has_files {
+        Playable::Yes
+    } else if alternatives.is_empty() {
+        // librespot: "Track should be available, but no alternatives found."
+        Playable::No
+    } else {
+        Playable::IfAnyOf(alternatives)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -785,6 +850,17 @@ mod tests {
         assert_eq!(back.client_id, own.client_id);
     }
     use super::*;
+
+    #[test]
+    fn playability_follows_librespot() {
+        assert_eq!(playable::<u8>(true, true, vec![]), Playable::Yes);
+        assert_eq!(playable::<u8>(false, true, vec![]), Playable::No);
+        // available but without audio files or alternatives: what librespot reports as
+        // "Track should be available, but no alternatives found." and skips
+        assert_eq!(playable::<u8>(true, false, vec![]), Playable::No);
+        assert_eq!(playable(true, false, vec![7]), Playable::IfAnyOf(vec![7]));
+        assert_eq!(playable(false, false, vec![7]), Playable::No);
+    }
 
     #[test]
     fn urls() {

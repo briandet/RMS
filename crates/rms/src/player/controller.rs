@@ -899,6 +899,13 @@ impl Controller {
 
     fn a_next_if_more(&mut self, p: EvParams) {
         self.set_streaming_state(StreamingState::Idle);
+        // Unlike Lyrion 9.2: a song that failed to open will never start to play, so it does not
+        // hold up the next one.  Lyrion waits here, and when the playing song ends
+        // (`playerStopped`) it stops instead of skipping the song that failed.
+        if self.queue.len() > 1 && self.queue.front().map(|s| s.status) == Some(SongStatus::Failed)
+        {
+            self.queue.pop_front();
+        }
         if self.queue.len() < 2 {
             self.get_next_track(&p, true);
         } else {
@@ -1356,13 +1363,19 @@ impl Controller {
             let me = self.me.clone();
             let url = entry.url.clone();
             tokio::spawn(async move {
-                let meta = match crate::plugins::spotify::get() {
-                    Some(sp) => sp.track_meta(&url).await,
-                    None => None,
+                let (meta, playable) = match crate::plugins::spotify::get() {
+                    Some(sp) => tokio::join!(sp.track_meta(&url), sp.track_playable(&url)),
+                    None => (None, true),
                 };
                 let Some(c) = me.upgrade() else { return };
                 let mut c = c.lock();
                 if c.next_track_cb_id != id {
+                    return;
+                }
+                // fail before the player is sent anything: a stream that ends without audio
+                // leaves it waiting for a track that never starts
+                if !playable {
+                    c.next_track_error(id, index, "PROBLEM_OPENING");
                     return;
                 }
                 if let Some(s) = c.queue.iter_mut().find(|s| s.id == song_id) {

@@ -6,7 +6,7 @@
 use super::model::{
     Album, AlbumDetail, AlbumRelease, AlbumTags, Artist, FolderEntry, FolderEntryType, Genre, Page,
     Playlist, ReleaseCandidate, ReleaseInfo, ReleaseStatus, ReleaseTrackMatch, SearchResults,
-    TagEdit, TagEditFailure, TagEditResult, TagValue, Track, TrackTags, Year,
+    SimilarArtist, TagEdit, TagEditFailure, TagEditResult, TagValue, Track, TrackTags, Year,
 };
 use super::state::{int, string, track_from_row};
 use crate::server::Server;
@@ -21,7 +21,7 @@ pub const LIMIT: usize = 100;
 pub const MAX_LIMIT: usize = 10_000;
 
 const ARTIST_TAGS: &str = "s4";
-const ALBUM_TAGS: &str = "ljyaSwK";
+const ALBUM_TAGS: &str = "ljyaSwKW";
 const TRACK_TAGS: &str = "uasleKcdtiyo";
 
 #[derive(Debug)]
@@ -163,6 +163,7 @@ fn album(row: &Row) -> Option<Album> {
         artist_id: int(row.get("artist_id")),
         year: int(row.get("year")).filter(|&y| y > 0),
         compilation: int(row.get("compilation")).unwrap_or(0) != 0,
+        release_type: string(row.get("release_type")).map(|t| t.to_lowercase()),
         artwork,
         letter: string(row.get("textkey")),
     })
@@ -482,21 +483,99 @@ pub async fn playlists(
         &params,
     )
     .await?;
-    Ok(page(&row, "playlists_loop", p.offset, |r| {
+    let mut page = page(&row, "playlists_loop", p.offset, |r| {
         Some(Playlist {
             id: int(r.get("id"))?,
             name: string(r.get("playlist")).unwrap_or_default(),
+            editable: false,
         })
-    }))
+    });
+    let lib = server.library.clone();
+    let ids: Vec<i64> = page.items.iter().map(|p| p.id).collect();
+    let editable = tokio::task::spawn_blocking(move || {
+        ids.iter()
+            .map(|id| lib.playlist_editable(*id).unwrap_or(false))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    for (p, e) in page.items.iter_mut().zip(editable) {
+        p.editable = e;
+    }
+    Ok(page)
 }
 
 pub async fn playlist_by_id(server: &Arc<Server>, id: i64) -> Result<Playlist, LibraryError> {
     let lib = server.library.clone();
-    let found = tokio::task::spawn_blocking(move || lib.playlist_by_id(id))
+    let found = tokio::task::spawn_blocking(move || {
+        lib.playlist_by_id(id)
+            .map(|(name, _, _)| (name, lib.playlist_editable(id).unwrap_or(false)))
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    let (name, editable) = found.ok_or(LibraryError::NotFound)?;
+    Ok(Playlist { id, name, editable })
+}
+
+/// A library track by id.
+async fn track_by_id(server: &Arc<Server>, id: i64) -> Option<Track> {
+    let params = [
+        ("tags", TRACK_TAGS.to_string()),
+        ("track_id", id.to_string()),
+    ];
+    let row = query(server, LibQueryName::Titles, 0, 1, &params)
+        .await
+        .ok()?;
+    page(&row, "titles_loop", 0, track).items.into_iter().next()
+}
+
+/// The artist's most played tracks.
+pub async fn top_tracks(server: &Arc<Server>, id: i64) -> Result<Vec<Track>, LibraryError> {
+    artist_by_id(server, id).await?;
+    let lib = server.library.clone();
+    let ids = tokio::task::spawn_blocking(move || lib.most_played_by_artist(id, 10))
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
-    let (name, _, _) = found.ok_or(LibraryError::NotFound)?;
-    Ok(Playlist { id, name })
+    let mut out = Vec::new();
+    for t in ids {
+        out.extend(track_by_id(server, t).await);
+    }
+    Ok(out)
+}
+
+/// Artists ListenBrainz finds similar (with discovery or a ListenBrainz account on; none
+/// without), the library's first.
+pub async fn similar_artists(
+    server: &Arc<Server>,
+    id: i64,
+) -> Result<Vec<SimilarArtist>, LibraryError> {
+    artist_by_id(server, id).await?;
+    let lib = server.library.clone();
+    let Some(mbid) = tokio::task::spawn_blocking(move || lib.artist_mbid(id))
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
+    else {
+        return Ok(Vec::new());
+    };
+    let found = crate::plugins::listenbrainz::similar_artists(server, &mbid).await;
+    let mut out = Vec::new();
+    for (name, m) in found {
+        let lib = server.library.clone();
+        let n = name.clone();
+        let local = tokio::task::spawn_blocking(move || lib.artist_in_library(Some(&m), &n))
+            .await
+            .ok()
+            .flatten()
+            .filter(|a| *a != id);
+        let artist = match local {
+            Some(a) => artist_by_id(server, a).await.ok(),
+            None => None,
+        };
+        out.push(SimilarArtist { name, artist });
+    }
+    // what is in the library first, keeping ListenBrainz's order otherwise
+    out.sort_by_key(|s| s.artist.is_none());
+    Ok(out)
 }
 
 pub async fn playlist_tracks(

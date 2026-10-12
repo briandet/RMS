@@ -6,6 +6,7 @@ use super::model::{Command, CommandResult, EnqueueMode, Item};
 use crate::control::dispatch::execute_tokens;
 use crate::control::request::{Request, Source, Status};
 use crate::player::command::{self as core, Change, Enqueue, PlayerCommand, Position};
+use crate::player::playlist::Entry;
 use crate::player::Player;
 use crate::server::Server;
 use std::sync::Arc;
@@ -145,6 +146,20 @@ fn execute(
         server.notifier.notify_owned(Some(p.id), words);
     }
     Ok(out)
+}
+
+/// What an item stands for, as queue entries, without a player: library items, URLs and
+/// ListenBrainz items (Spotify and radio menu items need a player's service menus).
+pub async fn item_entries(server: &Arc<Server>, item: Item) -> Result<Vec<Entry>, CommandError> {
+    match item {
+        Item::Spotify { .. } | Item::Radio { .. } => Err(CommandError::Invalid(
+            "a Spotify or radio menu item can only be played".into(),
+        )),
+        Item::ListenBrainz { id } => crate::plugins::listenbrainz::entries(server, &id)
+            .await
+            .map_err(CommandError::Failed),
+        other => Ok(core::entries_for(server, &core_item(other)).await),
+    }
 }
 
 fn core_item(item: Item) -> core::Item {
