@@ -148,6 +148,65 @@ pub struct Track {
     /// Content type (`flc`, `mp3`, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// What the library knows about a library track beyond its tags; only when asked for
+    /// (`detail=true`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<TrackDetail>,
+}
+
+/// A library track's genres, tempo, key, listening history and identifiers: what
+/// `GET /api/v1/tracks` filters on.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TrackDetail {
+    pub genres: Vec<String>,
+    /// Beats per minute, from the rhythm analysis, else the `BPM` tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
+    /// Musical key as a Camelot code (`8A`), from the rhythm analysis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// 0–100.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating: Option<i64>,
+    pub play_count: i64,
+    /// Times it was left within 30 seconds.
+    pub skip_count: i64,
+    /// Unix time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<i64>,
+    /// Unix time it was added to the library.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added: Option<i64>,
+    /// MusicBrainz recording id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isrc: Option<String>,
+    /// Integrated loudness, LUFS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loudness: Option<f64>,
+    /// The sonic analysis is done, so similar songs can go by how it sounds.
+    pub analyzed: bool,
+}
+
+impl From<rms_library::find::TrackDetail> for TrackDetail {
+    fn from(d: rms_library::find::TrackDetail) -> Self {
+        TrackDetail {
+            genres: d.genres,
+            bpm: d.bpm,
+            key: d.key,
+            rating: d.rating,
+            play_count: d.play_count,
+            skip_count: d.skip_count,
+            last_played: d.last_played,
+            added: d.added,
+            mbid: d.mbid,
+            isrc: d.isrc,
+            loudness: d.loudness,
+            analyzed: d.analyzed,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -168,6 +227,10 @@ pub struct Queue {
 pub enum Item {
     Track {
         id: i64,
+    },
+    /// Library tracks, in this order.
+    Tracks {
+        ids: Vec<i64>,
     },
     Album {
         id: i64,
@@ -751,6 +814,23 @@ pub struct PlaylistOrder {
 pub struct PlaylistAdd {
     pub item: Item,
     pub position: Option<usize>,
+}
+
+/// `POST /api/v1/similar` body: songs similar to the seeds.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct SimilarRequest {
+    /// Tracks, albums, artists, genres or years to start from.
+    pub seeds: Vec<Item>,
+    /// How many (default 20, at most 200).
+    pub limit: Option<usize>,
+    /// Track ids to leave out (what is already chosen).
+    #[serde(default)]
+    pub exclude: Vec<i64>,
+    /// Include each track's `detail`.
+    #[serde(default)]
+    pub detail: bool,
 }
 
 /// An artist ListenBrainz finds similar, and the library's artist of that name if any.

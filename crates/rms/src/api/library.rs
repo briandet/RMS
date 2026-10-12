@@ -469,11 +469,252 @@ pub async fn years(server: &Arc<Server>, p: ListParams) -> Result<Page<Year>, Li
     }))
 }
 
-pub async fn tracks(server: &Arc<Server>, p: ListParams) -> Result<Page<Track>, LibraryError> {
-    let mut params = vec![("tags", TRACK_TAGS.to_string())];
-    params.extend(search_param(&p.q));
-    let row = query(server, LibQueryName::Titles, p.offset, p.limit(), &params).await?;
-    Ok(page(&row, "titles_loop", p.offset, track))
+/// `GET /api/v1/tracks` parameters: the list's, plus filters on what the library knows
+/// about each track.  Lists are comma-separated (`genre=3,7`).
+#[derive(Debug, Deserialize, Default)]
+pub struct TrackParams {
+    #[serde(default)]
+    pub offset: usize,
+    pub limit: Option<usize>,
+    pub q: Option<String>,
+    /// `title` (default), `random`, `added`, `most_played`, `least_recently_played`,
+    /// `recently_played`, `rating`, `bpm`, `year`.
+    pub sort: Option<String>,
+    pub artist: Option<i64>,
+    pub album: Option<i64>,
+    /// Genre ids; any of them.
+    pub genre: Option<String>,
+    pub year_from: Option<i64>,
+    pub year_to: Option<i64>,
+    pub bpm_min: Option<f64>,
+    pub bpm_max: Option<f64>,
+    /// Camelot codes (`8A,9A`); any of them.
+    pub key: Option<String>,
+    /// A Camelot code: keys that mix harmonically with it (itself, its neighbours on the
+    /// wheel, its relative major or minor).
+    pub compatible_with: Option<String>,
+    pub rating_min: Option<i64>,
+    pub played: Option<bool>,
+    pub played_since: Option<i64>,
+    pub not_played_since: Option<i64>,
+    pub added_since: Option<i64>,
+    pub duration_min: Option<f64>,
+    pub duration_max: Option<f64>,
+    /// Include each track's `detail`.
+    #[serde(default)]
+    pub detail: bool,
+}
+
+impl TrackParams {
+    /// Anything only the track finder can do (the plain list is the LMS `titles` query).
+    fn needs_finder(&self) -> bool {
+        self.sort.is_some()
+            || self.artist.is_some()
+            || self.album.is_some()
+            || self.genre.is_some()
+            || self.year_from.is_some()
+            || self.year_to.is_some()
+            || self.bpm_min.is_some()
+            || self.bpm_max.is_some()
+            || self.key.is_some()
+            || self.compatible_with.is_some()
+            || self.rating_min.is_some()
+            || self.played.is_some()
+            || self.played_since.is_some()
+            || self.not_played_since.is_some()
+            || self.added_since.is_some()
+            || self.duration_min.is_some()
+            || self.duration_max.is_some()
+    }
+
+    fn finder(&self) -> Result<rms_library::find::FindTracks, LibraryError> {
+        use rms_library::find::{camelot, compatible_keys, FindSort, FindTracks};
+        let invalid = |m: String| LibraryError::Invalid(m);
+        let sort = match self.sort.as_deref() {
+            None => FindSort::Title,
+            Some(s) => FindSort::parse(s)
+                .ok_or_else(|| invalid(format!("unknown sort {s:?} ({})", FindSort::NAMES)))?,
+        };
+        let genre_ids = match &self.genre {
+            None => Vec::new(),
+            Some(g) => g
+                .split(',')
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .map(|g| {
+                    g.parse()
+                        .map_err(|_| invalid(format!("bad genre id {g:?}")))
+                })
+                .collect::<Result<_, _>>()?,
+        };
+        let mut keys: Vec<String> = match &self.key {
+            None => Vec::new(),
+            Some(k) => k
+                .split(',')
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .map(|k| {
+                    camelot(k).ok_or_else(|| invalid(format!("bad Camelot key {k:?} (1A–12B)")))
+                })
+                .collect::<Result<_, _>>()?,
+        };
+        if let Some(k) = &self.compatible_with {
+            let near = compatible_keys(k)
+                .ok_or_else(|| invalid(format!("bad Camelot key {k:?} (1A–12B)")))?;
+            if keys.is_empty() {
+                keys = near;
+            } else {
+                keys.retain(|k| near.contains(k));
+                if keys.is_empty() {
+                    // `key` and `compatible_with` share no key: nothing matches
+                    keys.push("none".into());
+                }
+            }
+        }
+        Ok(FindTracks {
+            search: self.q.clone().filter(|q| !q.trim().is_empty()),
+            artist_id: self.artist,
+            album_id: self.album,
+            genre_ids,
+            year_from: self.year_from,
+            year_to: self.year_to,
+            bpm_min: self.bpm_min,
+            bpm_max: self.bpm_max,
+            keys,
+            rating_min: self.rating_min,
+            played: self.played,
+            played_since: self.played_since,
+            not_played_since: self.not_played_since,
+            added_since: self.added_since,
+            duration_min: self.duration_min,
+            duration_max: self.duration_max,
+            sort,
+            offset: self.offset,
+            limit: self.limit.unwrap_or(LIMIT).min(MAX_LIMIT),
+        })
+    }
+}
+
+pub async fn tracks(server: &Arc<Server>, p: TrackParams) -> Result<Page<Track>, LibraryError> {
+    let mut page = if p.needs_finder() {
+        let f = p.finder()?;
+        let lib = server.library.clone();
+        let (total, ids) = tokio::task::spawn_blocking(move || lib.find_tracks(&f))
+            .await
+            .map_err(|e| LibraryError::Failed(e.to_string()))?
+            .map_err(|e| LibraryError::Failed(e.to_string()))?;
+        Page {
+            total,
+            offset: p.offset,
+            items: tracks_by_ids(server, ids).await?,
+        }
+    } else {
+        let mut params = vec![("tags", TRACK_TAGS.to_string())];
+        params.extend(search_param(&p.q));
+        let limit = p.limit.unwrap_or(LIMIT).min(MAX_LIMIT);
+        let row = query(server, LibQueryName::Titles, p.offset, limit, &params).await?;
+        page(&row, "titles_loop", p.offset, track)
+    };
+    if p.detail {
+        add_details(server, &mut page.items).await?;
+    }
+    Ok(page)
+}
+
+/// Library tracks in the order of `ids` (ids that aren't tracks are left out).
+async fn tracks_by_ids(server: &Arc<Server>, ids: Vec<i64>) -> Result<Vec<Track>, LibraryError> {
+    let lib = server.library.clone();
+    let rows = tokio::task::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    Ok(rows.iter().filter_map(track).collect())
+}
+
+/// Fill in `detail` for the library tracks among `tracks`.
+async fn add_details(server: &Arc<Server>, tracks: &mut [Track]) -> Result<(), LibraryError> {
+    let ids: Vec<i64> = tracks.iter().filter_map(|t| t.id).collect();
+    let lib = server.library.clone();
+    let mut details = tokio::task::spawn_blocking(move || lib.track_details(&ids))
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    for t in tracks {
+        if let Some(d) = t.id.and_then(|id| details.remove(&id)) {
+            t.detail = Some(d.into());
+        }
+    }
+    Ok(())
+}
+
+/// One library track, with its `detail`.
+pub async fn track_detail(server: &Arc<Server>, id: i64) -> Result<Track, LibraryError> {
+    let mut t = tracks_by_ids(server, vec![id]).await?;
+    add_details(server, &mut t).await?;
+    t.pop().ok_or(LibraryError::NotFound)
+}
+
+/// Default and largest number of similar songs.
+const SIMILAR: usize = 20;
+const MAX_SIMILAR: usize = 200;
+/// Seed tracks sampled from a big album, artist, genre or year (as Create Mix does).
+const MAX_SEEDS: usize = 10;
+
+/// Library songs similar to the seeds, scored as Create Mix scores them (how they sound once
+/// analysed, shared genres and artists, listening history), without touching any player.
+/// Only library tracks: no ListenBrainz discoveries or streamed tracks.
+pub async fn similar(
+    server: &Arc<Server>,
+    r: super::model::SimilarRequest,
+) -> Result<Vec<Track>, LibraryError> {
+    use super::model::Item;
+    use rms_library::mix::Seed;
+    if r.seeds.is_empty() {
+        return Err(LibraryError::Invalid("no seeds".into()));
+    }
+    let mut seeds: Vec<Seed> = Vec::new();
+    let mut seed_ids: Vec<i64> = Vec::new();
+    for item in r.seeds {
+        match item {
+            Item::Track { id } => seed_ids.push(id),
+            Item::Tracks { ids } => seed_ids.extend(ids),
+            Item::Album { id } => seeds.push(Seed::Album(id)),
+            Item::Artist { id } => seeds.push(Seed::Artist(id)),
+            Item::Genre { id } => seeds.push(Seed::Genre(id)),
+            Item::Year { year } => seeds.push(Seed::Year(year)),
+            _ => {
+                return Err(LibraryError::Invalid(
+                    "seeds are tracks, albums, artists, genres or years".into(),
+                ))
+            }
+        }
+    }
+    let n = r.limit.unwrap_or(SIMILAR).clamp(1, MAX_SIMILAR);
+    let exclude: std::collections::HashSet<i64> = r.exclude.into_iter().collect();
+    let lib = server.library.clone();
+    let ids = tokio::task::spawn_blocking(move || {
+        use rand::seq::SliceRandom;
+        let mut rng = rand::rng();
+        // every track seed counts; a big album / artist / genre / year is sampled
+        let mut all: Vec<i64> = seed_ids;
+        for s in seeds {
+            let mut t = lib.seed_tracks(s);
+            t.shuffle(&mut rng);
+            all.extend(t.into_iter().take(MAX_SEEDS));
+        }
+        let mut seen = std::collections::HashSet::new();
+        all.retain(|id| *id > 0 && seen.insert(*id));
+        if all.len() > 4 * MAX_SEEDS {
+            all.shuffle(&mut rng);
+            all.truncate(4 * MAX_SEEDS);
+        }
+        lib.similar_tracks(&all, n, &exclude)
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    let mut out = tracks_by_ids(server, ids).await?;
+    if r.detail {
+        add_details(server, &mut out).await?;
+    }
+    Ok(out)
 }
 
 pub async fn playlists(
@@ -671,7 +912,15 @@ pub async fn search(server: &Arc<Server>, p: ListParams) -> Result<SearchResults
     let (artists, albums, tracks, genres) = tokio::try_join!(
         artists(server, list()),
         albums(server, albums_params),
-        tracks(server, list()),
+        tracks(
+            server,
+            TrackParams {
+                offset: p.offset,
+                limit: Some(p.limit.unwrap_or(20)),
+                q: p.q.clone(),
+                ..Default::default()
+            }
+        ),
         genres(server, list()),
     )?;
     Ok(SearchResults {

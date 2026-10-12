@@ -215,6 +215,7 @@ pub(super) fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
         remote,
         station,
         format: string(row.get("type")),
+        detail: None,
     }
 }
 

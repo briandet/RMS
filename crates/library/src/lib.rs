@@ -26,6 +26,7 @@ pub mod config;
 pub mod cue;
 pub mod db;
 pub mod discover;
+pub mod find;
 pub mod loudness;
 pub mod mix;
 pub mod musicbrainz;

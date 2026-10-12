@@ -1897,3 +1897,140 @@ fn playlist_edits_keep_entries_whose_files_are_gone() {
         [url("Song Two"), url("The Mp3 Song"), url("Song One"), gone]
     );
 }
+
+#[test]
+fn find_tracks_by_history_tempo_and_key() {
+    use rms_library::find::{FindSort, FindTracks};
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let url = |p: &str| rms_library::url::file_url_from_path(&f.media.join(p));
+    let one = url("Artist A/Album One/01 - Song One.flac");
+    let two = url("Artist A/Album One/02 - Song Two.flac");
+    let mp3 = url("Artist B/Album Two/01 - The Mp3 Song.mp3");
+    let id = |u: &str| f.lib.track_by_url(u).unwrap().id;
+    let (one_id, two_id, mp3_id) = (id(&one), id(&two), id(&mp3));
+    f.lib.mark_played(&one);
+    f.lib.mark_played(&one);
+    f.lib.mark_played(&mp3);
+    f.lib.set_rating(&one, 80);
+    {
+        let c = raw_db(&f);
+        // measured tempo and key for Song One; a BPM tag only for Song Two
+        c.execute(
+            "INSERT INTO track_rhythm (fingerprint, version, bpm, camelot, rhythm, analyzed_at)
+             SELECT fingerprint, 1, 124.0, '8A', NULL, 1 FROM tracks WHERE url = ?",
+            [&one],
+        )
+        .unwrap();
+        c.execute("UPDATE tracks SET bpm = 90 WHERE url = ?", [&two])
+            .unwrap();
+        // the mp3 was last played long ago
+        c.execute(
+            "UPDATE track_stats SET last_played = 1000 WHERE url = ?",
+            [&mp3],
+        )
+        .unwrap();
+    }
+    // a page of 100 unless the test asks for another
+    let find = |q: FindTracks| {
+        let limit = if q.limit == 0 { 100 } else { q.limit };
+        f.lib.find_tracks(&FindTracks { limit, ..q }).unwrap()
+    };
+    let total = f.lib.totals().songs as usize;
+    assert_eq!(find(FindTracks::default()).0, total);
+
+    // tempo: measured beats tagged; untagged tracks drop out of a range
+    let (n, ids) = find(FindTracks {
+        bpm_min: Some(100.0),
+        ..Default::default()
+    });
+    assert_eq!((n, ids), (1, vec![one_id]));
+    let (_, ids) = find(FindTracks {
+        bpm_max: Some(100.0),
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![two_id]);
+    let (_, ids) = find(FindTracks {
+        keys: vec!["8A".into()],
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![one_id]);
+
+    // history
+    let (_, ids) = find(FindTracks {
+        played: Some(true),
+        sort: FindSort::MostPlayed,
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![one_id, mp3_id]);
+    let (n, _) = find(FindTracks {
+        played: Some(false),
+        ..Default::default()
+    });
+    assert_eq!(n, total - 2);
+    let (_, ids) = find(FindTracks {
+        rating_min: Some(60),
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![one_id]);
+    // not played since 2000-ish: the mp3 (played at t=1000) and the never-played ones
+    let (n, ids) = find(FindTracks {
+        not_played_since: Some(946_684_800),
+        ..Default::default()
+    });
+    assert_eq!(n, total - 1);
+    assert!(ids.contains(&mp3_id) && !ids.contains(&one_id));
+    let (_, ids) = find(FindTracks {
+        played: Some(true),
+        sort: FindSort::LeastRecentlyPlayed,
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![mp3_id, one_id]);
+
+    // tags: genre, years, search, combined
+    let jazz = f
+        .lib
+        .query(
+            &rms_library::LibQuery::new(rms_library::LibQueryName::Genres, 0, 100)
+                .param("search", "jazz"),
+        )
+        .unwrap()["genres_loop"][0]["id"]
+        .as_i64()
+        .unwrap();
+    let (_, ids) = find(FindTracks {
+        genre_ids: vec![jazz],
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![mp3_id]);
+    let (_, ids) = find(FindTracks {
+        year_from: Some(2000),
+        year_to: Some(2010),
+        search: Some("song".into()),
+        sort: FindSort::Title,
+        ..Default::default()
+    });
+    assert_eq!(ids, vec![one_id, two_id]);
+    // paging keeps the total
+    let (n, ids) = find(FindTracks {
+        offset: 1,
+        limit: 1,
+        ..Default::default()
+    });
+    assert_eq!((n, ids.len()), (total, 1));
+
+    // details explain the matches
+    let d = f.lib.track_details(&[one_id, two_id, mp3_id]);
+    assert_eq!(d[&one_id].bpm, Some(124.0));
+    assert_eq!(d[&one_id].key.as_deref(), Some("8A"));
+    assert_eq!(d[&one_id].play_count, 2);
+    assert_eq!(d[&one_id].rating, Some(80));
+    assert!(d[&one_id].last_played.is_some());
+    assert_eq!(d[&one_id].genres, vec!["Rock".to_string()]);
+    assert_eq!(d[&two_id].bpm, Some(90.0));
+    assert_eq!(d[&two_id].play_count, 0);
+    assert_eq!(
+        d[&mp3_id].genres,
+        vec!["Blues".to_string(), "Jazz".to_string()]
+    );
+}

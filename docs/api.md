@@ -46,7 +46,10 @@ own conventions:
 | `GET /api/v1/tags/edits`, `POST /api/v1/tags/edits/{batch}/undo` | [tag changes and moves](#tags), and undoing one |
 | `GET /api/v1/genres?q=` | page of `{id, name}` |
 | `GET /api/v1/years` | page of `{year}` (0: tracks without a year) |
-| `GET /api/v1/tracks?q=` | page of [Track](#track) |
+| `GET /api/v1/tracks?q=&sort=&genre=&bpm_min=&…` | page of [Track](#track): [finding tracks](#finding-tracks) |
+| `GET /api/v1/tracks/{id}` | [Track](#track) with its `detail` |
+| `GET /api/v1/tracks/{id}/similar?limit=&detail=` | [Track](#track)s: [similar songs](#similar-songs) |
+| `POST /api/v1/similar` | [Track](#track)s: [similar songs](#similar-songs) to several seeds |
 | `GET /api/v1/playlists?q=` | page of `{id, name, editable}` (saved playlists) |
 | `GET /api/v1/playlists/{id}` | `{id, name, editable}` |
 | `GET /api/v1/playlists/{id}/tracks` | page of [Track](#track) |
@@ -186,6 +189,20 @@ curl -N http://localhost:9000/api/v1/events
   `_<w>x<h>_o` to get a resized copy (`music/ab12cd/cover_300x300_o`).
 * For radio, `station` is the station's name.  `title` and `artist` are the current song,
   split from the stream's "Artist - Title" metadata when needed.
+* `detail` is there only when asked for (`detail=true`, and always from
+  `GET /api/v1/tracks/{id}`), for library tracks:
+
+```json
+{"genres": ["Jazz", "Modal"], "bpm": 136.2, "key": "8A", "rating": 80, "play_count": 12,
+ "skip_count": 1, "last_played": 1791694802, "added": 1780000000,
+ "mbid": "5fb524f1-…", "isrc": "USSM15900113", "loudness": -14.2, "analyzed": true}
+```
+
+  `bpm` is the measured tempo, else the `BPM` tag; `key` the measured key as a Camelot code
+  (`8A` is A minor, `8B` C major).  Both, and `loudness` (LUFS), come from the sonic analysis,
+  as it reaches each track.  `rating` is 0–100.  `skip_count` counts plays left within 30
+  seconds.  `analyzed`: how the song sounds is known, so [similar songs](#similar-songs) go by
+  it.
 
 ### Queue
 
@@ -230,6 +247,7 @@ An `Item` is one of:
 
 ```json
 {"type": "track", "id": 1234}
+{"type": "tracks", "ids": [1234, 77, 5120]}
 {"type": "album", "id": 42}
 {"type": "artist", "id": 7}
 {"type": "genre", "id": 3}
@@ -440,6 +458,51 @@ the old covers back.
 `folder` (`id` is the folder's: list it with `?id=` or queue it as `{"type": "folder"}`),
 `track` (with the `track`), `playlist` (a playlist file: `{"type": "playlist"}`) or `other`
 (a file that can't be played as it is).
+
+### Finding tracks
+
+`GET /api/v1/tracks` with only `q` lists tracks as the players do.  These parameters find
+tracks by what the library knows about them; every one given must hold:
+
+| parameter | |
+|---|---|
+| `q` | search words, as everywhere |
+| `artist`, `album` | ids (the artist in any role) |
+| `genre` | genre ids, comma-separated: any of them |
+| `year_from`, `year_to` | |
+| `bpm_min`, `bpm_max` | tempo; tracks with no known tempo are left out |
+| `key` | Camelot codes, comma-separated (`8A,9A`) |
+| `compatible_with` | a Camelot code: the keys that mix with it (itself, the next and previous number, its relative major or minor) |
+| `rating_min` | 0–100 |
+| `played` | `true`: played at least once; `false`: never |
+| `played_since`, `not_played_since` | Unix times; never played counts as not played since |
+| `added_since` | Unix time |
+| `duration_min`, `duration_max` | seconds |
+| `sort` | `title` (default), `random`, `added` (newest first), `most_played`, `least_recently_played` (never played first), `recently_played`, `rating`, `bpm` (slowest first), `year` (oldest first) |
+| `detail` | `true`: each track with its `detail` |
+
+```sh
+# upbeat, rated, not heard for a month, in keys that mix with A minor
+curl 'http://localhost:9000/api/v1/tracks?bpm_min=118&bpm_max=130&rating_min=60&not_played_since=1789000000&compatible_with=8A&sort=random&limit=30&detail=true'
+```
+
+### Similar songs
+
+`GET /api/v1/tracks/{id}/similar` and `POST /api/v1/similar` list library songs similar to
+seeds, scored as [Create Mix](#commands) scores them (how they sound once analysed, shared
+genres and artists, listening history; at most one per album and two per artist, none that
+sounds like the same recording), but without playing anything.  Only library tracks: no
+ListenBrainz discoveries or streamed tracks.
+
+```json
+{"seeds": [{"type": "track", "id": 1234}, {"type": "artist", "id": 7}],
+ "limit": 20, "exclude": [77, 5120], "detail": true}
+```
+
+`seeds` are tracks (`track`, `tracks`), albums, artists, genres or years; a big album, artist,
+genre or year counts as a sample of its tracks.  `limit` is 20 by default, at most 200.
+`exclude` leaves out tracks already chosen.  Queue the result with `enqueue` and
+`{"type": "tracks", "ids": [...]}`.
 
 ### Search
 

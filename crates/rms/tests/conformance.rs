@@ -283,6 +283,8 @@ const VOLATILE: &[&str] = &[
     "mac",
     "server_timestamp",
     "addedTime",
+    "added",
+    "last_played",
     "lastUpdated",
     "modificationTime",
     "info total duration",
@@ -933,6 +935,22 @@ fn native_api() {
     get!("genres", "/api/v1/genres");
     get!("years", "/api/v1/years");
     get!("tracks", "/api/v1/tracks?limit=2");
+    // (tempo, key and loudness come from the sonic analysis, which runs in the background
+    // while these requests are made: tests/../library.rs covers filtering on them)
+    get!(
+        "tracks by year",
+        "/api/v1/tracks?year_from=2000&sort=year&limit=3"
+    );
+    get!("tracks of genre", "/api/v1/tracks?genre=1&limit=3");
+    get!(
+        "tracks never played",
+        "/api/v1/tracks?played=false&sort=title&limit=2"
+    );
+    get!("bad key", "/api/v1/tracks?key=13Z");
+    get!("bad track sort", "/api/v1/tracks?sort=loudest");
+    get!("bad genre list", "/api/v1/tracks?genre=1,rock");
+    get!("unknown track", "/api/v1/tracks/999");
+    get!("similar to unknown track", "/api/v1/tracks/999/similar");
     let top = get!("top folder", "/api/v1/folders");
     let alpha = top["items"]
         .as_array()
@@ -1072,6 +1090,78 @@ fn native_api() {
         "/api/v1/radio?id=radiodirectory.0&limit=2"
     );
     get!("radio item from elsewhere", "/api/v1/radio?id=pref.0");
+
+    // a hand-picked list, in its own order
+    call(
+        "clear for a list",
+        "POST",
+        &format!("/api/v1/players/{pid}/command"),
+        Some(json!({"command": "clear"})),
+    );
+    let list = json!({"command": "enqueue", "item": {"type": "tracks", "ids": [3, 1, 999]}, "mode": "add"});
+    call(
+        "queue a list of tracks",
+        "POST",
+        &format!("/api/v1/players/{pid}/command"),
+        Some(list),
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    get!("queue of a list", &format!("/api/v1/players/{pid}/queue"));
+
+    // details, with what the background analysis may or may not have measured yet blanked
+    let mut detail = |name: &str, path: &str| {
+        let (code, text) = http_json(http, "GET", path, None);
+        let mut v: Value = serde_json::from_str(&text).unwrap();
+        let mut blank = |t: &mut Value| {
+            if let Some(d) = t.get_mut("detail").and_then(Value::as_object_mut) {
+                for k in ["bpm", "key", "loudness", "analyzed"] {
+                    d.remove(k);
+                }
+            }
+        };
+        match v.get_mut("items").and_then(Value::as_array_mut) {
+            Some(items) => items.iter_mut().for_each(&mut blank),
+            None => blank(&mut v),
+        }
+        out.insert(
+            format!("GET {path} ({name})"),
+            json!({"status": code, "body": v}),
+        );
+    };
+    detail("tracks with detail", "/api/v1/tracks?limit=2&detail=true");
+    detail("track", "/api/v1/tracks/1");
+
+    // similar songs: which ones depends on how far the background analysis has got, so
+    // record only that some come back, and that the seed and the excluded track don't
+    let similar = |out: &mut Map<String, Value>, name: &str, req: Value| {
+        let (code, text) = http_json(http, "POST", "/api/v1/similar", Some(&req.to_string()));
+        let v: Value = serde_json::from_str(&text).unwrap();
+        let ids: Vec<i64> = v
+            .as_array()
+            .map(|a| a.iter().filter_map(|t| t["id"].as_i64()).collect())
+            .unwrap_or_default();
+        out.insert(
+            format!("POST /api/v1/similar ({name})"),
+            json!({"status": code, "found": !ids.is_empty(), "has_seed_or_excluded":
+                ids.iter().any(|i| *i == 1 || *i == 2), "error": v.get("error")}),
+        );
+    };
+    similar(
+        &mut out,
+        "similar to a track",
+        json!({"seeds": [{"type": "track", "id": 1}], "exclude": [2], "limit": 3}),
+    );
+    similar(
+        &mut out,
+        "similar to an album",
+        json!({"seeds": [{"type": "album", "id": 1}], "limit": 2, "detail": true}),
+    );
+    similar(&mut out, "no seeds", json!({"seeds": []}));
+    similar(
+        &mut out,
+        "url seed",
+        json!({"seeds": [{"type": "url", "url": "http://x"}]}),
+    );
 
     g.check("native_api", &Value::Object(out));
 }

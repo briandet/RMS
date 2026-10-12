@@ -165,6 +165,7 @@ pub async fn item_entries(server: &Arc<Server>, item: Item) -> Result<Vec<Entry>
 fn core_item(item: Item) -> core::Item {
     match item {
         Item::Track { id } => core::Item::Track(id),
+        Item::Tracks { ids } => core::Item::Tracks(ids),
         Item::Album { id } => core::Item::Album(id),
         Item::Artist { id } => core::Item::Artist(id),
         Item::Genre { id } => core::Item::Genre(id),
