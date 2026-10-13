@@ -246,6 +246,12 @@ impl Library {
             pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
         }
         profile.sound = sound.map(|s| s.rank);
+        // songs of the same kind (EffNet), when the seeds have been analysed
+        let style = self.style_index().closeness(seeds);
+        if let Some(style) = &style {
+            pool.extend(style.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
+        }
+        profile.style = style.map(|s| s.rank);
         if remote {
             pool.extend(remote_by_artists(&c, &profile, seeds));
         } else {
@@ -513,6 +519,8 @@ pub struct Profile {
     /// analysed track → how close it sounds to the seeds, 1 (nearest) to 0 (farthest);
     /// `None` when no seed has been analysed
     pub sound: Option<HashMap<i64, f64>>,
+    /// analysed track → how close it is in kind to the seeds (EffNet), as `sound`
+    pub style: Option<HashMap<i64, f64>>,
     pub weights: Weights,
 }
 
@@ -525,12 +533,44 @@ pub struct Weights {
     pub same_artist: f64,
     /// by an artist played around the same time as the seeds, or credited with them
     pub related_artist: f64,
-    /// sounding like the seeds
+    /// sounding like the seeds (bliss)
     pub sound: f64,
+    /// ... when the seeds' kind is known too (bliss then stands for energy and timbre)
+    pub sound_with_style: f64,
+    /// being the same kind of music as the seeds (EffNet)
+    pub style: f64,
     /// from about the same years
     pub era: f64,
     /// rating, plays, not played in the last day
     pub taste: f64,
+}
+
+impl Weights {
+    /// These weights with some changed: `"style=6,sound=1"` (names as the fields).
+    pub fn with(mut self, changes: &str) -> Result<Weights, String> {
+        for part in changes.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            let (k, v) = part
+                .split_once('=')
+                .ok_or_else(|| format!("{part}: name=value"))?;
+            let v: f64 = v
+                .trim()
+                .parse()
+                .map_err(|_| format!("{part}: not a number"))?;
+            let f = match k.trim() {
+                "genres" => &mut self.genres,
+                "same_artist" => &mut self.same_artist,
+                "related_artist" => &mut self.related_artist,
+                "sound" => &mut self.sound,
+                "sound_with_style" => &mut self.sound_with_style,
+                "style" => &mut self.style,
+                "era" => &mut self.era,
+                "taste" => &mut self.taste,
+                other => return Err(format!("no weight {other}")),
+            };
+            *f = v;
+        }
+        Ok(self)
+    }
 }
 
 impl Default for Weights {
@@ -540,6 +580,8 @@ impl Default for Weights {
             same_artist: 1.5,
             related_artist: 2.0,
             sound: 4.0,
+            sound_with_style: 2.0,
+            style: 4.0,
             era: 1.5,
             taste: 1.0,
         }
@@ -598,7 +640,17 @@ impl Profile {
         // yet get a middling score so they are neither favoured nor left out
         if let Some(sound) = &self.sound {
             let r = sound.get(&c.id).copied().unwrap_or(0.85);
-            s += w.sound * r.powi(8);
+            let ws = if self.style.is_some() {
+                w.sound_with_style
+            } else {
+                w.sound
+            };
+            s += ws * r.powi(8);
+        }
+        // kind: the same steep curve
+        if let Some(style) = &self.style {
+            let r = style.get(&c.id).copied().unwrap_or(0.85);
+            s += w.style * r.powi(8);
         }
         // era
         if let (Some(y), Some(cy)) = (self.year, c.year) {

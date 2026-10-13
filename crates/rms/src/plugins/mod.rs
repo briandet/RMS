@@ -5,6 +5,7 @@ pub mod alarm;
 pub mod artist_images;
 pub mod coverart;
 pub mod dstm;
+pub mod effnet;
 pub mod favorites;
 pub mod listenbrainz;
 pub mod musicbrainz;

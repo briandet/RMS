@@ -634,12 +634,20 @@ async fn tracks_by_ids(server: &Arc<Server>, ids: Vec<i64>) -> Result<Vec<Track>
 async fn add_details(server: &Arc<Server>, tracks: &mut [Track]) -> Result<(), LibraryError> {
     let ids: Vec<i64> = tracks.iter().filter_map(|t| t.id).collect();
     let lib = server.library.clone();
-    let mut details = tokio::task::spawn_blocking(move || lib.track_details(&ids))
-        .await
-        .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    let (mut details, mut kinds) = tokio::task::spawn_blocking(move || {
+        let kinds: std::collections::HashMap<i64, rms_library::effnet::Labels> = ids
+            .iter()
+            .filter_map(|id| Some((*id, lib.effnet_labels(*id)?)))
+            .collect();
+        (lib.track_details(&ids), kinds)
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?;
     for t in tracks {
         if let Some(d) = t.id.and_then(|id| details.remove(&id)) {
-            t.detail = Some(d.into());
+            let mut d: super::model::TrackDetail = d.into();
+            d.kind = t.id.and_then(|id| kinds.remove(&id)).map(Into::into);
+            t.detail = Some(d);
         }
     }
     Ok(())

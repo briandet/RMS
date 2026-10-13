@@ -394,6 +394,9 @@ pub fn pref(server: &Arc<Server>, r: &mut Request) {
             if pname == "sonicAnalysis" && !server.library.is_scanning() {
                 crate::plugins::sonic::spawn_analysis(server);
             }
+            if pname == crate::plugins::effnet::PREF {
+                crate::plugins::effnet::apply(server);
+            }
         }
         server
             .notifier

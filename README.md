@@ -245,6 +245,18 @@ grid, the bar's downbeat, major/minor key in Camelot notation, and an energy cur
 the groundwork for DJ-style transitions, and a **Chromaprint audio fingerprint**, so the same
 recording is recognised under other tags (or none).
 
+**What kind of music** (Settings → Library, *Analyse what kind of music each song is*, off by
+default): the sonic analysis also runs [Essentia](https://essentia.upf.edu/models.html)'s
+Discogs-EffNet model on each song (32 short excerpts across it, about a second and a half of
+CPU per song, in pure Rust).  It gives each song a 1280-number "style fingerprint" and
+names: Discogs styles (*Deep House*, *Hard Bop*, …), moods (happy, sad, relaxed, aggressive,
+party, danceable, acoustic or electronic, voice or instrumental), themes and instruments.  The
+mixes then weigh how close a song's style is to the seeds' alongside how it sounds (bliss),
+and the track's details show its styles and moods.  The models are the Music Technology
+Group's, under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (no
+commercial use), so they are not part of RMS: turning it on downloads them (about 30 MB)
+from essentia.upf.edu into `<data-dir>/models/effnet`.
+
 **MusicBrainz** (Settings → Library, *Identify recordings with MusicBrainz*, off by default):
 in the background, one request a second, RMS finds each recording on MusicBrainz — by the
 MusicBrainz id or ISRC in its tags, by its sound on AcoustID (with a free
@@ -313,7 +325,8 @@ aren't moved together.
 
 **How good are the mixes?** `rms-mix-eval` (built with `rms`) judges the similar-songs
 mixes against an outside opinion.  It picks seed songs from your library, makes mixes several
-ways — today's scoring, without sound, sound only, tags only, and at random — and counts a
+ways — today's scoring, without sound (bliss), without style (EffNet), sound only, style only,
+tags only, and at random — and counts a
 pick as a *hit* when ListenBrainz's listeners play its artist in the same sessions as the
 seed's.  Each way's hit rate is set against chance (how often a random song from your library
 would be a hit), so `lift` 1× is no better than random:
@@ -321,7 +334,12 @@ would be a hit), so `lift` 1× is no better than random:
 ```sh
 rms-mix-eval --data-dir /var/lib/rms --seeds 50          # a summary table
 rms-mix-eval --data-dir /var/lib/rms --details --json report.json   # and every mix
+rms-mix-eval --data-dir /var/lib/rms --try more-style:style=8,sound_with_style=1  # other weights
 ```
+
+`--try NAME:CHANGES` (repeatable) adds a way of mixing with some of the weights changed
+(`genres`, `same_artist`, `related_artist`, `sound`, `sound_with_style`, `style`, `era`,
+`taste`); each way is also set against the first, by seeds won and lost.
 
 It reads the data folder (RMS can keep running) and caches ListenBrainz's answers
 (`--offline` reuses them).  Seeds need artists with MusicBrainz ids (tags or identification)

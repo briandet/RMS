@@ -1,6 +1,6 @@
 //! `rms-mix-eval`: how good are the similar-songs mixes?  For seed tracks from the library, it
-//! makes mixes several ways (today's scoring, without sound, sound only, tags only, at random)
-//! and checks each pick against ListenBrainz: a *hit* is a song by an artist ListenBrainz's
+//! makes mixes several ways (today's scoring; without sound (bliss) or kind (EffNet); sound,
+//! kind or tags alone; at random; any weights to try) and checks each pick against ListenBrainz: a *hit* is a song by an artist ListenBrainz's
 //! listeners play in the same sessions as the seed's artist.  See `rms_library::mix_eval`.
 //!
 //! It reads RMS's data folder (the library database, the sound analysis) and changes nothing
@@ -39,13 +39,19 @@ struct Args {
     /// Mixes per seed and way of mixing (they differ by chance).
     #[arg(long, default_value_t = 3)]
     repeats: usize,
-    /// Ways of mixing to compare, the first being the one the others are compared with.
+    /// Ways of mixing to compare, the first being the one the others are compared with:
+    /// current, no-sound, no-style, sound-only, style-only, tags-only, random.
     #[arg(
         long,
         value_delimiter = ',',
-        default_value = "current,no-sound,sound-only,tags-only,random"
+        default_value = "current,no-sound,no-style,sound-only,style-only,tags-only,random"
     )]
     variants: Vec<String>,
+    /// Also today's scoring with some weights changed, as `name:weight=value,…` (weights:
+    /// genres, same_artist, related_artist, sound, sound_with_style, style, era, taste).
+    /// Can be repeated.
+    #[arg(long = "try", value_name = "NAME:CHANGES")]
+    tries: Vec<String>,
     /// A seed's artist needs this many songs in the library by artists ListenBrainz finds
     /// similar (with fewer, no mix can do well and the seed tells nothing).
     #[arg(long, default_value_t = 3)]
@@ -78,11 +84,24 @@ async fn main() {
 }
 
 async fn run(args: Args) -> anyhow::Result<()> {
-    let variants: Vec<Variant> = args
+    let mut variants: Vec<(String, Variant)> = args
         .variants
         .iter()
-        .map(|v| Variant::parse(v).ok_or_else(|| anyhow::anyhow!("unknown variant {v}")))
+        .map(|v| {
+            Variant::parse(v)
+                .map(|x| (v.clone(), x))
+                .ok_or_else(|| anyhow::anyhow!("unknown variant {v}"))
+        })
         .collect::<Result<_, _>>()?;
+    for t in &args.tries {
+        let (name, changes) = t
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("--try {t}: name:weight=value,…"))?;
+        let w = rms_library::mix::Weights::default()
+            .with(changes)
+            .map_err(|e| anyhow::anyhow!("--try {t}: {e}"))?;
+        variants.push((name.to_string(), Variant::Custom(w)));
+    }
     let db = args.data_dir.join("library.sqlite");
     if !db.exists() {
         anyhow::bail!("no library at {} (use --data-dir)", db.display());
@@ -90,13 +109,18 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let lib = Library::open(&db, &args.data_dir.join("cache"))?;
     let cat = lib.eval_catalog()?;
     let analysed = lib.sound_index().len();
+    let kind = lib.style_index().len();
     eprintln!(
-        "library: {} tracks, {} analysed for sound",
+        "library: {} tracks, {} analysed for sound (bliss), {} for kind (EffNet)",
         cat.track_artist.len(),
-        analysed
+        analysed,
+        kind
     );
     if analysed == 0 {
         eprintln!("(no sound analysis yet: the sound variants mix like the others without it)");
+    }
+    if kind == 0 {
+        eprintln!("(no EffNet analysis: the style variants mix like the others without it)");
     }
 
     // seeds: tracks whose artist ListenBrainz knows, with enough similar music in the library
@@ -143,7 +167,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     let mut mixes: Vec<Vec<Vec<Mix>>> = Vec::new();
     for (ci, case) in cases.iter().enumerate() {
         let mut per_variant = Vec::new();
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, (_, v)) in variants.iter().enumerate() {
             let mut ms = Vec::new();
             for r in 0..args.repeats {
                 let mut rng = StdRng::seed_from_u64(
@@ -157,7 +181,8 @@ async fn run(args: Args) -> anyhow::Result<()> {
         eprint!("\rmixing: {}/{}", ci + 1, cases.len());
     }
     eprintln!();
-    let summaries = mix_eval::summarize(&cases, &variants, &mixes);
+    let names: Vec<String> = variants.iter().map(|(n, _)| n.clone()).collect();
+    let summaries = mix_eval::summarize(&cases, &names, &mixes);
 
     let artist_name = |track: i64| {
         cat.track_artist
@@ -176,7 +201,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 case.similar_tracks,
                 case.others
             );
-            for (vi, v) in variants.iter().enumerate() {
+            for (vi, name) in names.iter().enumerate() {
                 let m = &mixes[ci][vi][0];
                 let marks: Vec<String> = m
                     .picks
@@ -192,7 +217,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                     .collect();
                 println!(
                     "  {:<11} {}/{}  {}",
-                    v.name(),
+                    name,
                     m.hits,
                     m.others,
                     marks.join(", ")
@@ -214,11 +239,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
     );
     println!(
         "{:<11} {:>15} {:>7} {:>12}   compared with {}",
-        "way",
-        "hit rate",
-        "lift",
-        "same artist",
-        variants[0].name()
+        "way", "hit rate", "lift", "same artist", names[0]
     );
     for (i, s) in summaries.iter().enumerate() {
         let vs = if i == 0 {
@@ -261,7 +282,7 @@ async fn run(args: Args) -> anyhow::Result<()> {
                 "chance": c.chance(),
                 "similar_tracks": c.similar_tracks,
                 "others": c.others,
-                "mixes": variants.iter().enumerate().map(|(vi, v)| (v.name().to_string(),
+                "mixes": names.iter().enumerate().map(|(vi, name)| (name.clone(),
                     Value::from(mixes[ci][vi].iter().map(|m| json!({
                         "hits": m.hits, "others": m.others, "same_artist": m.same_artist,
                         "picks": m.picks.iter().map(|t| json!({

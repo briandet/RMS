@@ -188,6 +188,45 @@ pub struct TrackDetail {
     pub loudness: Option<f64>,
     /// The sonic analysis is done, so similar songs can go by how it sounds.
     pub analyzed: bool,
+    /// What kind of music it is, by EffNet (when that analysis is on and has reached it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<TrackKind>,
+}
+
+/// EffNet-Discogs' view of a track: the likeliest Discogs styles, moods and qualities (0–1;
+/// approachability and engagement as the model gives them), and the likeliest MTG-Jamendo
+/// themes and instruments.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct TrackKind {
+    pub styles: Vec<Label>,
+    pub moods: Vec<Label>,
+    pub themes: Vec<Label>,
+    pub instruments: Vec<Label>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Label {
+    pub name: String,
+    pub score: f32,
+}
+
+impl From<rms_library::effnet::Labels> for TrackKind {
+    fn from(l: rms_library::effnet::Labels) -> Self {
+        let v = |x: Vec<(String, f32)>| {
+            x.into_iter()
+                .map(|(name, score)| Label {
+                    name,
+                    score: (score * 1000.0).round() / 1000.0,
+                })
+                .collect()
+        };
+        TrackKind {
+            styles: v(l.styles),
+            moods: v(l.moods),
+            themes: v(l.themes),
+            instruments: v(l.instruments),
+        }
+    }
 }
 
 impl From<rms_library::find::TrackDetail> for TrackDetail {
@@ -205,6 +244,7 @@ impl From<rms_library::find::TrackDetail> for TrackDetail {
             isrc: d.isrc,
             loudness: d.loudness,
             analyzed: d.analyzed,
+            kind: None,
         }
     }
 }
@@ -1016,6 +1056,16 @@ pub struct ServerSettings {
     pub scrobble_pending: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scrobble_error: Option<String>,
+    /// Analyse what kind of music each track is with EffNet-Discogs (models downloaded from
+    /// MTG, non-commercial licence).
+    pub effnet: bool,
+    /// `off`, `downloading`, `ready` or `failed` (with `effnet_error`).
+    pub effnet_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effnet_error: Option<String>,
+    /// Tracks analysed with EffNet, and still to analyse.
+    pub effnet_analyzed: i64,
+    pub effnet_pending: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1061,6 +1111,7 @@ pub struct ServerSettingsPatch {
     pub file_name_template: Option<String>,
     pub listenbrainz: Option<bool>,
     pub scrobble_spotify: Option<bool>,
+    pub effnet: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]

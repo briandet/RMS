@@ -100,6 +100,13 @@ impl Library {
             }
         }
         self.add_remote_to_sound_index(row, features);
+        // what kind of music it is, when EffNet analysis is on
+        if let Some(m) = self.effnet() {
+            match crate::effnet::analyze(&m, samples, sonic::SAMPLE_RATE) {
+                Ok(a) => self.store_effnet(&c, &fp, a.as_ref()),
+                Err(e) => tracing::debug!("EffNet analysis of {}: {e}", t.title),
+            }
+        }
         info!(
             "learned {} \"{}\" by {}: {:.1} BPM, {}",
             t.source,
@@ -274,10 +281,16 @@ impl Library {
                (SELECT fingerprint FROM remote_tracks WHERE source = ?)",
             [source],
         )?;
+        tx.execute(
+            "DELETE FROM track_effnet WHERE fingerprint IN
+               (SELECT fingerprint FROM remote_tracks WHERE source = ?)",
+            [source],
+        )?;
         let n = tx.execute("DELETE FROM remote_tracks WHERE source = ?", [source])?;
         tx.commit()?;
-        // the index has them: load it again when next needed
+        // the indexes have them: load them again when next needed
         *self.inner.sound.write() = None;
+        self.reset_style_index();
         debug!("forgot {n} {source} tracks");
         Ok(n)
     }

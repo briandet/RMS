@@ -19,21 +19,30 @@ use std::collections::{HashMap, HashSet};
 pub enum Variant {
     /// Today's scoring.
     Current,
-    /// Without how the songs sound.
+    /// Without how the songs sound (bliss).
     NoSound,
+    /// Without what kind of music they are (EffNet): bliss as before EffNet.
+    NoStyle,
     /// Only how the songs sound.
     SoundOnly,
-    /// Only tags: genres, artists, years (no sound, no listening history).
+    /// Only what kind of music they are.
+    StyleOnly,
+    /// Only tags: genres, artists, years (no sound, kind or listening history).
     TagsOnly,
     /// Songs at random: the floor.
     Random,
+    /// Today's scoring with some weights changed (`--try`).
+    #[serde(skip)]
+    Custom(Weights),
 }
 
 impl Variant {
-    pub const ALL: [Variant; 5] = [
+    pub const ALL: [Variant; 7] = [
         Variant::Current,
         Variant::NoSound,
+        Variant::NoStyle,
         Variant::SoundOnly,
+        Variant::StyleOnly,
         Variant::TagsOnly,
         Variant::Random,
     ];
@@ -42,9 +51,12 @@ impl Variant {
         match self {
             Variant::Current => "current",
             Variant::NoSound => "no-sound",
+            Variant::NoStyle => "no-style",
             Variant::SoundOnly => "sound-only",
+            Variant::StyleOnly => "style-only",
             Variant::TagsOnly => "tags-only",
             Variant::Random => "random",
+            Variant::Custom(_) => "custom",
         }
     }
 
@@ -60,22 +72,41 @@ impl Variant {
             same_artist: 0.0,
             related_artist: 0.0,
             sound: 0.0,
+            sound_with_style: 0.0,
+            style: 0.0,
             era: 0.0,
             taste: 0.0,
         };
         match self {
             Variant::Current => Some(d),
-            Variant::NoSound => Some(Weights { sound: 0.0, ..d }),
+            Variant::NoSound => Some(Weights {
+                sound: 0.0,
+                sound_with_style: 0.0,
+                ..d
+            }),
+            Variant::NoStyle => Some(Weights {
+                style: 0.0,
+                sound_with_style: d.sound,
+                ..d
+            }),
             Variant::SoundOnly => Some(Weights {
                 sound: d.sound,
+                sound_with_style: d.sound,
+                ..none
+            }),
+            Variant::StyleOnly => Some(Weights {
+                style: d.style,
                 ..none
             }),
             Variant::TagsOnly => Some(Weights {
                 sound: 0.0,
+                sound_with_style: 0.0,
+                style: 0.0,
                 taste: 0.0,
                 ..d
             }),
             Variant::Random => None,
+            Variant::Custom(w) => Some(w),
         }
     }
 }
@@ -353,9 +384,9 @@ pub struct Summary {
     pub losses: usize,
 }
 
-/// Summaries of the variants over the cases (`mixes[case][variant]` holds that case's
-/// repeated mixes); wins, ties and losses are against the first variant.
-pub fn summarize(cases: &[Case], variants: &[Variant], mixes: &[Vec<Vec<Mix>>]) -> Vec<Summary> {
+/// Summaries of the variants (by name) over the cases (`mixes[case][variant]` holds that
+/// case's repeated mixes); wins, ties and losses are against the first variant.
+pub fn summarize(cases: &[Case], variants: &[String], mixes: &[Vec<Vec<Mix>>]) -> Vec<Summary> {
     // per case and variant: hit rate over the repeats
     let rate = |ms: &[Mix]| -> Option<f64> {
         let others: usize = ms.iter().map(|m| m.others).sum();
@@ -366,7 +397,7 @@ pub fn summarize(cases: &[Case], variants: &[Variant], mixes: &[Vec<Vec<Mix>>]) 
         .enumerate()
         .map(|(vi, v)| {
             let mut s = Summary {
-                variant: v.name().into(),
+                variant: v.clone(),
                 ..Default::default()
             };
             let mut rates = Vec::new();
@@ -492,7 +523,7 @@ mod tests {
             vec![m(vec![20, 40])],
             vec![m(vec![11, 20])],
         ]];
-        let v = [Variant::Current, Variant::NoSound, Variant::SoundOnly];
+        let v = ["current".into(), "no-sound".into(), "sound-only".into()];
         let s = summarize(&[case], &v, &mixes);
         assert_eq!(s[0].hit_rate, 0.0);
         assert_eq!(s[1].hit_rate, 0.5);

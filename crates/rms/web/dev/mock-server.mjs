@@ -156,6 +156,7 @@ const settings = {
   musicbrainz: false, acoustid_key: '', musicbrainz_identified: 0, musicbrainz_pending: 0,
   listenbrainz: false, discovered: 0, discovered_played: 0, discovered_rejected: 0,
   listenbrainz_accounts: [], scrobble_spotify: false, scrobble_pending: 0,
+  effnet: false, effnet_status: 'off', effnet_analyzed: 0, effnet_pending: 0,
 };
 const scan = { running: false, start: 0, total: tracks.length };
 let lastscan = Math.floor(Date.now() / 1000) - 3600 * 5;

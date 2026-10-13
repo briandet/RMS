@@ -40,6 +40,10 @@ rustfft = "6.4"
 symphonia = { version = "0.6", default-features = false }
 # Audio fingerprints (Chromaprint's, pure Rust): the same recording in the library and a stream.
 rusty-chromaprint = "0.3"
+# EffNet-Discogs (crate::effnet): ONNX and TensorFlow models in pure Rust
+tract-onnx = "0.21"
+tract-tensorflow = "0.21"
+half = "2"
 
 [dev-dependencies]
 tempfile = "3"

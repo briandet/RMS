@@ -155,7 +155,15 @@ async fn mixes_are_judged_against_listenbrainz() {
         .collect();
     assert_eq!(
         names,
-        ["current", "no-sound", "sound-only", "tags-only", "random"]
+        [
+            "current",
+            "no-sound",
+            "no-style",
+            "sound-only",
+            "style-only",
+            "tags-only",
+            "random"
+        ]
     );
     for s in summaries {
         assert_eq!(s["mixes"], 4, "2 seeds, 2 repeats: {s}");

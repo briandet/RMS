@@ -197,14 +197,21 @@ curl -N http://localhost:9000/api/v1/events
 ```json
 {"genres": ["Jazz", "Modal"], "bpm": 136.2, "key": "8A", "rating": 80, "play_count": 12,
  "skip_count": 1, "last_played": 1791694802, "added": 1780000000,
- "mbid": "5fb524f1-…", "isrc": "USSM15900113", "loudness": -14.2, "analyzed": true}
+ "mbid": "5fb524f1-…", "isrc": "USSM15900113", "loudness": -14.2, "analyzed": true,
+ "kind": {"styles": [{"name": "Electronic---Techno", "score": 0.62}],
+          "moods": [{"name": "danceable", "score": 0.97}, {"name": "party", "score": 0.94}],
+          "themes": [{"name": "energetic", "score": 0.21}],
+          "instruments": [{"name": "synthesizer", "score": 0.55}]}}
 ```
 
   `bpm` is the measured tempo, else the `BPM` tag; `key` the measured key as a Camelot code
   (`8A` is A minor, `8B` C major).  Both, and `loudness` (LUFS), come from the sonic analysis,
   as it reaches each track.  `rating` is 0–100.  `skip_count` counts plays left within 30
   seconds.  `analyzed`: how the song sounds is known, so [similar songs](#similar-songs) go by
-  it.
+  it.  `kind` is there once the [EffNet analysis](#server-settings) has reached the song:
+  its likeliest Discogs styles (`Genre---Style`), moods (`happy`, `sad`, `relaxed`,
+  `aggressive`, `party`, `danceable`, `acoustic`, `electronic`, `voice`, and `approachability`
+  and `engagement` as 0–1 values), themes and instruments, each with a score of 0–1.
 
 ### Queue
 
@@ -634,13 +641,16 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
  "listenbrainz": false,
  "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
  "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
- "scrobble_pending": 0, "scrobble_error": "…"}
+ "scrobble_pending": 0, "scrobble_error": "…", "effnet": false, "effnet_status": "ready",
+ "effnet_error": "…", "effnet_analyzed": 0, "effnet_pending": 0}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
 Unknown fields are an error.  `watch_folders` scans what changes in the music folders as
 it changes (see the README).  `albums_matched`, `albums_uncertain` and `albums_pending` count
-albums by [release match](#album-release).  Changed music folders take effect with the next scan:
+albums by [release match](#album-release).  `effnet` turns on the EffNet analysis
+(downloading its models first); `effnet_status` is `off`, `downloading`, `ready` or `failed`
+(with `effnet_error`), and `effnet_analyzed` / `effnet_pending` count the songs done and to do.  Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and
 removed files), `{"mode": "playlists"}` or `{"mode": "full"}` (clear the library and scan
