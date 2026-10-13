@@ -32,8 +32,7 @@ pub const MAX_ADVENTUROUS: i64 = 40;
 /// ListenBrainz's similarity datasets (they are named by how they were made).
 const RECORDINGS_ALGORITHM: &str =
     "session_based_days_9000_session_300_contribution_5_threshold_15_limit_50_skip_30";
-const ARTISTS_ALGORITHM: &str =
-    "session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30";
+const ARTISTS_ALGORITHM: &str = rms_library::discover::LB_ARTISTS_ALGORITHM;
 const CACHE_SECS: i64 = 30 * 86400;
 /// Recommendations are renewed every few days, the playlists made for a user daily.
 const RECS_SECS: i64 = 86400;

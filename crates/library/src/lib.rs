@@ -29,6 +29,7 @@ pub mod discover;
 pub mod find;
 pub mod loudness;
 pub mod mix;
+pub mod mix_eval;
 pub mod musicbrainz;
 pub mod organize;
 pub mod playlist_files;

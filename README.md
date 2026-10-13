@@ -311,6 +311,24 @@ covers, and the Tags page offers to embed a cover rather than put it in such a f
 tracks without an album tag aren't an album there either: each is changed on its own, and they
 aren't moved together.
 
+**How good are the mixes?** `rms-mix-eval` (built with `rms`) judges the similar-songs
+mixes against an outside opinion.  It picks seed songs from your library, makes mixes several
+ways — today's scoring, without sound, sound only, tags only, and at random — and counts a
+pick as a *hit* when ListenBrainz's listeners play its artist in the same sessions as the
+seed's.  Each way's hit rate is set against chance (how often a random song from your library
+would be a hit), so `lift` 1× is no better than random:
+
+```sh
+rms-mix-eval --data-dir /var/lib/rms --seeds 50          # a summary table
+rms-mix-eval --data-dir /var/lib/rms --details --json report.json   # and every mix
+```
+
+It reads the data folder (RMS can keep running) and caches ListenBrainz's answers
+(`--offline` reuses them).  Seeds need artists with MusicBrainz ids (tags or identification)
+and a few songs here by artists ListenBrainz finds similar; the same `--rng-seed` gives the same
+seeds.  Hits measure "listened to together", not taste; use it to compare ways of mixing, not
+as a grade.
+
 **Discovery with ListenBrainz** (Settings → Library, *Discover music with ListenBrainz*, off
 by default): a share of each Similar Songs and Create Mix batch — each player's *Adventurous*
 setting, 15% unless changed — is music you haven't played: recordings ListenBrainz listeners

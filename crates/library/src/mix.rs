@@ -182,6 +182,27 @@ impl Library {
         exclude: &HashSet<i64>,
         remote: bool,
     ) -> Vec<i64> {
+        self.similar_tracks_weighted(
+            seeds,
+            n,
+            exclude,
+            remote,
+            Weights::default(),
+            &mut rand::rng(),
+        )
+    }
+
+    /// [`Library::similar_tracks_with`] scoring with these weights (to compare ways of
+    /// scoring: `rms-mix-eval`).
+    pub fn similar_tracks_weighted(
+        &self,
+        seeds: &[i64],
+        n: usize,
+        exclude: &HashSet<i64>,
+        remote: bool,
+        weights: Weights,
+        rng: &mut impl Rng,
+    ) -> Vec<i64> {
         let Ok(c) = self.conn() else {
             return Vec::new();
         };
@@ -190,6 +211,7 @@ impl Library {
             return Vec::new();
         }
         let mut profile = Profile::from_seeds(&seed_info);
+        profile.weights = weights;
         profile.related = related_artists(&c, &profile);
 
         // candidates: sharing a genre or an artist with the seeds, then random ones
@@ -252,15 +274,7 @@ impl Library {
             dup
         };
         let now = crate::scanner::now();
-        pick(
-            &profile,
-            &candidates,
-            &avoid,
-            &duplicate,
-            n,
-            now,
-            &mut rand::rng(),
-        )
+        pick(&profile, &candidates, &avoid, &duplicate, n, now, rng)
     }
 }
 
@@ -499,6 +513,37 @@ pub struct Profile {
     /// analysed track → how close it sounds to the seeds, 1 (nearest) to 0 (farthest);
     /// `None` when no seed has been analysed
     pub sound: Option<HashMap<i64, f64>>,
+    pub weights: Weights,
+}
+
+/// How much each part of a similar-songs score counts (the most it adds).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Weights {
+    /// sharing the seeds' genres
+    pub genres: f64,
+    /// by a seed's artist
+    pub same_artist: f64,
+    /// by an artist played around the same time as the seeds, or credited with them
+    pub related_artist: f64,
+    /// sounding like the seeds
+    pub sound: f64,
+    /// from about the same years
+    pub era: f64,
+    /// rating, plays, not played in the last day
+    pub taste: f64,
+}
+
+impl Default for Weights {
+    fn default() -> Weights {
+        Weights {
+            genres: 3.0,
+            same_artist: 1.5,
+            related_artist: 2.0,
+            sound: 4.0,
+            era: 1.5,
+            taste: 1.0,
+        }
+    }
 }
 
 impl Profile {
@@ -523,17 +568,19 @@ impl Profile {
 
     /// How well `c` fits the seeds (higher is better).
     pub fn score(&self, c: &Candidate, now: i64) -> f64 {
+        let w = &self.weights;
         let mut s = 0.0;
         // genres: the share of the seeds' genre weight this track has
         if !self.genres.is_empty() {
             let total: f64 = self.genres.values().sum();
             let shared: f64 = c.genres.iter().filter_map(|g| self.genres.get(g)).sum();
             // a streamed track's genres are unknown: neither a match nor a miss
-            s += if c.remote && c.genres.is_empty() {
-                1.5
-            } else {
-                3.0 * shared / total
-            };
+            s += w.genres
+                * if c.remote && c.genres.is_empty() {
+                    0.5
+                } else {
+                    shared / total
+                };
         }
         // same artist as a seed, or one played / appearing with them
         let same = c
@@ -546,28 +593,28 @@ impl Profile {
             .iter()
             .filter_map(|a| self.related.get(a).copied())
             .fold(0.0, f64::max);
-        s += 1.5 * same.min(1.0) + 2.0 * related;
+        s += w.same_artist * same.min(1.0) + w.related_artist * related;
         // sound: only the closest few percent of the library count much; tracks not analysed
         // yet get a middling score so they are neither favoured nor left out
         if let Some(sound) = &self.sound {
             let r = sound.get(&c.id).copied().unwrap_or(0.85);
-            s += 4.0 * r.powi(8);
+            s += w.sound * r.powi(8);
         }
         // era
         if let (Some(y), Some(cy)) = (self.year, c.year) {
-            s += 1.5 * (-(y - cy as f64).abs() / 8.0).exp();
+            s += w.era * (-(y - cy as f64).abs() / 8.0).exp();
         }
         // taste: liked and played songs a little more, recently played ones less
-        s += 1.0 * c.rating as f64 / 100.0;
+        let mut taste = c.rating as f64 / 100.0;
         if c.play_count > 0 {
-            s += 0.3;
+            taste += 0.3;
         }
         if let Some(t) = c.last_played {
             if now - t < 24 * 3600 {
-                s -= 2.0;
+                taste -= 2.0;
             }
         }
-        s
+        s + w.taste * taste
     }
 }
 
