@@ -616,8 +616,9 @@ tens of thousands of stations: search, popular, top voted, by country, genre and
 ### Spotify
 
 `GET /api/v1/spotify` is 404 when this server has no Spotify support, otherwise
-`{"signed_in": true, "user": "…", "product": "premium", "error": "…", "learn": true,
-"learned": 120}`.  `learn`: what Spotify tracks sound like is learned as they play, for
+`{"signed_in": true, "user": "…", "product": "premium", "error": "…", "connect_error": "…",
+"learn": true, "learned": 120}`.  `connect_error`: why a player isn't available as a Spotify
+Connect device (RMS tries again later and later, up to every 30 minutes).  `learn`: what Spotify tracks sound like is learned as they play, for
 mixes; `learned`: how many are.  `PATCH /api/v1/spotify` with `{"learn": false}` turns it
 off; `DELETE /api/v1/spotify/learned` forgets them.
 
