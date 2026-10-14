@@ -178,10 +178,11 @@ const SCREEN_MODELS = new Set(['squeezebox2', 'squeezebox3', 'transporter', 'boo
 
 function makePlayer(i) {
   const mac = `aa:bb:cc:00:00:0${i + 1}`;
-  const model = ['squeezelite', 'squeezebox3', 'boom'][i] || 'squeezelite';
+  // PLAYERS=7: one of every kind (the web UI groups players by kind)
+  const model = ['squeezelite', 'squeezebox3', 'boom', 'chromecast', 'airplay', 'upnp', 'browser'][i] || 'squeezelite';
   const p = {
-    playerid: mac, name: ['Living Room', 'Kitchen', 'Office'][i] || `Player ${i + 1}`,
-    model, modelname: ['SqueezeLite', 'Squeezebox Classic', 'Squeezebox Boom'][i] || 'SqueezeLite',
+    playerid: mac, name: ['Living Room', 'Kitchen', 'Office', 'Bedroom TV', 'JBL Boombox 3', 'Living Room (UPnP)', 'Chrome on macOS'][i] || `Player ${i + 1}`,
+    model, modelname: ['SqueezeLite', 'Squeezebox Classic', 'Squeezebox Boom', 'Chromecast', 'AirPlay', 'UPnP renderer', 'Web browser'][i] || 'SqueezeLite',
     ip: `192.168.1.${20 + i}`, connected: true, power: true,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),

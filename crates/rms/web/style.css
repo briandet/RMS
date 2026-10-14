@@ -191,7 +191,18 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .brand:hover { text-decoration: none; }
 .brand .brand-mark { width: 30px; height: 30px; padding: 4px; border-radius: 8px; background: var(--accent); fill: var(--on-accent); }
 .player-picker { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.player-picker select { max-width: 220px; font-weight: 600; border-radius: 999px; padding-left: 14px; }
+.player-button {
+  display: flex; align-items: center; gap: 8px; min-height: 38px; max-width: 240px; min-width: 0;
+  padding: 6px 10px 6px 12px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer;
+}
+.player-button:hover:not(:disabled) { background: var(--surface-2); }
+.player-button:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.player-button:disabled { opacity: .6; cursor: default; }
+.player-button .icon { width: 20px; height: 20px; flex: none; color: var(--accent); }
+.player-button-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.player-button .player-button-chevron { width: 18px; height: 18px; color: var(--muted); transform: rotate(90deg); transition: transform .15s; }
+.player-button[aria-expanded="true"] .player-button-chevron { transform: rotate(-90deg); }
 #power-btn.on { color: var(--accent); }
 #power-btn:not(.on):not(:disabled) { color: var(--muted); }
 .search { position: relative; flex: 1; max-width: 520px; margin-left: auto; }
@@ -486,7 +497,7 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
   .app-header { flex-wrap: wrap; gap: 6px 8px; padding: 6px 12px; padding-top: max(6px, env(safe-area-inset-top)); }
   .brand .brand-name { display: none; }
   .player-picker { flex: 1; }
-  .player-picker select { max-width: none; flex: 1; }
+  .player-button { max-width: none; flex: 1; }
   .header-actions { order: 2; }
   .search { order: 3; flex-basis: 100%; max-width: none; }
   .search input { min-height: 36px; }
@@ -630,6 +641,18 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .menu-item:hover, .menu-item:focus-visible { background: var(--surface-2); outline: none; }
 .menu-item.danger, .menu-item.danger .icon { color: var(--danger); }
 .menu-sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.menu { max-height: calc(100vh - 16px); overflow-y: auto; }
+.menu-group + .menu-group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
+.menu-heading {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px;
+  font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+}
+.menu-heading .icon { width: 16px; height: 16px; flex: none; }
+.menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-detail { color: var(--muted); font-size: .85rem; flex: none; }
+.menu-item .menu-check { visibility: hidden; color: var(--accent); }
+.menu-item.checked .menu-check { visibility: visible; }
+.menu-item.checked { font-weight: 600; }
 .more-btn { color: var(--muted); }
 .card .actions .more-btn { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; }
 .card .actions .more-btn .icon { width: 18px; height: 18px; }

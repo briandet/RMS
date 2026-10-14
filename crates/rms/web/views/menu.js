@@ -12,7 +12,7 @@ let open = null;
 /** Close the open menu (if any). */
 export function closeMenu() {
   if (!open) return;
-  const { el, restore, onKey, onAway } = open;
+  const { el, restore, onKey, onAway, onClose } = open;
   open = null;
   el.remove();
   document.removeEventListener('keydown', onKey, true);
@@ -20,31 +20,55 @@ export function closeMenu() {
   window.removeEventListener('resize', closeMenu);
   document.getElementById('main')?.removeEventListener('scroll', closeMenu);
   restore?.focus?.();
+  onClose?.();
 }
 
 /**
  * Show a menu.  `at`: {x, y} (pointer) or an element to open under.  `entries`: [{label,
- * icon, run, danger}] or 'sep' for a separator.
+ * icon, run, danger, checked, detail}], 'sep' for a separator, or {heading, icon} to start a
+ * group of entries under a heading.  `checked` (true or false) makes the entries a choice of
+ * one, the checked one marked.  `align: 'start'` lines the menu up with the element's left
+ * edge instead of its right.  `onClose` runs when it closes.
  */
-export function openMenu(at, title, entries) {
+export function openMenu(at, title, entries, { align = 'end', onClose } = {}) {
   closeMenu();
   const sheet = matchMedia('(max-width: 700px)').matches;
   const buttons = [];
+  let first = null;
   const el = h('div', { class: `menu${sheet ? ' sheet' : ''}`, role: 'menu', 'aria-label': title },
-    sheet && h('div', { class: 'menu-title' }, title),
-    ...entries.filter(Boolean).map((e) => {
-      if (e === 'sep') return h('div', { class: 'menu-sep', role: 'separator' });
-      const b = h('button', { class: `menu-item${e.danger ? ' danger' : ''}`, type: 'button', role: 'menuitem', tabindex: '-1',
-        onclick: (ev) => { ev.stopPropagation(); closeMenu(); e.run(); } }, e.icon && icon(e.icon), e.label);
-      buttons.push(b);
-      return b;
-    }));
+    sheet && h('div', { class: 'menu-title' }, title));
+  let parent = el;
+  for (const e of entries.filter(Boolean)) {
+    if (e === 'sep') {
+      el.append(h('div', { class: 'menu-sep', role: 'separator' }));
+      parent = el;
+      continue;
+    }
+    if (e.heading) {
+      const id = `menu-h-${Math.random().toString(36).slice(2)}`;
+      parent = h('div', { class: 'menu-group', role: 'group', 'aria-labelledby': id },
+        h('div', { class: 'menu-heading', id }, e.icon && icon(e.icon), e.heading));
+      el.append(parent);
+      continue;
+    }
+    const choice = typeof e.checked === 'boolean';
+    const b = h('button', {
+      class: `menu-item${e.danger ? ' danger' : ''}${e.checked ? ' checked' : ''}`, type: 'button',
+      role: choice ? 'menuitemradio' : 'menuitem', 'aria-checked': choice ? String(e.checked) : null, tabindex: '-1',
+      onclick: (ev) => { ev.stopPropagation(); closeMenu(); e.run(); },
+    }, e.icon && icon(e.icon), h('span', { class: 'menu-label' }, e.label),
+    e.detail && h('span', { class: 'menu-detail' }, e.detail),
+    choice && icon('check', 'icon menu-check'));
+    buttons.push(b);
+    if (e.checked) first = b;
+    parent.append(b);
+  }
   const restore = document.activeElement;
   document.body.append(el);
   if (!sheet) {
     const r = at instanceof Element ? at.getBoundingClientRect() : { left: at.x, right: at.x, top: at.y, bottom: at.y };
     const w = el.offsetWidth, ht = el.offsetHeight;
-    let x = at instanceof Element ? r.right - w : r.left;
+    let x = at instanceof Element && align !== 'start' ? r.right - w : r.left;
     let y = r.bottom + 4;
     if (y + ht > innerHeight - 8) y = Math.max(8, r.top - ht - 4);
     x = Math.min(Math.max(8, x), innerWidth - w - 8);
@@ -62,12 +86,12 @@ export function openMenu(at, title, entries) {
     else if (e.key === 'Tab') closeMenu();
   };
   const onAway = (e) => { if (!el.contains(e.target)) closeMenu(); };
-  open = { el, restore, onKey, onAway };
+  open = { el, restore, onKey, onAway, onClose };
   document.addEventListener('keydown', onKey, true);
   setTimeout(() => document.addEventListener('pointerdown', onAway, true));
   window.addEventListener('resize', closeMenu);
   document.getElementById('main')?.addEventListener('scroll', closeMenu, { passive: true });
-  focus(0);
+  if (first) first.focus(); else focus(0);
 }
 
 /**
