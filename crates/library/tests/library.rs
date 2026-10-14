@@ -1092,7 +1092,7 @@ fn the_search_index_is_built_for_an_older_database() {
              DROP TABLE discovered; DROP TABLE web_cache;
              DROP TABLE scrobble_queue;
              DROP TABLE mb_releases; DROP TABLE track_release; DROP TABLE tag_edits; DROP TABLE release_art; DROP TABLE track_cover_release;
-             DROP TABLE track_effnet;
+             DROP TABLE track_effnet; DROP TABLE track_spectrum;
              ALTER TABLE track_stats DROP COLUMN skip_count;
              DROP INDEX tracks_isrc; ALTER TABLE tracks DROP COLUMN isrc;
              PRAGMA user_version = 1;",
@@ -1111,6 +1111,7 @@ fn the_search_index_is_built_for_an_older_database() {
         "track_release",
         "mb_releases",
         "track_effnet",
+        "track_spectrum",
     ] {
         let n: i64 = c
             .query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))

@@ -87,6 +87,27 @@ index?: number,
  */
 name?: string, };
 
+export type Spectrum = { kind: SpectrumKind, 
+/**
+ * What the curve belongs to; a different key is a different curve.
+ */
+key: string, 
+/**
+ * Readings per second.
+ */
+fps: number, 
+/**
+ * Position in the track (seconds) of the first reading.
+ */
+start: number, 
+/**
+ * The readings, base64: two bytes each, four levels 0–15 (bass, low mids, high mids,
+ * treble), the first of each pair in the high four bits.
+ */
+curve: string, };
+
+export type SpectrumKind = "track" | "live" | "none";
+
 export type Track = { 
 /**
  * Library track id; absent for streams and services.
@@ -331,10 +352,10 @@ how: string, };
 
 export type AnalysisProgress = { 
 /**
- * The background analysis (bliss, rhythm, Chromaprint and EffNet, in one pass over the
- * audio) is running.
+ * The background analysis (bliss, rhythm, Chromaprint, EffNet and spectrum bars, in one
+ * pass over the audio) is running.
  */
-running: boolean, bliss: AnalysisCount, rhythm: AnalysisCount, chromaprint: AnalysisCount, effnet: AnalysisCount, musicbrainz: AnalysisCount, };
+running: boolean, bliss: AnalysisCount, rhythm: AnalysisCount, chromaprint: AnalysisCount, effnet: AnalysisCount, spectrum: AnalysisCount, musicbrainz: AnalysisCount, };
 
 export type AnalysisCount = { 
 /**
@@ -784,6 +805,11 @@ chromecast_players: boolean,
  */
 airplay_players: boolean, 
 /**
+ * Players fetch internet radio from the station themselves rather than through the
+ * server (which then can't show radio's spectrum bars).
+ */
+radio_direct: boolean, 
+/**
  * Folder with pictures named after artists; empty for none.
  */
 art_folder: string, online_artist_images: boolean, 
@@ -863,7 +889,7 @@ effnet_status: string, effnet_error: string | null,
  */
 effnet_analyzed: number, effnet_pending: number, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

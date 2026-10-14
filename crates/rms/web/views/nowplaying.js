@@ -4,6 +4,7 @@ import { store, on, elapsed, currentTrack, currentPlayer, patchPlayer } from '..
 import { h, icon, setIcon, fmtTime, throttle, toast } from '../util.js';
 import { sizedArtwork, currentArtUrl, addFavorite as addFavoriteApi } from '../api.js';
 import { connectHelp, enc } from './common.js';
+import { spectrumBars } from '../spectrum.js';
 
 const SHUFFLE = { off: 'off', songs: 'by song', albums: 'by album' };
 const SHUFFLE_NEXT = { off: 'songs', songs: 'albums', albums: 'off' };
@@ -90,6 +91,7 @@ function buildPanel(root) {
     el.art,
     h('div', { class: 'np-meta' },
       h('div', { class: 'np-text' }, el.title, el.artist, el.album),
+      spectrumBars(() => store.playerId, 'np-bars'),
       el.fav),
     h('div', { class: 'np-seek' }, el.elapsed, el.seek, el.duration),
     h('div', { class: 'np-controls' }, el.shuffle, el.prev, el.play, el.next, el.repeat),

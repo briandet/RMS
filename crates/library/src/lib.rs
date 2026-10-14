@@ -46,6 +46,7 @@ pub mod scanner;
 pub mod scrobble;
 pub mod songdata;
 pub mod sonic;
+pub mod spectrum;
 pub mod tags;
 pub mod tagwrite;
 pub mod text;

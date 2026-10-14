@@ -178,6 +178,8 @@ pub struct Progress {
     pub rhythm: Count,
     pub print: Count,
     pub kind: Count,
+    /// Spectrum bars ([`crate::spectrum`]).
+    pub spectrum: Count,
     pub musicbrainz: Count,
 }
 
@@ -542,6 +544,7 @@ impl Library {
             rhythm: count("track_rhythm", "rhythm", crate::rhythm::VERSION),
             print: count("track_chromaprint", "print", crate::print::VERSION),
             kind: count("track_effnet", "labels", crate::effnet::VERSION),
+            spectrum: count("track_spectrum", "curve", crate::spectrum::VERSION),
             musicbrainz: mb,
         }
     }

@@ -98,6 +98,34 @@ pub struct Player {
     pub sleep: Option<f64>,
 }
 
+/// What a player is playing as spectrum bars (`GET /api/v1/players/{id}/spectrum`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct Spectrum {
+    pub kind: SpectrumKind,
+    /// What the curve belongs to; a different key is a different curve.
+    pub key: String,
+    /// Readings per second.
+    pub fps: u32,
+    /// Position in the track (seconds) of the first reading.
+    pub start: f64,
+    /// The readings, base64: two bytes each, four levels 0–15 (bass, low mids, high mids,
+    /// treble), the first of each pair in the high four bits.
+    pub curve: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum SpectrumKind {
+    /// The whole track's curve: fetch it once per track.
+    Track,
+    /// A stream's readings from a second before `from` on, as far as they go: ask again
+    /// for more.
+    Live,
+    /// Nothing to show (not playing, or the audio can't be analysed).
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(optional_fields)]
 pub struct QueueInfo {
@@ -545,13 +573,14 @@ impl From<rms_library::report::MusicBrainz> for MusicBrainzAnalysis {
 /// How far the analyses have got over the library (`GET /api/v1/library/analysis`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 pub struct AnalysisProgress {
-    /// The background analysis (bliss, rhythm, Chromaprint and EffNet, in one pass over the
-    /// audio) is running.
+    /// The background analysis (bliss, rhythm, Chromaprint, EffNet and spectrum bars, in one
+    /// pass over the audio) is running.
     pub running: bool,
     pub bliss: AnalysisCount,
     pub rhythm: AnalysisCount,
     pub chromaprint: AnalysisCount,
     pub effnet: AnalysisCount,
+    pub spectrum: AnalysisCount,
     pub musicbrainz: AnalysisCount,
 }
 
@@ -1346,6 +1375,9 @@ pub struct ServerSettings {
     pub chromecast_players: bool,
     /// AirPlay speakers on the network play as players.
     pub airplay_players: bool,
+    /// Players fetch internet radio from the station themselves rather than through the
+    /// server (which then can't show radio's spectrum bars).
+    pub radio_direct: bool,
     /// Folder with pictures named after artists; empty for none.
     pub art_folder: String,
     pub online_artist_images: bool,
@@ -1433,6 +1465,7 @@ pub struct ServerSettingsPatch {
     pub upnp_players: Option<bool>,
     pub chromecast_players: Option<bool>,
     pub airplay_players: Option<bool>,
+    pub radio_direct: Option<bool>,
     pub art_folder: Option<String>,
     pub online_artist_images: Option<bool>,
     pub spotify_client_id: Option<String>,

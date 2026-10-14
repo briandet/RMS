@@ -186,7 +186,7 @@ impl SharedSource {
 /// Read the source into the shared buffer while there is room and someone listening.
 async fn produce(shared: Arc<SharedSource>, spec: StreamSpec, http: reqwest::Client) {
     let mut src = match super::source::open(&spec, &http).await {
-        Ok(s) => s,
+        Ok(s) => super::spectrum::tap(s, &spec),
         Err(e) => return shared.finish(Err(e.to_string())),
     };
     let mut progress = shared.progress.subscribe();

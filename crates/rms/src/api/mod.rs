@@ -35,6 +35,7 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/players", get(get_players))
         .route("/api/v1/players/{id}", get(get_player))
         .route("/api/v1/players/{id}/queue", get(get_queue))
+        .route("/api/v1/players/{id}/spectrum", get(get_spectrum))
         .route("/api/v1/players/{id}/command", post(post_command))
         .route(
             "/api/v1/players/{id}/announce",
@@ -183,6 +184,64 @@ async fn get_queue(
     match state::queue(&server, &id, page.offset, limit) {
         Some(q) => Json(q).into_response(),
         None => unknown_player(&id),
+    }
+}
+
+#[derive(Deserialize)]
+struct SpectrumParams {
+    /// position (seconds) a live stream's readings are wanted from
+    #[serde(default)]
+    from: f64,
+}
+
+/// The playing track's spectrum bars: a stream's live readings, else the library track's
+/// stored curve (worked out now if it has none yet).
+async fn get_spectrum(
+    State(server): State<Arc<Server>>,
+    Path(id): Path<String>,
+    ApiQuery(q): ApiQuery<SpectrumParams>,
+) -> Response {
+    use base64::Engine;
+    use model::{Spectrum, SpectrumKind};
+    use rms_library::spectrum::FPS;
+    let Some(p) = server.resolve_client(&id) else {
+        return unknown_player(&id);
+    };
+    let playing = {
+        let c = p.controller();
+        let c = c.lock();
+        c.playing_song().map(|s| (s.id, s.track.id, s.is_remote()))
+    };
+    let reply = |kind, key: String, start, curve: &[u8]| {
+        Json(Spectrum {
+            kind,
+            key,
+            fps: FPS,
+            start,
+            curve: base64::engine::general_purpose::STANDARD.encode(curve),
+        })
+        .into_response()
+    };
+    let none = || reply(SpectrumKind::None, String::new(), 0.0, &[]);
+    let Some((song, track, remote)) = playing else {
+        return none();
+    };
+    if let Some(w) = crate::stream::spectrum::window(song, q.from) {
+        return reply(SpectrumKind::Live, format!("live:{song}"), w.start, &w.data);
+    }
+    let Some(track) = track.filter(|_| !remote) else {
+        return none();
+    };
+    let library = server.library.clone();
+    let ffmpeg = server.has_ffmpeg().then(crate::server::ffmpeg_path);
+    let curve =
+        tokio::task::spawn_blocking(move || library.track_spectrum(track, ffmpeg.as_deref()))
+            .await
+            .ok()
+            .flatten();
+    match curve {
+        Some(c) => reply(SpectrumKind::Track, format!("track:{track}"), 0.0, &c),
+        None => none(),
     }
 }
 

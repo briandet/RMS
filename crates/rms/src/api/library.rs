@@ -1065,6 +1065,7 @@ pub async fn analysis_progress(
         rhythm: AnalysisCount::new(sonic_on, p.rhythm),
         chromaprint: AnalysisCount::new(sonic_on, p.print),
         effnet: AnalysisCount::new(effnet_on, p.kind),
+        spectrum: AnalysisCount::new(sonic_on, p.spectrum),
         musicbrainz: AnalysisCount::new(
             prefs.get_bool(crate::plugins::musicbrainz::PREF),
             p.musicbrainz,

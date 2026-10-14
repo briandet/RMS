@@ -581,7 +581,7 @@ export function render(node, { ctx }) {
     try { p = await getAnalysisProgress(); } catch { return; }
     if (!alive) return;
     const rows = [['Sound (bliss)', p.bliss], ['Tempo and key', p.rhythm], ['Fingerprint', p.chromaprint],
-      ['Kind (EffNet)', p.effnet], ['MusicBrainz', p.musicbrainz]];
+      ['Kind (EffNet)', p.effnet], ['Spectrum bars', p.spectrum], ['MusicBrainz', p.musicbrainz]];
     const n = (x) => x.toLocaleString();
     analysisStatus.replaceChildren(
       h('label', {}, 'Analysis', p.running ? h('span', { class: 'muted small' }, ' — running ', h('span', { class: 'spinner inline' })) : null),
@@ -724,7 +724,20 @@ export function render(node, { ctx }) {
             await saveServer({ [key]: e.target.checked }, e.target.checked ? `${label} devices will join as players` : `${label} devices no longer play`);
           } }),
           h('label', { for: id }, label, h('span', { class: 'muted small block' }, help)));
-      }));
+      }),
+      radioField(settings));
+  }
+
+  /** Whether players fetch internet radio from the station or through the server. */
+  function radioField(settings) {
+    const id = fieldId();
+    return h('div', { class: 'field check' },
+      h('input', { id, type: 'checkbox', checked: !!settings.radio_direct, onchange: async (e) => {
+        await saveServer({ radio_direct: e.target.checked }, e.target.checked
+          ? 'Players will fetch radio from the station' : 'Radio will play through the server');
+      } }),
+      h('label', { for: id }, 'Players fetch radio from the station',
+        h('span', { class: 'muted small block' }, 'Squeezeboxes connect to internet radio stations themselves, as in Lyrion. Off, radio plays through the server: one connection for synced players, and the spectrum bars move with radio too.')));
   }
 
   // ---------------------------------------------------------------- wire up

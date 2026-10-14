@@ -28,6 +28,7 @@ own conventions:
 | `GET /api/v1/players` | list of [Player](#player) |
 | `GET /api/v1/players/{id}` | [Player](#player) |
 | `GET /api/v1/players/{id}/queue?offset=&limit=` | [Queue](#queue) |
+| `GET /api/v1/players/{id}/spectrum?from=` | [Spectrum](#spectrum) of what it plays |
 | `POST /api/v1/players/{id}/command` | run a [command](#commands) |
 | `POST /api/v1/players/{id}/announce?volume=` | play an [announcement](#announcements), then carry on |
 | `GET`, `PATCH /api/v1/players/{id}/settings` | [player settings](#player-settings) |
@@ -222,6 +223,28 @@ curl -N http://localhost:9000/api/v1/events
 ```
 
 Item `i` is queue entry `offset + i`.  By default the whole queue is returned.
+
+### Spectrum
+
+What a player plays as four bars, bass to treble (the web UI's moving bars), played back
+from the player's position: no audio reaches the client.
+
+```json
+{"kind": "track", "key": "track:42", "fps": 20, "start": 0, "curve": "q7yrq5qZ…"}
+```
+
+`curve` is base64: `fps` readings a second from `start` seconds into the track, two bytes
+each, four levels 0–15 (30–150 Hz, 150–600 Hz, 600 Hz–2.5 kHz, 2.5–11 kHz) with the first of
+each pair in the high four bits.  Each band is scaled to its own range in the track, quiet
+to loud.  `kind`:
+
+* `track`: a library track's whole curve, stored by the background analysis (or worked out
+  when first asked for, which takes about a second).  Fetch it once per track (`key`).
+* `live`: a stream the server is playing to the player (internet radio, Spotify), analysed
+  as it goes, from a second before `from` (seconds into the track) to as far as it has got.
+  Ask again for more, about once a second.
+* `none`: nothing to show: not playing, a stream the player fetches itself
+  (`radio_direct`), or audio that can't be decoded.
 
 ## Commands
 
@@ -624,7 +647,8 @@ Each analysis has a `status`:
 ```json
 {"running": true,
  "bliss": {"enabled": true, "total": 8120, "done": 6002, "failed": 3, "pending": 2115},
- "rhythm": {…}, "chromaprint": {…}, "effnet": {"enabled": false, …}, "musicbrainz": {…}}
+ "rhythm": {…}, "chromaprint": {…}, "effnet": {"enabled": false, …}, "spectrum": {…},
+ "musicbrainz": {…}}
 ```
 
 `running`: the background pass over the audio is under way.  `pending` includes results of
@@ -705,7 +729,9 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 ### Server settings
 
 ```json
-{"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true, "art_folder": "",
+{"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true,
+ "upnp_players": false, "chromecast_players": false, "airplay_players": false,
+ "radio_direct": false, "art_folder": "",
  "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
  "musicbrainz_identified": 0, "musicbrainz_pending": 0, "albums_matched": 0,
@@ -720,7 +746,9 @@ address the browser ended up on as `{"code": "<address>"}`, which returns `{"use
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
 Unknown fields are an error.  `watch_folders` scans what changes in the music folders as
-it changes (see the README).  `albums_matched`, `albums_uncertain` and `albums_pending` count
+it changes (see the README).  `radio_direct`: players fetch internet radio from the station
+themselves, as in Lyrion, rather than through the server (then radio has no
+[spectrum](#spectrum)).  `albums_matched`, `albums_uncertain` and `albums_pending` count
 albums by [release match](#album-release).  `effnet` turns on the EffNet analysis
 (downloading its models first); `effnet_status` is `off`, `downloading`, `ready` or `failed`
 (with `effnet_error`), and `effnet_analyzed` / `effnet_pending` count the songs done and to do.  Changed music folders take effect with the next scan:

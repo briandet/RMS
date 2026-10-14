@@ -50,7 +50,11 @@ export function currentTrack() {
 
 /** Elapsed seconds on the selected player, interpolated locally while playing. */
 export function elapsed() {
-  const p = currentPlayer();
+  return playerElapsed(currentPlayer());
+}
+
+/** Elapsed seconds on a player, interpolated locally while playing. */
+export function playerElapsed(p) {
   if (!p) return 0;
   let t = p.elapsed || 0;
   if (p.mode === 'play' && !p.buffering) t += (performance.now() - (store.receivedAt.get(p.id) || 0)) / 1000;

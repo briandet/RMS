@@ -372,9 +372,22 @@ impl FakePlayer {
     }
 }
 
+/// Players connect to stations themselves (Lyrion's way) rather than through the server.
+fn radio_direct(server: &Server) {
+    let (code, body) = http_json(
+        server.http,
+        "PATCH",
+        "/api/v1/settings",
+        Some(r#"{"radio_direct": true}"#),
+    );
+    assert_eq!(code, 200, "{body}");
+}
+
 /// Play a fake radio station for 15s, let it drop, and refuse the server's re-stream:
-/// the server should now have a retry pending (`_RetryOrNext` -> `_willRetry`).
+/// the server should now have a retry pending (`_RetryOrNext` -> `_willRetry`).  The player
+/// fetches the station itself, and it reports the refusal.
 fn radio_reconnect_refused(server: &Server, p: &mut FakePlayer) {
+    radio_direct(server);
     let radio = start_radio();
     let url = format!("http://127.0.0.1:{}/stream", radio);
     cli(server.cli, &format!("{} playlist play {}", MAC_S, url));
@@ -419,6 +432,51 @@ fn single_player_retries_failed_radio_reconnect() {
     // first retry interval is 5s
     let retry = p.try_expect_strm(b's', Duration::from_secs(10));
     assert!(retry.is_some(), "no retry after a failed radio reconnect");
+}
+
+/// The same through the server: the server's own connection to the station is refused on
+/// the re-stream, and the retry comes all the same.
+#[test]
+fn single_player_retries_radio_the_server_cannot_reach() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect_and_greet(server.slim);
+    // a station that turns every connection away
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let radio = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for s in listener.incoming() {
+            let Ok(mut s) = s else { continue };
+            let mut req = [0u8; 2048];
+            let _ = s.read(&mut req);
+            let _ = s.write_all(b"HTTP/1.0 503 Service Unavailable\r\n\r\n");
+        }
+    });
+    let url = format!("http://127.0.0.1:{}/stream.mp3", radio);
+    cli(server.cli, &format!("{} playlist play {}", MAC_S, url));
+    p.expect_strm(b's', Duration::from_secs(10));
+    // playing for 15s from what was buffered, then out of data
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    p.stat(b"STMt", 15_000);
+    std::thread::sleep(Duration::from_millis(300));
+    p.send(b"DSCO", &[0]);
+    p.stat(b"STMd", 15_500);
+
+    // the re-stream goes through the server, which can't reach the station
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    assert_eq!(u16::from_be_bytes([strm[18], strm[19]]), server.http);
+    let mut s = TcpStream::connect(("127.0.0.1", server.http)).unwrap();
+    s.write_all(&strm[24..]).unwrap();
+    let mut head = Vec::new();
+    let _ = s.read_to_end(&mut head);
+    assert!(!String::from_utf8_lossy(&head).contains(" 200 "));
+
+    let retry = p.try_expect_strm(b's', Duration::from_secs(10));
+    assert!(
+        retry.is_some(),
+        "no retry after the server could not reach the station"
+    );
 }
 
 /// The retry timer goes through the state table, so a user `stop` while a retry is

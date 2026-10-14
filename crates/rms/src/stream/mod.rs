@@ -10,6 +10,7 @@
 pub mod remote;
 pub mod shared;
 pub mod source;
+pub mod spectrum;
 
 use crate::player::song::{Song, TrackInfo};
 use crate::player::{Capabilities, Player};
@@ -565,7 +566,9 @@ fn open_remote(
         || ct == "m3u"
         || url.contains(".m3u8");
     if let Some(fmt) = native.clone().filter(|_| !hls) {
-        if (!https || can_https)
+        // through the server unless asked: one connection per sync group, and spectrum bars
+        if server.prefs.server.get_bool("radioDirect")
+            && (!https || can_https)
             && (rate == 0 || song.track.bitrate.map(|b| rate * 1000 >= b).unwrap_or(true))
         {
             return Ok(OpenedSong {

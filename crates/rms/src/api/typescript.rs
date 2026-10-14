@@ -27,6 +27,8 @@ fn declarations() -> String {
         Shuffle,
         Repeat,
         QueueInfo,
+        Spectrum,
+        SpectrumKind,
         Track,
         TrackDetail,
         TrackKind,
