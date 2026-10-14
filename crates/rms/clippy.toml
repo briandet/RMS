@@ -1,0 +1,6 @@
+# Each future or closure handed to tokio's spawn functions directly gets its own copy of the
+# task machinery (compile time); crate::util's versions box it, so all share one.
+disallowed-methods = [
+    { path = "tokio::task::spawn", reason = "use crate::util::spawn (compile time)" },
+    { path = "tokio::task::spawn_blocking", reason = "use crate::util::spawn_blocking (compile time)" },
+]

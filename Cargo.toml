@@ -9,7 +9,10 @@ license = "GPL-2.0-only"
 repository = "https://github.com/rustydc/rms"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["full"] }
+# test-util is for tests (paused clocks), but as a dev-dependency feature it makes `cargo test`
+# build a second copy of tokio and everything above it (hyper, axum, reqwest, librespot, the
+# rms binary itself) next to `cargo build`'s.  Unpaused, it costs one atomic load per clock read.
+tokio = { version = "1", features = ["full", "test-util"] }
 bytes = "1"
 thiserror = "2"
 anyhow = "1"
@@ -22,3 +25,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 opt-level = 3
 lto = "thin"
 codegen-units = 4
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = "line-tables-only"

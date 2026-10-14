@@ -226,7 +226,7 @@ pub async fn apply(server: &Arc<Server>, changes: Vec<(i64, Values)>) -> Result<
     }
     let _guard = WRITING.lock().await;
     let s = server.clone();
-    let (outcome, dirs) = tokio::task::spawn_blocking(move || {
+    let (outcome, dirs) = crate::util::spawn_blocking(move || {
         let scratch = s.config.data_dir.join("tag-backup");
         let mut out = Outcome::default();
         let mut edits = Vec::new();
@@ -333,7 +333,7 @@ pub async fn undo(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
     }
     let _guard = WRITING.lock().await;
     let s = server.clone();
-    let (outcome, dirs) = tokio::task::spawn_blocking(move || {
+    let (outcome, dirs) = crate::util::spawn_blocking(move || {
         let (head, edits) = s.library.edit_batch(batch).ok_or(Error::NotFound)?;
         if head.undone_at.is_some() {
             return Err(Error::Invalid("already undone".into()));
@@ -389,7 +389,7 @@ pub async fn undo(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
 /// see them too: no harm).
 fn rescan(server: &Arc<Server>, dirs: BTreeSet<PathBuf>) {
     let s = server.clone();
-    tokio::spawn(async move { rescan_now(&s, dirs).await });
+    crate::util::spawn(async move { rescan_now(&s, dirs).await });
 }
 
 /// [`rescan`], waiting for it.  A folder that is gone is seen from its nearest parent.
@@ -612,7 +612,7 @@ pub async fn move_album(
     let _guard = WRITING.lock().await;
     let s = server.clone();
     let template = template.to_string();
-    let (outcome, moves, dirs) = tokio::task::spawn_blocking(move || {
+    let (outcome, moves, dirs) = crate::util::spawn_blocking(move || {
         let plan = move_plan(&s, album_id, &template)?;
         let album = s
             .library
@@ -742,7 +742,7 @@ fn follow_moves(server: &Server, moves: &[(String, String)]) {
 async fn undo_moves(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
     let _guard = WRITING.lock().await;
     let s = server.clone();
-    let (outcome, moves, dirs) = tokio::task::spawn_blocking(move || {
+    let (outcome, moves, dirs) = crate::util::spawn_blocking(move || {
         let (head, edits) = s.library.edit_batch(batch).ok_or(Error::NotFound)?;
         if head.undone_at.is_some() {
             return Err(Error::Invalid("already undone".into()));
@@ -904,7 +904,7 @@ pub async fn apply_cover(
     }
     let _guard = WRITING.lock().await;
     let s = server.clone();
-    let (out, dirs) = tokio::task::spawn_blocking(move || {
+    let (out, dirs) = crate::util::spawn_blocking(move || {
         let files = album_files(&s, album_id);
         if files.is_empty() {
             return Err(Error::NotFound);
@@ -1042,7 +1042,7 @@ fn save_folder_cover(
 async fn undo_cover(server: &Arc<Server>, batch: i64) -> Result<Outcome, Error> {
     let _guard = WRITING.lock().await;
     let s = server.clone();
-    let (out, dirs) = tokio::task::spawn_blocking(move || {
+    let (out, dirs) = crate::util::spawn_blocking(move || {
         let (head, edits) = s.library.edit_batch(batch).ok_or(Error::NotFound)?;
         if head.undone_at.is_some() {
             return Err(Error::Invalid("already undone".into()));

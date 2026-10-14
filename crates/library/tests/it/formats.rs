@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 
 use std::process::Command;
 
@@ -122,7 +122,7 @@ fn many_formats() {
     assert_eq!(r["count"].as_u64().unwrap(), 2, "{:?}", r); // "Formats" + "No Album" (broken.flac)
 }
 
-/// `cargo test -p rms-library --release --test formats bench_scan -- --ignored --nocapture`
+/// `cargo test -p rms-library --release --test it bench_scan -- --ignored --nocapture`
 #[test]
 #[ignore]
 fn bench_scan() {

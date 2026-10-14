@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
         };
         if config.scan_only {
             let lib = server.library.clone();
-            let summary = tokio::task::spawn_blocking(move || lib.scan(mode)).await??;
+            let summary = crate::util::spawn_blocking(move || lib.scan(mode)).await??;
             info!("scan finished: {:?}", summary);
             return Ok(());
         }
@@ -89,15 +89,15 @@ async fn main() -> anyhow::Result<()> {
     }
     spawn("cli", control::cli::listen(server.clone()));
     spawn("http", web::serve(server.clone()));
-    tokio::spawn(control::subscribe::pump(server.clone()));
-    tokio::spawn(api::events::run(server.clone()));
-    tokio::spawn(web::cometd::run(server.clone()));
-    tokio::spawn(plugins::alarm::run(server.clone()));
-    tokio::spawn(plugins::dstm::run(server.clone()));
-    tokio::spawn(plugins::musicbrainz::run(server.clone()));
-    tokio::spawn(plugins::scrobble::run(server.clone()));
-    tokio::spawn(display::run(server.clone()));
-    tokio::spawn(control::jive::run(server.clone()));
+    crate::util::spawn(control::subscribe::pump(server.clone()));
+    crate::util::spawn(api::events::run(server.clone()));
+    crate::util::spawn(web::cometd::run(server.clone()));
+    crate::util::spawn(plugins::alarm::run(server.clone()));
+    crate::util::spawn(plugins::dstm::run(server.clone()));
+    crate::util::spawn(plugins::musicbrainz::run(server.clone()));
+    crate::util::spawn(plugins::scrobble::run(server.clone()));
+    crate::util::spawn(display::run(server.clone()));
+    crate::util::spawn(control::jive::run(server.clone()));
     watch::start(&server);
     bridge::devices::start(&server);
 
@@ -114,7 +114,7 @@ fn spawn<F>(name: &'static str, fut: F)
 where
     F: std::future::Future<Output = anyhow::Result<()>> + Send + 'static,
 {
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         if let Err(e) = fut.await {
             error!("{} failed: {:#}", name, e);
             std::process::exit(1);

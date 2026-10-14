@@ -3,13 +3,10 @@
 //! its songs), the release the tags name, and a release the user chooses.  A confident match
 //! fills in what the tags leave out: the year, track numbers, MusicBrainz ids.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;

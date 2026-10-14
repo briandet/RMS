@@ -133,7 +133,7 @@ async fn mix(
     } else {
         Vec::new()
     };
-    tokio::task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         let mut exclude: HashSet<i64> = ids.iter().copied().collect();
         exclude.extend(discovered.iter().copied());
         let genres = || lib.genres_of(&ids);
@@ -379,7 +379,7 @@ fn on_playlist_change(
         return;
     }
     let (server, active) = (server.clone(), active.clone());
-    let task = tokio::spawn(async move {
+    let task = crate::util::spawn(async move {
         // Playing a single song: wait, we might be in the middle of adding new songs.
         if index == 0 && wait > 0.0 {
             tokio::time::sleep(std::time::Duration::from_secs_f64(wait)).await;
@@ -485,7 +485,7 @@ pub async fn mix_tracks(server: &Arc<Server>, p: &Arc<Player>, seed: Seed) -> Ve
     let lib = server.library.clone();
     let remote = crate::plugins::spotify::learn::in_mixes(server);
     let s = lib.clone();
-    let seeds = tokio::task::spawn_blocking(move || s.seed_tracks(seed))
+    let seeds = crate::util::spawn_blocking(move || s.seed_tracks(seed))
         .await
         .unwrap_or_default();
     // some songs from outside what was played (ListenBrainz)
@@ -496,7 +496,7 @@ pub async fn mix_tracks(server: &Arc<Server>, p: &Arc<Player>, seed: Seed) -> Ve
         let sample: Vec<i64> = seeds.iter().take(10).copied().collect();
         crate::plugins::listenbrainz::explore(server, Some(p), &sample, n, &HashSet::new()).await
     };
-    tokio::task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         let mut seeds = lib.seed_tracks(seed);
         if seeds.is_empty() {
             return Vec::new();

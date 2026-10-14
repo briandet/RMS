@@ -188,7 +188,7 @@ pub fn announce(
     cc.lock().playlist.repeat = 0;
 
     let (server, p) = (server.clone(), p.clone());
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         watch(&server, &p, &url, &saved).await;
         finish(&key, &path);
     });

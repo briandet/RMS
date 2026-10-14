@@ -453,13 +453,28 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 cargo test --workspace           # unit tests, end-to-end tests and client conformance
 ```
 
-`crates/rms/tests/fake_player.rs` runs the server binary and drives it through
-slimproto, HTTP streaming, the CLI and JSON-RPC.  `crates/rms/tests/conformance.rs` makes
+The end-to-end tests are one test binary per crate (`tests/it/`, a module per file):
+`cargo test -p rms --test it conformance` runs one file's tests.
+`crates/rms/tests/it/fake_player.rs` runs the server binary and drives it through
+slimproto, HTTP streaming, the CLI and JSON-RPC.  `crates/rms/tests/it/conformance.rs` makes
 the requests real clients make (Home Assistant, SqueezePlay, Squeezer, a Squeezebox 3's
 screens, the web UI) against a generated library and compares the answers with
 `crates/rms/tests/golden/`; after an intended change, `UPDATE_GOLDEN=1 cargo test -p rms
---test conformance` rewrites them (review the diff).  For manual testing, squeezelite with
+--test it conformance` rewrites them (review the diff).  For manual testing, squeezelite with
 `-o -` (audio to stdout) works without a sound card.
+
+Build times: the dev profile keeps line tables only (backtraces have file and line, a
+debugger has less), dependencies have no debug info, and `cargo build` and `cargo test`
+share every artifact (no dev-dependency feature differences: changing one rebuilds tokio and
+everything above it twice).  In `crates/rms`, spawn tasks with `crate::util::spawn` and
+`crate::util::spawn_blocking`, not tokio's: each future given to tokio's directly gets its
+own copy of the task machinery.  A faster linker helps a little more:
+with [mold](https://github.com/rui314/mold) installed, add to `~/.cargo/config.toml`
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
 
 Layout:
 

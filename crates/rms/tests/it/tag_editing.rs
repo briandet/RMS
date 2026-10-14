@@ -2,13 +2,10 @@
 //! only with file changes turned on and a login; the files rewritten, the library rescanned,
 //! what it keeps by fingerprint (the release match) still theirs; and undone.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;

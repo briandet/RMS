@@ -59,7 +59,7 @@ impl Subscriptions {
         virgin.results.clear();
         let server2 = server.clone();
         let k2 = k.clone();
-        let task = tokio::spawn(async move {
+        let task = crate::util::spawn(async move {
             let mut deadline: Option<tokio::time::Instant> = None;
             let periodic = if timeout > 0.0 {
                 Some(Duration::from_secs_f64(timeout))

@@ -1,10 +1,7 @@
 //! A browser as a player: the WebSocket of `/api/v1/browser-player`, driven here like the
 //! web UI's `<audio>` element would drive it.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::time::Duration;

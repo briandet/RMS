@@ -259,7 +259,7 @@ impl Mixer for PlayerMixer {
         };
         let percent = (volume as u32 * 100 + 32767) / 65535;
         let mac = self.mac;
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             run(&server, mac, &["mixer", "volume", &percent.to_string()]).await;
         });
     }
@@ -325,7 +325,7 @@ pub fn open_stream(key: &str, flac: bool) -> std::io::Result<crate::stream::sour
 /// Keep a Connect device per connected player while Spotify is signed in.
 pub fn start(server: &Arc<Server>) {
     let server = Arc::downgrade(server);
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         loop {
             tokio::time::sleep(TICK).await;
             let Some(server) = server.upgrade() else {
@@ -535,7 +535,7 @@ async fn start_device(
     let alive = Arc::new(AtomicBool::new(true));
     let alive_task = alive.clone();
     let task_name = name.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         task.await;
         alive_task.store(false, Ordering::Relaxed);
         info!("Spotify Connect: device \"{task_name}\" stopped");
@@ -558,7 +558,7 @@ async fn start_device(
 
     // App → player
     let server = Arc::downgrade(server);
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         while let Some(ev) = events.recv().await {
             let Some(server) = server.upgrade() else {
                 return;
@@ -676,7 +676,7 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
             let lead = dev.pipe.lead();
             let server = Arc::downgrade(server);
             let title = audio_item.name.clone();
-            tokio::spawn(async move {
+            crate::util::spawn(async move {
                 tokio::time::sleep(lead).await;
                 if let Some(server) = server.upgrade() {
                     now_playing(&server, mac, &title, &artist, &album, cover);

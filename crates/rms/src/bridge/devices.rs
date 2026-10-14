@@ -163,8 +163,8 @@ pub fn found(server: &Arc<Server>, device: Device, start: Start) {
     let server2 = server.clone();
     let key2 = key.clone();
     let (ip, name) = (device.ip, device.identity.name.clone());
-    let task = tokio::spawn(async move {
-        let driver = tokio::spawn(start(io));
+    let task = crate::util::spawn(async move {
+        let driver = crate::util::spawn(start(io));
         let _ = super::run(server2, device.identity, to_tx, from_rx).await;
         driver.abort();
         if let Some(m) = RUNNING.lock().as_mut() {
@@ -216,7 +216,7 @@ pub fn dedupe(server: &Arc<Server>) {
     }
     // forget the players once their connections have closed
     let server = server.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         for mac in ended {
             if let Some(p) = server.player(&mac) {
@@ -264,9 +264,9 @@ pub fn base_url(server: &Server) -> String {
 
 /// Start each protocol's discovery.
 pub fn start(server: &Arc<Server>) {
-    tokio::spawn(super::upnp::run(server.clone()));
-    tokio::spawn(super::chromecast::run(server.clone()));
-    tokio::spawn(super::airplay::run(server.clone()));
+    crate::util::spawn(super::upnp::run(server.clone()));
+    crate::util::spawn(super::chromecast::run(server.clone()));
+    crate::util::spawn(super::airplay::run(server.clone()));
 }
 
 #[cfg(test)]

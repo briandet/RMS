@@ -3,14 +3,11 @@
 //! queued while ListenBrainz is down and sent later with its MusicBrainz id, the playlists
 //! made for the user playing from the library, and recommendations in mixes.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use common::*;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::HashMap;

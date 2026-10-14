@@ -130,7 +130,7 @@ pub async fn music(
     }
     let lib = server.library.clone();
     let spec2 = spec.clone();
-    let res = tokio::task::spawn_blocking(move || lib.artwork(&cover_id, &spec2))
+    let res = crate::util::spawn_blocking(move || lib.artwork(&cover_id, &spec2))
         .await
         .ok()
         .flatten();
@@ -148,7 +148,7 @@ pub async fn contributor(
 ) -> Response {
     let lib = server.library.clone();
     let spec2 = spec.clone();
-    let res = tokio::task::spawn_blocking(move || lib.contributor_image(&id, &spec2))
+    let res = crate::util::spawn_blocking(move || lib.contributor_image(&id, &spec2))
         .await
         .ok()
         .flatten();
@@ -171,7 +171,7 @@ async fn proxy_image(server: &Arc<Server>, url: &str, spec: &str) -> Response {
     let spec = spec.to_string();
     let data = bytes.to_vec();
     let resized =
-        tokio::task::spawn_blocking(move || rms_library::Library::resize_image(&data, &spec))
+        crate::util::spawn_blocking(move || rms_library::Library::resize_image(&data, &spec))
             .await
             .ok()
             .flatten();

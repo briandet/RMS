@@ -441,7 +441,7 @@ pub fn start_scan(server: &Arc<Server>, mode: rms_library::ScanMode) {
         info!("scan already running, request ignored");
         return;
     }
-    tokio::spawn(async move { run_scans(&s, vec![mode]).await });
+    crate::util::spawn(async move { run_scans(&s, vec![mode]).await });
 }
 
 /// Take the scanner for [`run_scans`]; false when a scan is running.
@@ -458,7 +458,7 @@ pub async fn run_scans(s: &Arc<Server>, modes: Vec<rms_library::ScanMode>) {
     for mode in modes {
         let lib = s.library.clone();
         info!("library scan started: {:?}", mode);
-        let res = tokio::task::spawn_blocking(move || lib.scan(mode)).await;
+        let res = crate::util::spawn_blocking(move || lib.scan(mode)).await;
         match res {
             Ok(Ok(summary)) => info!("library scan finished: {:?}", summary),
             Ok(Err(e)) => warn!("library scan failed: {}", e),
@@ -727,7 +727,7 @@ pub async fn expand_item(server: &Arc<Server>, item: &str) -> Vec<Entry> {
         use crate::control::jive::favorites::{resolve_db, DbObject};
         let lib_server = server.clone();
         let db_url = url.clone();
-        let tracks = tokio::task::spawn_blocking(move || {
+        let tracks = crate::util::spawn_blocking(move || {
             let mut f = rms_library::TrackFilter::default();
             match resolve_db(&lib_server, &db_url)? {
                 DbObject::Album(id) => f.album_id = Some(id),
@@ -1014,7 +1014,7 @@ pub async fn playlist_xtracks(server: Arc<Server>, mut r: Request) -> Request {
             }
         }
         let lib = server.library.clone();
-        let tracks = tokio::task::spawn_blocking(move || lib.tracks_for(&f))
+        let tracks = crate::util::spawn_blocking(move || lib.tracks_for(&f))
             .await
             .ok()
             .and_then(|r| r.ok())
@@ -1063,7 +1063,7 @@ pub async fn playlist_xalbum(server: Arc<Server>, mut r: Request) -> Request {
         .flatten()
         .collect::<Vec<_>>()
         .join(" ");
-    let tracks = tokio::task::spawn_blocking(move || {
+    let tracks = crate::util::spawn_blocking(move || {
         lib.tracks_for(&rms_library::TrackFilter {
             search: Some(search),
             ..Default::default()
@@ -1124,7 +1124,7 @@ pub async fn playlistcontrol(server: Arc<Server>, mut r: Request) -> Request {
             ..Default::default()
         };
         let lib = server.library.clone();
-        let tracks = tokio::task::spawn_blocking(move || lib.tracks_for(&f))
+        let tracks = crate::util::spawn_blocking(move || lib.tracks_for(&f))
             .await
             .ok()
             .and_then(|r| r.ok())
@@ -1139,7 +1139,7 @@ pub async fn playlistcontrol(server: Arc<Server>, mut r: Request) -> Request {
     if let Some(name) = r.param("playlist_name") {
         let lib = server.library.clone();
         let name = name.to_string();
-        let id = tokio::task::spawn_blocking(move || {
+        let id = crate::util::spawn_blocking(move || {
             lib.query(&rms_library::LibQuery {
                 name: rms_library::LibQueryName::Playlists,
                 start: Some(0),
@@ -1196,7 +1196,7 @@ pub async fn playlistcontrol(server: Arc<Server>, mut r: Request) -> Request {
     f.role_id = r.param("role_id").map(str::to_string);
     f.sort = r.param("sort").map(str::to_string);
     let lib = server.library.clone();
-    let tracks = tokio::task::spawn_blocking(move || lib.tracks_for(&f))
+    let tracks = crate::util::spawn_blocking(move || lib.tracks_for(&f))
         .await
         .ok()
         .and_then(|r| r.ok())

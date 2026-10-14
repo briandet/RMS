@@ -127,7 +127,7 @@ pub async fn run(server: Arc<Server>) {
                 continue;
             }
             tried.insert(c.key.clone(), Instant::now());
-            tokio::spawn(attempt(server.clone(), c));
+            crate::util::spawn(attempt(server.clone(), c));
         }
     }
 }

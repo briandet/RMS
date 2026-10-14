@@ -241,7 +241,7 @@ async fn learn(server: Arc<Server>, uri: SpotifyUri, announced: Option<Announced
         return;
     };
     let lib = server.library.clone();
-    let r = tokio::task::spawn_blocking(move || lib.learn_remote(&track, &mono)).await;
+    let r = crate::util::spawn_blocking(move || lib.learn_remote(&track, &mono)).await;
     match r {
         Ok(Err(e)) => debug!("Spotify: not learning {id}: {e}"),
         Err(e) => warn!("Spotify: learning {id}: {e}"),

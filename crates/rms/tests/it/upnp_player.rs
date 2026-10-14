@@ -2,14 +2,11 @@
 //! SOAP control URLs, fetches the streams it is given and plays them on a clock; the
 //! server finds it through the `upnpRenderers` pref and plays an album on it.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use common::*;
 use quick_xml::escape::escape;
 use serde_json::{json, Value};
 use std::collections::HashMap;

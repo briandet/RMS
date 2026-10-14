@@ -1,10 +1,7 @@
 //! Making and changing playlists through `/api/v1/playlists`, and the artist page's most
 //! played tracks.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Value};
 use std::time::Duration;
 

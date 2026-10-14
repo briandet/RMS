@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 
 use rms_library::{LibQuery, LibQueryName, Library, PlaylistEditOp, Row, ScanMode, TrackFilter};
 use serde_json::{json, Value};
@@ -1253,7 +1253,7 @@ fn converts_a_lyrion_schema_database() {
     let db = f.dir.path().join("old.db");
     {
         let c = rusqlite::Connection::open(&db).unwrap();
-        c.execute_batch(include_str!("data/lms_schema.sql"))
+        c.execute_batch(include_str!("../data/lms_schema.sql"))
             .unwrap();
         c.execute_batch(
             "INSERT INTO metainformation (name, value) VALUES ('lastRescanTime', '1700000000');

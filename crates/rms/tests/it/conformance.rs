@@ -3,16 +3,13 @@
 //! responses compared to the files in `tests/golden/`.
 //!
 //! A test fails when any response changes, however slightly.  When a change is intended, run
-//! `UPDATE_GOLDEN=1 cargo test -p rms --test conformance` and review the diff of
+//! `UPDATE_GOLDEN=1 cargo test -p rms --test it conformance` and review the diff of
 //! `tests/golden/` like code: it is exactly what those clients will see differently.
 //!
 //! Values that differ from run to run (temporary paths, ports, timestamps, cover ids derived
 //! from file times) are replaced by placeholders before comparing.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -102,7 +99,7 @@ fn fixture() -> Fixture {
         assert!(Instant::now() < deadline, "scan did not finish: {r}");
         std::thread::sleep(Duration::from_millis(100));
     }
-    // no rescans by themselves while clients look (tests/watch.rs tests those)
+    // no rescans by themselves while clients look (watch.rs tests those)
     rpc(&server, "", json!(["pref", "autorescan", "0"]));
     // every track added at once: tracks are stamped as the scan stores them (and history
     // with the files' times), so a scan or a file write crossing a second would reorder
@@ -391,7 +388,7 @@ impl Golden {
             };
             panic!(
                 "{name}: response differs from {} at line {}\n--- expected\n{}\n--- got\n{}\n\
-                 (if intended: UPDATE_GOLDEN=1 cargo test -p rms --test conformance)",
+                 (if intended: UPDATE_GOLDEN=1 cargo test -p rms --test it conformance)",
                 path.display(),
                 first + 1,
                 show(&want),

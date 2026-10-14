@@ -2,11 +2,8 @@
 //! (its stored curve) and for internet radio, which plays through the server and is
 //! analysed as it streams.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use base64::Engine;
-use common::*;
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpListener;

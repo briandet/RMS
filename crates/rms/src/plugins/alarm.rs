@@ -272,7 +272,7 @@ fn fire(server: &Arc<Server>, p: &Arc<Player>, a: Alarm) {
     info!("{}: alarm {} sounding", p.id, a.id);
     let server = server.clone();
     let p = p.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         use crate::control::dispatch::execute_tokens;
         use crate::control::request::Source;
         let id = Some(p.id);

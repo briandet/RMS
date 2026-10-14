@@ -2,13 +2,10 @@
 //! and the library holds, picks are judged by ListenBrainz's similar artists, and the chance
 //! rate, the summaries and the cache come out right.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

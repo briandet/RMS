@@ -761,8 +761,9 @@ impl Driver {
         let ip = self.target.addr.ip();
         let control_to = SocketAddr::new(ip, control_port);
         let tasks = vec![
-            tokio::spawn(answer_timing(timing)).abort_handle(),
-            tokio::spawn(answer_resends(control.clone(), self.history.clone())).abort_handle(),
+            crate::util::spawn(answer_timing(timing)).abort_handle(),
+            crate::util::spawn(answer_resends(control.clone(), self.history.clone()))
+                .abort_handle(),
         ];
         let mut session = Session {
             rtsp,

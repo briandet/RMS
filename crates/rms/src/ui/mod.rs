@@ -88,7 +88,7 @@ pub fn send(server: &Arc<Server>, p: &Arc<Player>, ev: Event) {
     let mut tx = p.ui_tx.lock();
     if tx.as_ref().is_none_or(|t| t.is_closed()) {
         let (t, rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(server.clone(), p.clone(), rx));
+        crate::util::spawn(run(server.clone(), p.clone(), rx));
         *tx = Some(t);
     }
     if let Some(t) = tx.as_ref() {
@@ -101,7 +101,7 @@ pub fn start(server: &Arc<Server>, p: &Arc<Player>) {
     let mut tx = p.ui_tx.lock();
     if tx.as_ref().is_none_or(|t| t.is_closed()) {
         let (t, rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(server.clone(), p.clone(), rx));
+        crate::util::spawn(run(server.clone(), p.clone(), rx));
         *tx = Some(t);
     }
 }

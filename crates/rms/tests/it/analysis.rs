@@ -2,10 +2,7 @@
 //! native API: after the background analysis, bliss features, rhythm and the rest are there,
 //! with nearest neighbours by sound.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::Value;
 use std::time::{Duration, Instant};
 

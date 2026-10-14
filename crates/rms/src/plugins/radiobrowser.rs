@@ -387,7 +387,7 @@ fn count_click(http: &reqwest::Client, level: &Level, index: Option<usize>) {
         return;
     };
     let http = http.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         if let Err(e) = api(&http, &format!("url/{uuid}")).await {
             debug!("radio browser click: {e}");
         }

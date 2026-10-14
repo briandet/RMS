@@ -3,10 +3,7 @@
 //! and what points at the files follows them (ratings, a saved playlist and its file,
 //! favorites); undone, they all go back.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Duration;

@@ -292,7 +292,7 @@ impl Spotify {
             client_id: client_id.to_string(),
         });
         let me = self.clone();
-        tokio::spawn(async move { me.listen_for_redirect().await });
+        crate::util::spawn(async move { me.listen_for_redirect().await });
         url.to_string()
     }
 

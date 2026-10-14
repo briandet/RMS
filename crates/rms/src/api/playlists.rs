@@ -24,7 +24,7 @@ async fn blocking<T: Send + 'static>(
     f: impl FnOnce(&rms_library::Library) -> T + Send + 'static,
 ) -> Result<T, LibraryError> {
     let lib = server.library.clone();
-    tokio::task::spawn_blocking(move || f(&lib))
+    crate::util::spawn_blocking(move || f(&lib))
         .await
         .map_err(failed)
 }

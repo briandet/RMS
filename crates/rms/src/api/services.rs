@@ -218,7 +218,7 @@ pub async fn spotify_patch(
 /// Forget the learned Spotify tracks.
 pub async fn spotify_forget(server: &Arc<Server>) -> Result<(), CommandError> {
     let lib = server.library.clone();
-    tokio::task::spawn_blocking(move || lib.forget_remote("spotify"))
+    crate::util::spawn_blocking(move || lib.forget_remote("spotify"))
         .await
         .map_err(|e| CommandError::Failed(e.to_string()))?
         .map(|_| ())

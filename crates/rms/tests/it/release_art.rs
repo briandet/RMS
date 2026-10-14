@@ -2,13 +2,10 @@
 //! Cover Art Archive's front cover of it shows for the album (the files untouched); a picture
 //! put in the album's folder later takes over.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path as UrlPath, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;

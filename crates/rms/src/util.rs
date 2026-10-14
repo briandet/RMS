@@ -114,6 +114,51 @@ pub fn server_ip() -> String {
         .unwrap_or_else(|_| "127.0.0.1".to_string())
 }
 
+/// `tokio::spawn` with the future boxed.  Tokio's task machinery is generic over the future, so
+/// each distinct future spawned directly gets its own copy of it (about 1600 lines of LLVM IR,
+/// twice: one per scheduler); boxed, all spawns with the same output share one.  Compile time,
+/// not run time: the task is allocated anyway.
+pub fn spawn<T: Send + 'static>(
+    f: impl std::future::Future<Output = T> + Send + 'static,
+) -> tokio::task::JoinHandle<T> {
+    let f: std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send>> = Box::pin(f);
+    #[allow(clippy::disallowed_methods)]
+    tokio::spawn(f)
+}
+
+/// `tokio::task::spawn_blocking` with the closure and its result boxed, for the same reason as
+/// [`spawn`]: all blocking tasks share one copy of the task machinery, whatever they return.
+/// Like `spawn_blocking`, the closure starts at once, awaited or not.
+pub fn spawn_blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Blocking<T> {
+    let f: Box<dyn FnOnce() -> Erased + Send> = Box::new(move || Box::new(f()) as Erased);
+    Blocking {
+        #[allow(clippy::disallowed_methods)]
+        handle: tokio::task::spawn_blocking(f),
+        result: std::marker::PhantomData,
+    }
+}
+
+type Erased = Box<dyn std::any::Any + Send>;
+
+/// The handle [`spawn_blocking`] returns: a `JoinHandle<T>`.
+pub struct Blocking<T> {
+    handle: tokio::task::JoinHandle<Erased>,
+    result: std::marker::PhantomData<fn() -> T>,
+}
+
+impl<T: 'static> std::future::Future for Blocking<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.handle)
+            .poll(cx)
+            .map(|r| r.map(|b| *b.downcast::<T>().expect("spawn_blocking result type")))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

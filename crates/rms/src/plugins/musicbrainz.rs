@@ -58,7 +58,7 @@ pub async fn run(server: Arc<Server>) {
             continue;
         }
         let lib = server.library.clone();
-        let jobs = tokio::task::spawn_blocking(move || lib.musicbrainz_pending(BATCH))
+        let jobs = crate::util::spawn_blocking(move || lib.musicbrainz_pending(BATCH))
             .await
             .unwrap_or_default();
         client.key = server.prefs.server.get_str(KEY_PREF).trim().to_string();
@@ -102,7 +102,7 @@ pub async fn run(server: Arc<Server>) {
             }
         }
         let lib = server.library.clone();
-        let changed = tokio::task::spawn_blocking(move || lib.apply_musicbrainz())
+        let changed = crate::util::spawn_blocking(move || lib.apply_musicbrainz())
             .await
             .unwrap_or(0);
         info!(
@@ -116,7 +116,7 @@ pub async fn run(server: Arc<Server>) {
 /// MusicBrainz can't be asked).
 async fn match_albums(server: &Arc<Server>, client: &mut Client) -> bool {
     let lib = server.library.clone();
-    let jobs = tokio::task::spawn_blocking(move || lib.release_pending(ALBUM_BATCH))
+    let jobs = crate::util::spawn_blocking(move || lib.release_pending(ALBUM_BATCH))
         .await
         .unwrap_or_default();
     if jobs.is_empty() {
@@ -151,7 +151,7 @@ async fn match_albums(server: &Arc<Server>, client: &mut Client) -> bool {
         }
     }
     let lib = server.library.clone();
-    let changed = tokio::task::spawn_blocking(move || lib.apply_musicbrainz())
+    let changed = crate::util::spawn_blocking(move || lib.apply_musicbrainz())
         .await
         .unwrap_or(0);
     info!(
@@ -166,7 +166,7 @@ async fn match_albums(server: &Arc<Server>, client: &mut Client) -> bool {
 /// nothing to choose (or MusicBrainz can't be asked).
 async fn choose_track_covers(server: &Arc<Server>, client: &mut Client) -> bool {
     let lib = server.library.clone();
-    let jobs = tokio::task::spawn_blocking(move || lib.track_cover_pending(BATCH))
+    let jobs = crate::util::spawn_blocking(move || lib.track_cover_pending(BATCH))
         .await
         .unwrap_or_default();
     if jobs.is_empty() {
@@ -212,7 +212,7 @@ async fn choose_track_covers(server: &Arc<Server>, client: &mut Client) -> bool 
 /// asked).
 async fn fetch_release_art(server: &Arc<Server>) -> bool {
     let lib = server.library.clone();
-    let jobs = tokio::task::spawn_blocking(move || lib.release_art_pending(ALBUM_BATCH))
+    let jobs = crate::util::spawn_blocking(move || lib.release_art_pending(ALBUM_BATCH))
         .await
         .unwrap_or_default();
     if jobs.is_empty() {
@@ -259,7 +259,7 @@ async fn fetch_release_art(server: &Arc<Server>) -> bool {
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
     let lib = server.library.clone();
-    let changed = tokio::task::spawn_blocking(move || lib.apply_release_art())
+    let changed = crate::util::spawn_blocking(move || lib.apply_release_art())
         .await
         .unwrap_or(0);
     info!(
@@ -280,7 +280,7 @@ pub async fn choose_release(
     mbid: Option<&str>,
 ) -> Result<(), ChooseError> {
     let lib = server.library.clone();
-    let Some(mut job) = tokio::task::spawn_blocking(move || lib.album_job(album_id))
+    let Some(mut job) = crate::util::spawn_blocking(move || lib.album_job(album_id))
         .await
         .ok()
         .flatten()
@@ -319,7 +319,7 @@ pub async fn choose_release(
     m.store(&server.library, &job)
         .map_err(|e| ChooseError::Failed(e.to_string()))?;
     let lib = server.library.clone();
-    tokio::task::spawn_blocking(move || lib.apply_musicbrainz())
+    crate::util::spawn_blocking(move || lib.apply_musicbrainz())
         .await
         .ok();
     Ok(())

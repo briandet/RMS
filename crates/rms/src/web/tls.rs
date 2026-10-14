@@ -161,7 +161,7 @@ pub async fn serve(
 
     // keep the certificate current
     let mut stamp = first.stamp;
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         loop {
             tokio::time::sleep(CHECK_EVERY).await;
             if source.stamp() == stamp {
@@ -181,7 +181,7 @@ pub async fn serve(
     // TLS handshakes run on their own, so a slow client holds up nobody else
     let (tx, rx) = mpsc::channel(64);
     let local = tcp.local_addr()?;
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         loop {
             let (sock, peer) = match tcp.accept().await {
                 Ok(s) => s,
@@ -193,7 +193,7 @@ pub async fn serve(
             };
             let acceptor = acceptor.clone();
             let tx = tx.clone();
-            tokio::spawn(async move {
+            crate::util::spawn(async move {
                 match tokio::time::timeout(Duration::from_secs(10), acceptor.accept(sock)).await {
                     Ok(Ok(tls)) => {
                         let _ = tx.send((tls, peer)).await;

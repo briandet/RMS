@@ -2,13 +2,10 @@
 //! MusicBrainz id in the tags, by ISRC, and by search (taking the studio recording over a
 //! live one); genres fill in for tracks without a genre tag, tags win otherwise.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::Duration;

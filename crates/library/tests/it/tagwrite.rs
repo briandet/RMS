@@ -1,7 +1,7 @@
 //! Writing tags: the fields asked for change, everything else in the file (other tags, the
 //! audio) stays as it was, in every format RMS writes.
 
-mod common;
+use crate::common;
 
 use rms_library::tags::{first, read_tags, TagOptions};
 use rms_library::tagwrite::{self, Values};
