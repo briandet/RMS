@@ -40,6 +40,7 @@ pub mod queries;
 pub mod releaseart;
 pub mod releases;
 pub mod remote;
+pub mod report;
 pub mod rhythm;
 pub mod scanner;
 pub mod scrobble;

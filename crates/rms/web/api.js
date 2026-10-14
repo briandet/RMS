@@ -194,6 +194,10 @@ export const getTagEdits = (limit = 10) => api(withQuery('tags/edits', { limit }
 /** @returns {Promise<TagEditResult>} */
 export const undoTagEdit = (batch) => api(`tags/edits/${encodeURIComponent(batch)}/undo`, { method: 'POST', body: {}, timeout: 300000 });
 
+export const getTrackAnalysis = (id) => api(`tracks/${encodeURIComponent(id)}/analysis`);
+
+export const getAnalysisProgress = () => api('library/analysis');
+
 export const scanLibrary = (mode) => api('library/scan', { method: 'POST', body: { mode } });
 
 /** @returns {Promise<PlayerSettings>} */

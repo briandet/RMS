@@ -948,3 +948,126 @@ pub async fn search(server: &Arc<Server>, p: ListParams) -> Result<SearchResults
         genres,
     })
 }
+
+/// Everything the analyses made of library track `id`.
+pub async fn track_analysis(
+    server: &Arc<Server>,
+    id: i64,
+) -> Result<super::model::TrackAnalysis, LibraryError> {
+    use super::model::{
+        AnalysisStage, BlissAnalysis, ChromaprintAnalysis, Duplicate, EffnetAnalysis, Feature,
+        Neighbour, TrackAnalysis,
+    };
+    use rms_library::report::Status;
+    let lib = server.library.clone();
+    let prefs = &server.prefs.server;
+    let sonic_on = prefs.get_bool("sonicAnalysis");
+    let musicbrainz_on = prefs.get_bool(crate::plugins::musicbrainz::PREF);
+    let (report, titles) = tokio::task::spawn_blocking(move || {
+        let r = lib.analysis_report(id, musicbrainz_on)?;
+        let mut ids = vec![id];
+        if let Some(s) = &r.sound.data {
+            ids.extend(s.nearest.iter().map(|n| n.0));
+        }
+        if let Some(p) = &r.print.data {
+            ids.extend(p.duplicates.iter().map(|d| d.0));
+        }
+        if let Some(k) = &r.kind.data {
+            ids.extend(k.nearest.iter().map(|n| n.0));
+        }
+        let titles = lib.titles(&ids);
+        Some((r, titles))
+    })
+    .await
+    .map_err(|e| LibraryError::Failed(e.to_string()))?
+    .ok_or(LibraryError::NotFound)?;
+
+    let title = |id: i64| titles.get(&id).cloned().unwrap_or_default();
+    let neighbours = |v: Vec<(i64, f32)>| -> Vec<Neighbour> {
+        v.into_iter()
+            .map(|(id, score)| {
+                let (title, artist) = title(id);
+                Neighbour {
+                    id,
+                    title,
+                    artist,
+                    score: (score * 1000.0).round() / 1000.0,
+                }
+            })
+            .collect()
+    };
+    // all but the MusicBrainz lookup run in the sonic analysis's pass over the audio
+    let sonic = |status: Status| {
+        if status == Status::Pending && !sonic_on {
+            Status::Off
+        } else {
+            status
+        }
+    };
+    let (track_title, artist) = title(id);
+    Ok(TrackAnalysis {
+        track_id: id,
+        title: track_title,
+        artist,
+        file: report.file.into(),
+        bliss: AnalysisStage::map(report.sound, sonic, |s| BlissAnalysis {
+            features: s
+                .features
+                .into_iter()
+                .map(|(name, value)| Feature { name, value })
+                .collect(),
+            loudness: s.loudness.map(|l| (l * 100.0).round() / 100.0),
+            peak: s.peak.map(|p| (p * 1000.0).round() / 1000.0),
+            nearest: neighbours(s.nearest),
+            duplicate_distance: s.duplicate_distance,
+        }),
+        rhythm: AnalysisStage::map(report.rhythm, sonic, Into::into),
+        chromaprint: AnalysisStage::map(report.print, sonic, |p| ChromaprintAnalysis {
+            items: p.items,
+            duration: p.duration,
+            duplicates: p
+                .duplicates
+                .into_iter()
+                .map(|(id, same_recording)| {
+                    let (title, artist) = title(id);
+                    Duplicate {
+                        id,
+                        title,
+                        artist,
+                        same_recording,
+                    }
+                })
+                .collect(),
+        }),
+        effnet: AnalysisStage::map(report.kind, sonic, |k| EffnetAnalysis {
+            labels: k.labels.into(),
+            nearest: neighbours(k.nearest),
+        }),
+        musicbrainz: AnalysisStage::map(report.musicbrainz, |s| s, Into::into),
+    })
+}
+
+/// How far each analysis has got over the library.
+pub async fn analysis_progress(
+    server: &Arc<Server>,
+) -> Result<super::model::AnalysisProgress, LibraryError> {
+    use super::model::{AnalysisCount, AnalysisProgress};
+    let lib = server.library.clone();
+    let p = tokio::task::spawn_blocking(move || lib.analysis_progress())
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    let prefs = &server.prefs.server;
+    let sonic_on = prefs.get_bool("sonicAnalysis");
+    let effnet_on = sonic_on && server.library.effnet().is_some();
+    Ok(AnalysisProgress {
+        running: crate::plugins::sonic::running(),
+        bliss: AnalysisCount::new(sonic_on, p.sound),
+        rhythm: AnalysisCount::new(sonic_on, p.rhythm),
+        chromaprint: AnalysisCount::new(sonic_on, p.print),
+        effnet: AnalysisCount::new(effnet_on, p.kind),
+        musicbrainz: AnalysisCount::new(
+            prefs.get_bool(crate::plugins::musicbrainz::PREF),
+            p.musicbrainz,
+        ),
+    })
+}

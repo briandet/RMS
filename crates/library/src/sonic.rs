@@ -38,9 +38,14 @@ pub fn version() -> i64 {
 pub const SAMPLE_RATE: u32 = 22050;
 /// Longer tracks (DJ mixes, audiobooks, whole-album files) are not analysed: one feature
 /// vector says little about them and decoding them takes a lot of memory.
-const MAX_SECS: f64 = 20.0 * 60.0;
+pub(crate) const MAX_SECS: f64 = 20.0 * 60.0;
 /// At most this many seed songs are compared against the library.
 const MAX_SEEDS: usize = 50;
+/// [`DUPLICATE_DISTANCE`], for reports.
+pub fn duplicate_distance() -> f32 {
+    DUPLICATE_DISTANCE
+}
+
 /// Tracks closer than this (bliss distance) are taken for the same recording: another
 /// encoding, a remaster or a slightly different edit.  Measured on real music: re-encodes and
 /// trims 0.01–0.05, a heavy remaster 0.13–0.23, different songs 0.43 and up (median 0.89).
@@ -545,6 +550,22 @@ impl Index {
 
     pub fn len(&self) -> usize {
         self.ids.len()
+    }
+
+    /// The `n` library tracks that sound most like `id`, closest first, with their bliss
+    /// distance (empty when `id` isn't analysed).
+    pub fn nearest(&self, id: i64, n: usize) -> Vec<(i64, f32)> {
+        let Some(&me) = self.pos.get(&id) else {
+            return Vec::new();
+        };
+        let mine = self.row(me);
+        let mut all: Vec<(i64, f32)> = (0..self.ids.len())
+            .filter(|&i| i != me && self.ids[i] > 0)
+            .map(|i| (self.ids[i], self.distance2(mine, self.row(i)).sqrt()))
+            .collect();
+        all.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+        all.truncate(n);
+        all
     }
 
     /// Number of features per track.

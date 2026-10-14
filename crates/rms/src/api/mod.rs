@@ -88,6 +88,7 @@ pub fn router() -> Router<Arc<Server>> {
         )
         .route("/api/v1/tracks/{id}", get(get_track))
         .route("/api/v1/tracks/{id}/similar", get(get_track_similar))
+        .route("/api/v1/tracks/{id}/analysis", get(get_track_analysis))
         .route("/api/v1/similar", post(post_similar))
         .route("/api/v1/playlists", get(get_playlists).post(post_playlist))
         .route(
@@ -129,6 +130,7 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/spotify/logout", post(post_spotify_logout))
         .route("/api/v1/settings", get(get_settings).patch(patch_settings))
         .route("/api/v1/library/scan", post(post_scan))
+        .route("/api/v1/library/analysis", get(get_analysis_progress))
         .route(
             "/api/v1/{*rest}",
             get(not_found)
@@ -625,6 +627,14 @@ async fn post_track(
 
 async fn get_track(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
     library_reply(library::track_detail(&s, id).await, "track")
+}
+
+async fn get_track_analysis(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i64>) -> Response {
+    library_reply(library::track_analysis(&s, id).await, "track")
+}
+
+async fn get_analysis_progress(State(s): State<Arc<Server>>) -> Response {
+    library_reply(library::analysis_progress(&s).await, "library")
 }
 
 #[derive(Debug, Deserialize, Default)]

@@ -52,6 +52,7 @@ own conventions:
 | `GET /api/v1/tracks/{id}` | [Track](#track) with its `detail` |
 | `GET /api/v1/tracks/{id}/similar?limit=&detail=` | [Track](#track)s: [similar songs](#similar-songs) |
 | `POST /api/v1/similar` | [Track](#track)s: [similar songs](#similar-songs) to several seeds |
+| `GET /api/v1/tracks/{id}/analysis` | what the [analyses](#analysis) made of a library track |
 | `GET /api/v1/playlists?q=` | page of `{id, name, editable}` (saved playlists) |
 | `GET /api/v1/playlists/{id}` | `{id, name, editable}` |
 | `GET /api/v1/playlists/{id}/tracks` | page of [Track](#track) |
@@ -76,6 +77,7 @@ own conventions:
 | `PATCH /api/v1/spotify`, `DELETE /api/v1/spotify/learned` | [learning for mixes](#spotify) |
 | `GET`, `PATCH /api/v1/settings` | [server settings](#server-settings) |
 | `POST /api/v1/library/scan` | [scan the library](#server-settings) |
+| `GET /api/v1/library/analysis` | how far the [analyses](#analysis) have got |
 
 `{id}` is the player's MAC address (`00:04:20:12:34:56`) for players, the library id for
 artists, albums and playlists, and the item id (`0.1`) for favorites.
@@ -557,6 +559,76 @@ ListenBrainz discoveries or streamed tracks.
 genre or year counts as a sample of its tracks.  `limit` is 20 by default, at most 200.
 `exclude` leaves out tracks already chosen.  Queue the result with `enqueue` and
 `{"type": "tracks", "ids": [...]}`.
+
+### Analysis
+
+After a scan, each local song's audio is analysed in the background (server setting
+`sonicAnalysis`, on by default): bliss measures how it sounds and its loudness, the rhythm
+analysis its tempo, beats, key and energy, Chromaprint fingerprints it, and EffNet (setting
+`effnet`) recognises its styles and moods, in one pass over the audio.  MusicBrainz lookups
+(setting `musicbrainz`) follow on their own, at one a second.  Analyses are stored by the
+audio's fingerprint, so a moved or renamed file keeps them, and copies of one file share them.
+
+`GET /api/v1/tracks/{id}/analysis` (404 for no such library track):
+
+```json
+{"track_id": 1234, "title": "Teardrop", "artist": "Massive Attack",
+ "file": {"url": "file:///music/…", "path": "/music/…", "fingerprint": "c8a3e450…",
+          "format": "flc", "size": 31457280, "bitrate": 911000, "vbr": true,
+          "sample_rate": 44100, "sample_size": 16, "channels": 2, "lossless": true,
+          "duration": 330.2, "replay_gain": -7.6, "replay_peak": 0.98},
+ "bliss": {"status": "done", "version": 2, "current_version": 2, "analyzed_at": 1791948472,
+           "result": {"features": [{"name": "tempo", "value": 0.18}, …],
+                      "loudness": -10.3, "peak": 0.98, "duplicate_distance": 0.12,
+                      "nearest": [{"id": 77, "title": "…", "artist": "…", "score": 0.05}, …]}},
+ "rhythm": {"status": "done", …, "result": {"bpm": 77.4, "beat_confidence": 0.82,
+            "beats": 425, "bars": 106, "first_downbeat": 0.52, "key": "8A",
+            "key_name": "A minor", "key_confidence": 0.41, "energy": [-30.1, …],
+            "energy_step": 3.1}},
+ "chromaprint": {"status": "done", …, "result": {"items": 968, "duration": 120.0,
+                 "duplicates": [{"id": 5120, "title": "…", "same_recording": true}]}},
+ "effnet": {"status": "off", "current_version": 1},
+ "musicbrainz": {"status": "done", "current_version": 0, "analyzed_at": 1791948500,
+                 "result": {"mbid": "…", "isrc": "GBAAA9800001", "genres": ["trip hop"],
+                            "how": "isrc"}}}
+```
+
+Each analysis has a `status`:
+
+| status | |
+|---|---|
+| `done` | current results in `result` |
+| `failed` | analysed by the current `version`, but nothing came of it (unreadable, too short, not found on MusicBrainz); tried again when the file changes |
+| `stale` | results of an older `version`, to be redone |
+| `pending` | not analysed yet |
+| `skipped` | never analysed: longer than 20 minutes, or not a local file |
+| `off` | turned off in the server settings |
+
+- `bliss.features`: bliss's numbers, about -1 to 1, in its order (tempo, zero-crossing rate,
+  spectral centroid, rolloff and flatness as mean and `std`, loudness mean and `std`, then
+  chroma).  `nearest`: the ten library tracks that sound closest, with their distance; below
+  `duplicate_distance` they are taken for the same recording.  `loudness` is LUFS (EBU R128),
+  `peak` linear true peak.
+- `rhythm.bpm` is 0 when there is no steady beat; below a `beat_confidence` of about 0.3,
+  mixes don't beat-match.  `energy` is the loudness per bar from the first downbeat (per 2
+  seconds without a beat), in dB, `energy_step` seconds apart.
+- `chromaprint.duplicates`: tracks bliss finds that close, and whether their fingerprints
+  confirm it is the same recording.
+- `effnet.result`: `labels` (styles, moods, themes and instruments with their scores, as in
+  a track's `detail.kind`) and `nearest`, the ten tracks closest in kind by cosine similarity.
+- `musicbrainz.result.how`: `tag`, `isrc`, `acoustid` or `search`; `none` (with status
+  `failed`) when the recording wasn't found.
+
+`GET /api/v1/library/analysis` counts the library's distinct audio for each analysis:
+
+```json
+{"running": true,
+ "bliss": {"enabled": true, "total": 8120, "done": 6002, "failed": 3, "pending": 2115},
+ "rhythm": {…}, "chromaprint": {…}, "effnet": {"enabled": false, …}, "musicbrainz": {…}}
+```
+
+`running`: the background pass over the audio is under way.  `pending` includes results of
+an older version.
 
 ### Search
 

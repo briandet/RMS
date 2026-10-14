@@ -707,3 +707,29 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .chip.off { color: var(--muted); padding-left: 14px; background: transparent; border: 1px dashed var(--border); }
 .chip-art { width: 28px; height: 28px; border-radius: 50%; overflow: hidden; flex: none; }
 .chip-art img { width: 100%; height: 100%; object-fit: cover; }
+
+/* track analysis page */
+.analysis .stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.analysis h3.small-head { font-size: .85rem; color: var(--muted); font-weight: 600; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+.analysis code.wrap { overflow-wrap: anywhere; font-size: .85rem; }
+.analysis details summary { cursor: pointer; color: var(--muted); font-size: .9rem; margin-bottom: 6px; }
+.analysis .neighbours { margin: 0; gap: .3rem; }
+.status-badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .8rem; font-weight: 600; background: var(--surface-2); color: var(--muted); }
+.status-done { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.status-failed { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.status-stale, .status-pending { background: var(--warn-bg); color: var(--warn-text); }
+.bars { display: grid; gap: 3px; }
+.bar-row { display: grid; grid-template-columns: minmax(0, 11em) 1fr 3.2em; gap: 8px; align-items: center; font-size: .85rem; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { position: relative; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.bar-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 4px; }
+.bars.signed .bar-track::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.bar-value { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.energy { margin: 0; }
+.spark { display: block; width: 100%; height: 80px; background: var(--surface-2); border-radius: var(--radius-sm); }
+.spark-area { fill: color-mix(in srgb, var(--accent) 25%, transparent); }
+.spark-line { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.analysis-table { width: 100%; border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+.analysis-table th, .analysis-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: right; }
+.analysis-table th:first-child, .analysis-table td:first-child { text-align: left; }
+.analysis-table thead th { font-size: .8rem; color: var(--muted); font-weight: 600; }
