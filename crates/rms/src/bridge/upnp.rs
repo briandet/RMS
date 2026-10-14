@@ -163,9 +163,13 @@ async fn add(
         accurate: false,
     };
     let http = server.http.clone();
+    let ip = url::Url::parse(location)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.trim_matches(['[', ']']).to_string()))
+        .and_then(|h| h.parse().ok());
     devices::found(
         server,
-        Device { key, identity },
+        Device { key, identity, ip },
         Box::new(move |io| Box::pin(drive(http, renderer, io))),
     );
 }

@@ -240,11 +240,17 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
     };
     let server2 = server.clone();
     let name = c.name.clone();
+    let ip = c
+        .host
+        .parse()
+        .ok()
+        .or_else(|| tls.get_ref().0.peer_addr().ok().map(|a| a.ip()));
     devices::found(
         &server,
         Device {
             key: c.key,
             identity,
+            ip,
         },
         Box::new(move |io| {
             Box::pin(async move {

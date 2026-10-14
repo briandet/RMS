@@ -344,6 +344,10 @@ impl Server {
             }
         };
         self.after_hello(&player, helo, existing_flag(&player));
+        if !player.is_bridged() {
+            // the same device may be bridged (as a UPnP renderer, …): this one wins
+            crate::bridge::devices::dedupe(self);
+        }
         (player, conn_id, cancel)
     }
 

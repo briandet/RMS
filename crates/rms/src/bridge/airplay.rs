@@ -128,9 +128,10 @@ fn start(server: &Arc<Server>, key: String, target: Target) {
         max_sample_rate: SAMPLE_RATE,
         accurate: false,
     };
+    let ip = Some(target.addr.ip());
     devices::found(
         server,
-        Device { key, identity },
+        Device { key, identity, ip },
         Box::new(move |io| Box::pin(drive(target, io))),
     );
 }

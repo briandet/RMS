@@ -172,6 +172,9 @@ The script builds a release binary (the web UI is built in), installs it as
   host networking), list them in the prefs `upnpRenderers` (description URLs),
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
   pairing) are not supported; sync with these players is loose (they buffer by themselves).
+  A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
+  Chromecast) is one player, by its IP address: a Squeezebox player wins, then UPnP, then
+  Chromecast, then AirPlay.  The others come back when it disconnects.
 * **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
   copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
   folders that changed are scanned.  It uses the operating system's file notifications
