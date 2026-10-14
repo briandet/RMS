@@ -14,6 +14,7 @@ mod chromecast_player;
 mod cometd_streaming;
 mod conformance;
 mod cover_art;
+mod display_test;
 mod effnet;
 mod fake_player;
 mod file_moving;

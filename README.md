@@ -202,7 +202,10 @@ The script builds a release binary (the web UI is built in), installs it as
   (progress bar, elapsed/remaining time, buffer fullness, clock, VU meter and spectrum
   visualizers), server-side scrolling of long titles, the volume bar, the date/time
   screensaver while off, Transporter's second screen and brightness while on / off / idle
-  (Boom's automatic brightness included).
+  (Boom's automatic brightness included).  A display test lights every pixel at full
+  brightness until a button is pressed, for checking a VFD for dead or dim spots: Settings →
+  Advanced → Player Display → Display Test on the player, or `<player> button displaytest`
+  over the CLI.
 * **On-screen menus** for those players, driven by the IR remote and front panel buttons:
   Lyrion's IR timing (press / repeat / hold / single) and its own `Default.map` button
   maps, Home → My Music / Radio / Favorites / Search / Settings, browsing with accelerated
