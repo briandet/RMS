@@ -184,7 +184,7 @@ const PLAYER_KINDS = [
   ['chromecast', 'Chromecast', 'cast'],
   ['airplay', 'AirPlay', 'airplay'],
   ['upnp', 'UPnP / DLNA', 'router'],
-  ['browser', 'Browsers', 'laptop'],
+  ['browser', 'Web', 'laptop'],
 ];
 
 /** Squeezeboxes and everything speaking slimproto (squeezelite, WiiM, …) are `squeezebox`. */
