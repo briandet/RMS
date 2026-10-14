@@ -11,11 +11,11 @@
 //! * Player → app: stopping, pausing or playing something else on the player (remote, web
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
-//!   account RMS is signed in with.  Each logs in with a fresh access token of the sign-in
-//!   (else the stored credentials) and keeps no credentials of its own: those Spotify hands a
-//!   session belong to its device id, so a device storing them would lock out the others.
-//!   A device that can't be set up is tried again later and later, and the Spotify settings
-//!   say why.
+//!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
+//!   device id, and it only takes access tokens of its own client ids, so each device keeps
+//!   its own credentials (`spotify/connect/<player>/`), got the first time with a token the
+//!   main session asks Spotify for (the official client id's).  A device that can't be set
+//!   up is tried again later and later, and the Spotify settings say why.
 
 use super::Spotify;
 use crate::control::request::Source;
@@ -23,6 +23,7 @@ use crate::server::Server;
 use dashmap::DashMap;
 use librespot_connect::{ConnectConfig, Spirc};
 use librespot_core::authentication::Credentials;
+use librespot_core::cache::Cache;
 use librespot_core::{Session, SessionConfig};
 use librespot_playback::audio_backend::{Sink, SinkResult};
 use librespot_playback::config::PlayerConfig;
@@ -430,25 +431,44 @@ async fn add_device(
 ) -> Result<(), String> {
     let name = p.name();
     let k = key(&p.id);
-    // a fresh access token, else the stored credentials (those of the main session)
-    let mut logins = Vec::new();
-    if let Ok(token) = sp.oauth_token().await {
-        logins.push(Credentials::with_access_token(token));
+    let cache = Cache::new(Some(sp.dir.join("connect").join(&k)), None, None, None).ok();
+    // the device's own credentials, else a token of the main session (Spotify's own client
+    // id, as the AP wants), else one of the sign-in (the user's client id: may be refused)
+    let mut logins: Vec<(&str, Credentials)> = Vec::new();
+    if let Some(c) = cache.as_ref().and_then(|c| c.credentials()) {
+        logins.push(("its stored credentials", c));
     }
-    if let Some(c) = sp.credentials_cache().and_then(|c| c.credentials()) {
-        logins.push(c);
+    match sp.session().await {
+        Ok(session) => match session
+            .token_provider()
+            .get_token(&super::SCOPES.join(","))
+            .await
+        {
+            Ok(t) => logins.push((
+                "a token of the session",
+                Credentials::with_access_token(t.access_token),
+            )),
+            Err(e) => debug!("Spotify Connect: no session token: {e}"),
+        },
+        Err(e) => debug!("Spotify Connect: no session: {e}"),
+    }
+    if let Ok(token) = sp.oauth_token().await {
+        logins.push(("the sign-in's token", Credentials::with_access_token(token)));
     }
     if logins.is_empty() {
         return Err("not signed in".into());
     }
-    let mut last_err = String::new();
-    for credentials in logins {
-        match start_device(server, p, &name, &k, credentials).await {
+    let mut errors = Vec::new();
+    for (how, credentials) in logins {
+        match start_device(server, p, &name, &k, credentials, cache.clone()).await {
             Ok(()) => return Ok(()),
-            Err(e) => last_err = e,
+            Err(e) => {
+                debug!("Spotify Connect for {name}: with {how}: {e}");
+                errors.push(format!("with {how}: {e}"));
+            }
         }
     }
-    Err(last_err)
+    Err(errors.join("; "))
 }
 
 async fn start_device(
@@ -457,17 +477,18 @@ async fn start_device(
     name: &str,
     k: &str,
     credentials: Credentials,
+    cache: Option<Cache>,
 ) -> Result<(), String> {
     let name = name.to_string();
     let k = k.to_string();
-    // one session per device: Connect state is per session.  No cache: the credentials
-    // Spotify returns are bound to this device id and must not replace the stored ones.
+    // one session per device: Connect state is per session.  Its own cache: the credentials
+    // Spotify returns are bound to this device id.
     let session = Session::new(
         SessionConfig {
             device_id: format!("{:0>40}", k),
             ..Default::default()
         },
-        None,
+        cache,
     );
     let bitrate = server.prefs.server.get_i64("spotifyBitrate").max(96) as u32;
     let normalise = server.prefs.server.get_bool("spotifyNormalisation");

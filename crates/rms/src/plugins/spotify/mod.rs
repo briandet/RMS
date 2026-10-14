@@ -434,6 +434,8 @@ impl Spotify {
         self.lists.lock().clear();
         let _ = std::fs::remove_file(self.dir.join("credentials.json"));
         let _ = std::fs::remove_file(self.dir.join("oauth.json"));
+        // the Connect devices' own credentials (`connect::add_device`)
+        let _ = std::fs::remove_dir_all(self.dir.join("connect"));
     }
 
     // ---- session ------------------------------------------------------------------------------
