@@ -10,6 +10,11 @@
 use crate::Library;
 use rusqlite::{params, OptionalExtension};
 
+/// ListenBrainz's similar-artists dataset (named by how it was made), for the labs API's
+/// `similar-artists/json`.
+pub const LB_ARTISTS_ALGORITHM: &str =
+    "session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30";
+
 /// An artist whose tracks were rejected this often is not proposed any more.
 pub const ARTIST_REJECTIONS: i64 = 2;
 

@@ -1096,7 +1096,11 @@
       "discovered_rejected": 0,
       "listenbrainz_accounts": [],
       "scrobble_spotify": false,
-      "scrobble_pending": 0
+      "scrobble_pending": 0,
+      "effnet": false,
+      "effnet_status": "off",
+      "effnet_analyzed": 0,
+      "effnet_pending": 5
     }
   },
   "PATCH /api/v1/settings (change settings)": {
@@ -1131,7 +1135,11 @@
       "discovered_rejected": 0,
       "listenbrainz_accounts": [],
       "scrobble_spotify": false,
-      "scrobble_pending": 0
+      "scrobble_pending": 0,
+      "effnet": false,
+      "effnet_status": "off",
+      "effnet_analyzed": 0,
+      "effnet_pending": 5
     }
   },
   "PATCH /api/v1/settings (bad bitrate)": {
@@ -1143,7 +1151,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {

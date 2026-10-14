@@ -26,9 +26,11 @@ pub mod config;
 pub mod cue;
 pub mod db;
 pub mod discover;
+pub mod effnet;
 pub mod find;
 pub mod loudness;
 pub mod mix;
+pub mod mix_eval;
 pub mod musicbrainz;
 pub mod organize;
 pub mod playlist_files;
@@ -227,6 +229,10 @@ pub(crate) struct Inner {
     /// What every analysed track sounds like, kept between mixes (`None` until first used,
     /// and again after a scan changed the tracks).
     pub sound: RwLock<Option<Arc<sonic::Index>>>,
+    /// EffNet's models when that analysis is on ([`effnet`]), and every analysed track's
+    /// embedding (like `sound`).
+    pub effnet: RwLock<Option<Arc<effnet::Models>>>,
+    pub style: RwLock<Option<Arc<effnet::StyleIndex>>>,
 }
 
 #[derive(Clone)]
@@ -249,6 +255,8 @@ impl Library {
                 scanning: AtomicBool::new(false),
                 progress: Arc::new(Mutex::new(ScanProgress::default())),
                 sound: RwLock::new(None),
+                effnet: RwLock::new(None),
+                style: RwLock::new(None),
             }),
         };
         {
@@ -303,8 +311,9 @@ impl Library {
             };
         }
         let res = self.scan_inner(&mode);
-        // track ids may have changed: the next mix reloads the sound index
+        // track ids may have changed: the next mix reloads the sound and style indexes
         *self.inner.sound.write() = None;
+        self.reset_style_index();
         let elapsed = started.elapsed().as_secs_f64();
         self.inner.scanning.store(false, Ordering::SeqCst);
         let aborted = self.inner.abort.load(Ordering::SeqCst);

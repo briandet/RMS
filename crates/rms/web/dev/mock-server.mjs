@@ -156,6 +156,7 @@ const settings = {
   musicbrainz: false, acoustid_key: '', musicbrainz_identified: 0, musicbrainz_pending: 0,
   listenbrainz: false, discovered: 0, discovered_played: 0, discovered_rejected: 0,
   listenbrainz_accounts: [], scrobble_spotify: false, scrobble_pending: 0,
+  effnet: false, effnet_status: 'off', effnet_analyzed: 0, effnet_pending: 0,
 };
 const scan = { running: false, start: 0, total: tracks.length };
 let lastscan = Math.floor(Date.now() / 1000) - 3600 * 5;
@@ -177,11 +178,13 @@ const SCREEN_MODELS = new Set(['squeezebox2', 'squeezebox3', 'transporter', 'boo
 
 function makePlayer(i) {
   const mac = `aa:bb:cc:00:00:0${i + 1}`;
-  const model = ['squeezelite', 'squeezebox3', 'boom'][i] || 'squeezelite';
+  // PLAYERS=7: one of every kind (the web UI groups players by kind)
+  const model = ['squeezelite', 'squeezebox3', 'boom', 'chromecast', 'airplay', 'upnp', 'browser'][i] || 'squeezelite';
   const p = {
-    playerid: mac, name: ['Living Room', 'Kitchen', 'Office'][i] || `Player ${i + 1}`,
-    model, modelname: ['SqueezeLite', 'Squeezebox Classic', 'Squeezebox Boom'][i] || 'SqueezeLite',
-    ip: `192.168.1.${20 + i}`, connected: true, power: true,
+    playerid: mac, name: ['Living Room', 'Kitchen', 'Office', 'Bedroom TV', 'JBL Boombox 3', 'Living Room (UPnP)', 'Chrome on macOS'][i] || `Player ${i + 1}`,
+    model, modelname: ['SqueezeLite', 'Squeezebox Classic', 'Squeezebox Boom', 'Chromecast', 'AirPlay', 'UPnP renderer', 'Web browser'][i] || 'SqueezeLite',
+    // of the extra kinds, the AirPlay speaker is off and the UPnP renderer gone
+    ip: `192.168.1.${20 + i}`, connected: i !== 5, power: i !== 4,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),
     settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0' },

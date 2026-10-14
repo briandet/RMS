@@ -397,6 +397,9 @@ async fn status(_server: Arc<Server>, mut r: Request) -> Request {
     };
     let signed_in = sp.signed_in();
     r.add_result("signed_in", signed_in as i32);
+    if let Some(e) = super::connect::error() {
+        r.add_result("connect_error", e);
+    }
     if signed_in {
         match sp.api("/me").await {
             Ok(me) => {

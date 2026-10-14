@@ -11,13 +11,19 @@
 //! * Player → app: stopping, pausing or playing something else on the player (remote, web
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
-//!   account RMS is signed in with.
+//!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
+//!   device id, and it only takes access tokens of its own client ids, so each device keeps
+//!   its own credentials (`spotify/connect/<player>/`), got the first time with a token the
+//!   main session asks Spotify for (the official client id's).  A device that can't be set
+//!   up is tried again later and later, and the Spotify settings say why.
 
 use super::Spotify;
 use crate::control::request::Source;
 use crate::server::Server;
 use dashmap::DashMap;
 use librespot_connect::{ConnectConfig, Spirc};
+use librespot_core::authentication::Credentials;
+use librespot_core::cache::Cache;
 use librespot_core::{Session, SessionConfig};
 use librespot_playback::audio_backend::{Sink, SinkResult};
 use librespot_playback::config::PlayerConfig;
@@ -49,10 +55,58 @@ const LEAD: Duration = Duration::from_secs(5);
 /// (gapless), not one picked in the app.
 const NATURAL_NEXT: Duration = Duration::from_secs(3);
 
+/// First wait before setting up a device that failed again; doubles up to `MAX_RETRY`.
+const FIRST_RETRY: Duration = Duration::from_secs(10);
+const MAX_RETRY: Duration = Duration::from_secs(30 * 60);
+
 static DEVICES: OnceLock<DashMap<String, Arc<Device>>> = OnceLock::new();
 
 fn devices() -> &'static DashMap<String, Arc<Device>> {
     DEVICES.get_or_init(DashMap::new)
+}
+
+/// A player whose device could not be set up: why, and when to try again.
+struct Failure {
+    player: String,
+    error: String,
+    count: u32,
+    retry_at: Instant,
+}
+
+static FAILURES: OnceLock<DashMap<String, Failure>> = OnceLock::new();
+
+fn failures() -> &'static DashMap<String, Failure> {
+    FAILURES.get_or_init(DashMap::new)
+}
+
+/// Why a player has no Connect device right now, if one hasn't: for the Spotify settings.
+pub fn error() -> Option<String> {
+    failures()
+        .iter()
+        .map(|f| format!("Spotify Connect for {}: {}", f.player, f.error))
+        .min()
+}
+
+/// Remember a failure and when to try again: logged when it first happens or changes.
+fn failed(k: &str, player: &str, error: String) {
+    let mut f = failures().entry(k.to_string()).or_insert(Failure {
+        player: player.to_string(),
+        error: String::new(),
+        count: 0,
+        retry_at: Instant::now(),
+    });
+    if f.error != error {
+        warn!("Spotify Connect for {player}: {error}");
+    } else {
+        debug!("Spotify Connect for {player}: {error} (again)");
+    }
+    let wait = FIRST_RETRY
+        .saturating_mul(1 << f.count.min(10))
+        .min(MAX_RETRY);
+    f.player = player.to_string();
+    f.error = error;
+    f.count += 1;
+    f.retry_at = Instant::now() + wait;
 }
 
 /// Key of a player in `spotify://connect:<key>` URLs (its MAC without colons).
@@ -284,10 +338,7 @@ pub fn start(server: &Arc<Server>) {
 }
 
 async fn supervise(server: &Arc<Server>, sp: &Arc<Spotify>) {
-    let signed_in = sp
-        .credentials_cache()
-        .and_then(|c| c.credentials())
-        .is_some();
+    let signed_in = sp.signed_in();
     let players: Vec<_> = server
         .players()
         .into_iter()
@@ -295,6 +346,7 @@ async fn supervise(server: &Arc<Server>, sp: &Arc<Spotify>) {
         .collect();
     // remove devices of players that left (or of everyone, when signed out)
     let keep: Vec<String> = players.iter().map(|p| key(&p.id)).collect();
+    failures().retain(|k, _| keep.contains(k));
     devices().retain(|k, d| {
         let ok = keep.contains(k);
         if !ok {
@@ -308,8 +360,17 @@ async fn supervise(server: &Arc<Server>, sp: &Arc<Spotify>) {
         let dev = devices().get(&k).map(|d| d.clone());
         match dev {
             None => {
-                if let Err(e) = add_device(server, sp, &p).await {
-                    warn!("Spotify Connect for {}: {e}", p.name());
+                if failures()
+                    .get(&k)
+                    .is_some_and(|f| f.retry_at > Instant::now())
+                {
+                    continue;
+                }
+                match add_device(server, sp, &p).await {
+                    Ok(()) => {
+                        failures().remove(&k);
+                    }
+                    Err(e) => failed(&k, &p.name(), e),
                 }
             }
             Some(dev) if !dev.alive.load(Ordering::Relaxed) => {
@@ -368,19 +429,66 @@ async fn add_device(
     sp: &Arc<Spotify>,
     p: &Arc<crate::player::Player>,
 ) -> Result<(), String> {
-    let credentials = sp
-        .credentials_cache()
-        .and_then(|c| c.credentials())
-        .ok_or("not signed in")?;
     let name = p.name();
     let k = key(&p.id);
-    // one session per device: Connect state is per session
+    let cache = Cache::new(Some(sp.dir.join("connect").join(&k)), None, None, None).ok();
+    // the device's own credentials, else a token of the main session (Spotify's own client
+    // id, as the AP wants), else one of the sign-in (the user's client id: may be refused)
+    let mut logins: Vec<(&str, Credentials)> = Vec::new();
+    if let Some(c) = cache.as_ref().and_then(|c| c.credentials()) {
+        logins.push(("its stored credentials", c));
+    }
+    match sp.session().await {
+        Ok(session) => match session
+            .token_provider()
+            .get_token(&super::SCOPES.join(","))
+            .await
+        {
+            Ok(t) => logins.push((
+                "a token of the session",
+                Credentials::with_access_token(t.access_token),
+            )),
+            Err(e) => debug!("Spotify Connect: no session token: {e}"),
+        },
+        Err(e) => debug!("Spotify Connect: no session: {e}"),
+    }
+    if let Ok(token) = sp.oauth_token().await {
+        logins.push(("the sign-in's token", Credentials::with_access_token(token)));
+    }
+    if logins.is_empty() {
+        return Err("not signed in".into());
+    }
+    let mut errors = Vec::new();
+    for (how, credentials) in logins {
+        match start_device(server, p, &name, &k, credentials, cache.clone()).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                debug!("Spotify Connect for {name}: with {how}: {e}");
+                errors.push(format!("with {how}: {e}"));
+            }
+        }
+    }
+    Err(errors.join("; "))
+}
+
+async fn start_device(
+    server: &Arc<Server>,
+    p: &Arc<crate::player::Player>,
+    name: &str,
+    k: &str,
+    credentials: Credentials,
+    cache: Option<Cache>,
+) -> Result<(), String> {
+    let name = name.to_string();
+    let k = k.to_string();
+    // one session per device: Connect state is per session.  Its own cache: the credentials
+    // Spotify returns are bound to this device id.
     let session = Session::new(
         SessionConfig {
             device_id: format!("{:0>40}", k),
             ..Default::default()
         },
-        sp.credentials_cache(),
+        cache,
     );
     let bitrate = server.prefs.server.get_i64("spotifyBitrate").max(96) as u32;
     let normalise = server.prefs.server.get_bool("spotifyNormalisation");
@@ -673,5 +781,26 @@ mod tests {
         sink.write(second(), &mut Converter::new(None)).unwrap();
         assert!(t.elapsed() < Duration::from_secs(1));
         assert!(pipe.tx.lock().is_none(), "the closed stream is forgotten");
+    }
+
+    #[test]
+    fn failed_devices_are_tried_again_later_and_later() {
+        let k = "0004209999aa";
+        let denied = "Login request was denied: INVALID_CREDENTIALS".to_string();
+        let wait = || failures().get(k).unwrap().retry_at - Instant::now();
+        failed(k, "Kitchen", denied.clone());
+        let first = wait();
+        assert!(
+            first > Duration::from_secs(8) && first <= FIRST_RETRY,
+            "{first:?}"
+        );
+        failed(k, "Kitchen", denied.clone());
+        assert!(wait() > first * 3 / 2, "doubles");
+        for _ in 0..20 {
+            failed(k, "Kitchen", denied.clone());
+        }
+        assert!(wait() <= MAX_RETRY);
+        assert!(error().is_some_and(|e| e.contains("for Kitchen: Login request was denied")));
+        failures().remove(k);
     }
 }

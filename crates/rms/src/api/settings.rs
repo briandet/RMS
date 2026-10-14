@@ -21,6 +21,8 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let albums = server.library.release_totals();
     let d = server.library.discovery_totals();
     let (pending, scrobble_error) = crate::plugins::scrobble::pending(server);
+    let effnet = crate::plugins::effnet::status();
+    let (effnet_analyzed, effnet_pending) = server.library.effnet_totals();
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
@@ -57,6 +59,20 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         scrobble_spotify: prefs.get_bool(crate::plugins::scrobble::SPOTIFY),
         scrobble_pending: pending,
         scrobble_error,
+        effnet: prefs.get_bool(crate::plugins::effnet::PREF),
+        effnet_status: match &effnet {
+            crate::plugins::effnet::Status::Off => "off",
+            crate::plugins::effnet::Status::Downloading(..) => "downloading",
+            crate::plugins::effnet::Status::Ready => "ready",
+            crate::plugins::effnet::Status::Failed(_) => "failed",
+        }
+        .into(),
+        effnet_error: match effnet {
+            crate::plugins::effnet::Status::Failed(e) => Some(e),
+            _ => None,
+        },
+        effnet_analyzed,
+        effnet_pending,
     }
 }
 
@@ -148,6 +164,9 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.scrobble_spotify {
         changes.push((crate::plugins::scrobble::SPOTIFY, flag(v)));
+    }
+    if let Some(v) = patch.effnet {
+        changes.push((crate::plugins::effnet::PREF, flag(v)));
     }
     if let Some(v) = patch.listenbrainz {
         changes.push((crate::plugins::listenbrainz::PREF, flag(v)));

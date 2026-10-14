@@ -71,6 +71,10 @@ pub struct Config {
     )]
     pub listenbrainz_url: String,
 
+    /// Where EffNet's models are downloaded from.
+    #[arg(long, env = "RMS_EFFNET_URL", default_value = rms_library::effnet::BASE_URL, hide = true)]
+    pub effnet_url: String,
+
     /// ListenBrainz API, for scrobbling and what it recommends.
     #[arg(
         long,

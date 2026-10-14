@@ -200,6 +200,8 @@ export function render(node, { ctx }) {
       spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
+        st.connect_error && h('p', { class: 'muted small' }, st.connect_error,
+          '. RMS tries again later; signing out and in again can help.'),
         st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
         selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
           settings?.spotify_bitrate, (v) => saveServer({ spotify_bitrate: v })),
@@ -532,7 +534,31 @@ export function render(node, { ctx }) {
       }).catch(() => {});
     }
 
-    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm, lbField, editField, recent);
+    // EffNet: what kind of music each song is (models downloaded on demand)
+    const effId = fieldId();
+    const effOn = !!settings.effnet;
+    const effState = {
+      off: '',
+      downloading: 'Downloading the models…',
+      ready: settings.effnet_pending
+        ? `${settings.effnet_analyzed ?? 0} songs analysed, ${settings.effnet_pending} to go.`
+        : `${settings.effnet_analyzed ?? 0} songs analysed.`,
+      failed: `Could not set it up: ${settings.effnet_error || 'unknown error'}`,
+    }[settings.effnet_status] ?? '';
+    const effField = h('div', { class: 'field check' },
+      h('input', { id: effId, type: 'checkbox', checked: effOn, onchange: async (e) => {
+        await saveServer({ effnet: e.target.checked },
+          e.target.checked ? 'Downloading the models; songs are analysed in the background' : 'EffNet analysis off');
+        renderLibrary();
+      } }),
+      h('label', { for: effId }, 'Analyse what kind of music each song is (EffNet)',
+        h('span', { class: 'muted small block' },
+          'A neural network from the Music Technology Group (UPF Barcelona), trained on Discogs, recognises each song’s styles, moods and instruments, so mixes keep to the same kind of music. It downloads about 30 MB of models from essentia.upf.edu, licensed ',
+          h('a', { href: 'https://creativecommons.org/licenses/by-nc-sa/4.0/', target: '_blank', rel: 'noopener' }, 'CC BY-NC-SA 4.0'),
+          ' (non-commercial use), and takes a second or two per song in the background, with the sound analysis. '),
+        effState && h('span', { class: 'small block', role: settings.effnet_status === 'failed' ? 'alert' : null }, effState)));
+
+    libSection.replaceChildren(h('h2', { id: 'set-library' }, 'Library'), nameForm, dirsForm, watchField, artForm, onlineField, mbField, keyForm, effField, lbField, editField, recent);
   }
 
   // ---------------------------------------------------------------- scan

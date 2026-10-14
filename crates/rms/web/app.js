@@ -2,13 +2,14 @@
 
 import { command, getPlayer, getQueue, connectEvents, itemFor } from './api.js';
 import { store, on, emit, currentPlayer, elapsed, patchPlayer } from './store.js';
-import { $, $$, h, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
+import { $, $$, h, icon, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
 import * as NowPlaying from './views/nowplaying.js';
 import * as Queue from './views/queue.js';
 import * as Library from './views/library.js';
 import * as Search from './views/search.js';
 import * as Settings from './views/settings.js';
 import { initBrowserPlayer } from './browser-player.js';
+import { openMenu } from './views/menu.js';
 
 const mobile = matchMedia('(max-width: 899px)');
 
@@ -177,20 +178,72 @@ function selectPlayer(id, byUser = false) {
   checkQueue();
 }
 
+/** Kinds of players, in the order the picker lists them: [kind, heading, icon]. */
+const PLAYER_KINDS = [
+  ['squeezebox', 'Squeezebox', 'speaker'],
+  ['chromecast', 'Chromecast', 'cast'],
+  ['airplay', 'AirPlay', 'airplay'],
+  ['upnp', 'UPnP / DLNA', 'router'],
+  ['browser', 'Web', 'laptop'],
+];
+
+/** Squeezeboxes and everything speaking slimproto (squeezelite, WiiM, …) are `squeezebox`. */
+function playerKind(p) {
+  return ['chromecast', 'airplay', 'upnp', 'browser'].includes(p.model) ? p.model : 'squeezebox';
+}
+
+const kindIcon = (p) => PLAYER_KINDS.find(([k]) => k === playerKind(p))[2];
+
 function renderPlayerSelect() {
-  const sel = $('#player-select');
+  const btn = $('#player-select');
   const players = store.players;
+  const name = btn.querySelector('.player-button-name');
   if (!players.length) {
-    sel.replaceChildren(h('option', { value: '' }, store.server ? 'No players' : 'Loading players…'));
-    sel.disabled = true;
+    name.textContent = store.server ? 'No players' : 'Loading players…';
+    btn.disabled = true;
+    btn.title = '';
     return;
   }
-  sel.disabled = false;
-  sel.replaceChildren(...players.map((p) => h('option', { value: p.id, selected: p.id === store.playerId },
-    `${p.name || p.id}${p.connected ? '' : ' (disconnected)'}`)));
-  sel.value = store.playerId || '';
+  btn.disabled = false;
   const cur = currentPlayer();
-  sel.title = cur ? [cur.model_name || cur.model || 'Player', cur.ip, cur.id].filter(Boolean).join(' · ') : '';
+  name.textContent = cur ? cur.name || cur.id : 'Choose a player';
+  setIcon(btn, cur ? kindIcon(cur) : 'speaker');
+  btn.setAttribute('aria-label', `Player: ${cur ? cur.name || cur.id : 'none'}. Choose a player`);
+  btn.title = cur ? [cur.model_name || cur.model || 'Player', cur.ip, cur.id].filter(Boolean).join(' · ') : '';
+}
+
+/** A player's state as a small icon, named for screen readers and on hover. */
+function stateIcon(name, label) {
+  return h('span', { class: 'state-icon', role: 'img', 'aria-label': label, title: label }, icon(name));
+}
+
+/** Little moving bars: the player is playing (decoration, not its real level). */
+function playingBars() {
+  return h('span', { class: 'eq-bars', role: 'img', 'aria-label': 'playing', title: 'Playing' },
+    h('i'), h('i'), h('i'), h('i'));
+}
+
+/** The player picker: players grouped by kind, each kind under its heading. */
+function openPlayerMenu() {
+  const btn = $('#player-select');
+  const byName = (a, b) => (a.name || a.id).localeCompare(b.name || b.id, undefined, { numeric: true });
+  const groups = PLAYER_KINDS
+    .map(([kind, heading, ic]) => [heading, ic, store.players.filter((p) => playerKind(p) === kind).sort(byName)])
+    .filter(([, , ps]) => ps.length);
+  const entries = groups.flatMap(([heading, ic, ps]) => [
+    groups.length > 1 ? { heading, icon: ic } : null,
+    ...ps.map((p) => ({
+      label: p.name || p.id,
+      icon: groups.length > 1 ? null : ic,
+      detail: !p.connected ? stateIcon('linkoff', 'Disconnected') : !p.power ? stateIcon('power', 'Off')
+        : p.mode === 'play' ? playingBars() : null,
+      dim: !p.connected || !p.power,
+      checked: p.id === store.playerId,
+      run: () => selectPlayer(p.id, true),
+    })),
+  ]);
+  btn.setAttribute('aria-expanded', 'true');
+  openMenu(btn, 'Players', entries, { align: 'start', onClose: () => btn.setAttribute('aria-expanded', 'false') });
 }
 
 function renderPower() {
@@ -398,7 +451,7 @@ function boot() {
   applyTheme();
   setupSearch();
 
-  $('#player-select').addEventListener('change', (e) => selectPlayer(e.target.value, true));
+  $('#player-select').addEventListener('click', openPlayerMenu);
   $('#power-btn').addEventListener('click', () => {
     const on = !!currentPlayer()?.power;
     patchPlayer({ power: !on });

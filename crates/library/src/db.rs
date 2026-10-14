@@ -35,6 +35,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V8_FILE_MOVES,
     SCHEMA_V9_RELEASE_ART,
     SCHEMA_V10_TRACK_COVERS,
+    SCHEMA_V11_EFFNET,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -497,6 +498,17 @@ CREATE TABLE release_art (
 
 /// The release whose cover stands for a track outside a matched album
 /// ([`crate::releaseart`]).  Kept across wipes.
+/// What kind of music each audio is, by EffNet-Discogs ([`crate::effnet`]), keyed by the
+/// audio fingerprint like `track_analysis` (kept by a wipe).
+const SCHEMA_V11_EFFNET: &str = r#"
+CREATE TABLE track_effnet (
+  fingerprint TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL,
+  embedding   BLOB,  -- 1280 numbers, half precision little-endian; NULL: could not be analysed
+  labels      TEXT   -- JSON: styles, moods, themes, instruments
+) STRICT, WITHOUT ROWID;
+"#;
+
 const SCHEMA_V10_TRACK_COVERS: &str = r#"
 -- For the audio with that fingerprint: the release of its recording whose front cover it shows
 -- when it has no art of its own and isn't on a confidently matched album (the album its tags

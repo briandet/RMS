@@ -462,3 +462,81 @@ async fn a_renderer_without_next_uri_plays_the_next_track_after() {
     need_ffmpeg!();
     plays_an_album(false).await;
 }
+
+/// The names of the players the server lists.
+async fn player_names(http: u16) -> Vec<String> {
+    get_json(http, "/api/v1/players")
+        .await
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["name"].as_str().unwrap_or("").to_string())
+        .collect()
+}
+
+/// Wait until the listed players satisfy `ok`.
+async fn wait_names(http: u16, what: &str, ok: impl Fn(&[String]) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let names = player_names(http).await;
+        if ok(&names) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: {names:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_renderer_that_is_also_a_squeezebox_player_is_one_player() {
+    let music = tempfile::tempdir().unwrap();
+    let server = start_server(music.path());
+    let http = server.http;
+    // the renderer and the "Squeezebox" are both at 127.0.0.1: one device
+    let (_fake, location) = start_renderer("Speaker (UPnP)", "test-dedupe", true).await;
+    pref(http, "upnpRenderers", &json!([location]).to_string()).await;
+    pref(http, "bridgeUpnp", "1").await;
+    wait_names(http, "the renderer is a player", |n| {
+        n.iter().any(|n| n == "Speaker (UPnP)")
+    })
+    .await;
+
+    // the Squeezebox player connects: it wins, the renderer's player goes
+    let caps = "Model=squeezelite,ModelName=SqueezeLite,MaxSampleRate=192000,flc,pcm,mp3";
+    let slim = server.slim;
+    let player = tokio::task::spawn_blocking(move || {
+        let mut p = FakePlayer::connect_as(slim, 12, &[0, 4, 0x20, 0xdd, 0, 1], caps);
+        p.expect(b"audg", Duration::from_secs(5));
+        p
+    })
+    .await
+    .unwrap();
+    wait_names(http, "only the Squeezebox player", |n| {
+        !n.iter().any(|n| n == "Speaker (UPnP)")
+    })
+    .await;
+
+    // found again (the list changed: a search now) while the Squeezebox is connected: not added
+    let elsewhere = "http://127.0.0.1:9/desc.xml";
+    pref(
+        http,
+        "upnpRenderers",
+        &json!([location, elsewhere]).to_string(),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!player_names(http)
+        .await
+        .iter()
+        .any(|n| n == "Speaker (UPnP)"));
+
+    // the Squeezebox goes away: the renderer is a player again on its next discovery
+    drop(player);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    pref(http, "upnpRenderers", &json!([location]).to_string()).await;
+    wait_names(http, "the renderer is back", |n| {
+        n.iter().any(|n| n == "Speaker (UPnP)")
+    })
+    .await;
+    pref(http, "bridgeUpnp", "0").await;
+}

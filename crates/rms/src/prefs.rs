@@ -382,7 +382,26 @@ impl Prefs {
         store
     }
 
-    #[cfg(test)]
+    /// Forget sync groups of a single player: left behind by versions that kept the group id
+    /// of the last member when the others left.  Restoring such a group on connect finds no
+    /// one to sync with, but the player would still count as grouped.
+    pub fn clear_lone_sync_groups(&self) {
+        let mut groups: BTreeMap<i64, Vec<Arc<PrefStore>>> = BTreeMap::new();
+        for id in self.known_players() {
+            let p = self.player(&id);
+            let gid = p.get_i64("syncgroupid");
+            if gid > 0 {
+                groups.entry(gid).or_default().push(p);
+            }
+        }
+        for (gid, members) in groups {
+            if let [p] = members.as_slice() {
+                info!("forgetting sync group {gid} with a single player");
+                p.remove("syncgroupid");
+            }
+        }
+    }
+
     /// Ids of players that have a prefs file on disk (used to list "known" players).
     pub fn known_players(&self) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
@@ -416,5 +435,27 @@ mod tests {
         assert_eq!(again.player("00:04:20:aa:bb:cc").get_i64("volume"), 33);
         assert_eq!(again.known_players(), vec!["00:04:20:aa:bb:cc"]);
         assert!(!again.server.get_str("server_uuid").is_empty());
+    }
+
+    #[test]
+    fn sync_groups_of_one_player_are_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = Prefs::open(dir.path());
+        prefs
+            .player("00:04:20:00:00:01")
+            .set("syncgroupid", json!(11));
+        prefs
+            .player("00:04:20:00:00:02")
+            .set("syncgroupid", json!(11));
+        prefs
+            .player("00:04:20:00:00:03")
+            .set("syncgroupid", json!(22));
+        let again = Prefs::open(dir.path());
+        again.clear_lone_sync_groups();
+        assert_eq!(again.player("00:04:20:00:00:01").get_i64("syncgroupid"), 11);
+        assert_eq!(again.player("00:04:20:00:00:02").get_i64("syncgroupid"), 11);
+        assert_eq!(again.player("00:04:20:00:00:03").get_i64("syncgroupid"), 0);
+        let reread = Prefs::open(dir.path());
+        assert_eq!(reread.player("00:04:20:00:00:03").get_i64("syncgroupid"), 0);
     }
 }

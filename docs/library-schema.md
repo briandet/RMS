@@ -30,6 +30,7 @@ are `STRICT`, and foreign keys are enforced.
 | `discovered` | Songs mixes proposed from outside what was played (ListenBrainz, `discover.rs`): what plays them, what they are similar to, and how it went (`new`, `played`, `rejected` when skipped within 30 seconds). |
 | `web_cache` | Answers of web services (ListenBrainz similarities, recommendations, playlists; where Spotify has a recording), for a while. |
 | `scrobble_queue` | Listens waiting to be sent to ListenBrainz (`scrobble.rs`), by account. |
+| `track_effnet` | EffNet-Discogs analysis per audio content (`effnet.rs`, when turned on): the 1280-number embedding averaged over 32 excerpts (f16, little-endian) and the labels (styles, moods, themes, instruments with scores, JSON). |
 | `track_chromaprint` | A Chromaprint audio fingerprint of the first two minutes, per audio content (`print.rs`): the same recording in the library and in a stream. |
 | `remote_tracks` | Tracks of streaming services that played to their end (Spotify): metadata only, with their ISRC and, when the library has the same recording, `local_match`. Their analyses are in the tables above under `<source>:<id>`. |
 | `meta` | Key/value settings of the library (`last_scan`). |
@@ -54,7 +55,8 @@ inside words, still scans the columns.
 
 ## What survives what
 
-`track_stats`, the analyses (`track_analysis`, `track_rhythm`, `track_chromaprint`) and
+`track_stats`, the analyses (`track_analysis`, `track_rhythm`, `track_chromaprint`,
+`track_effnet`) and
 `remote_tracks` are user data. A wipe and rescan keep them, and so does a file that changes,
 moves or is renamed:
 

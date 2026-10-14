@@ -151,7 +151,11 @@ loudness?: number,
 /**
  * The sonic analysis is done, so similar songs can go by how it sounds.
  */
-analyzed: boolean, };
+analyzed: boolean, 
+/**
+ * What kind of music it is, by EffNet (when that analysis is on and has reached it).
+ */
+kind?: TrackKind, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
@@ -547,6 +551,10 @@ product?: string,
  */
 error?: string, 
 /**
+ * Why a player isn't available as a Spotify Connect device (tried again later).
+ */
+connect_error?: string, 
+/**
  * Learn what tracks played from Spotify sound like, for mixes.
  */
 learn: boolean, 
@@ -651,9 +659,22 @@ scrobble_spotify: boolean,
 /**
  * Listens waiting to be sent, and the last error sending them.
  */
-scrobble_pending: number, scrobble_error: string | null, };
+scrobble_pending: number, scrobble_error: string | null, 
+/**
+ * Analyse what kind of music each track is with EffNet-Discogs (models downloaded from
+ * MTG, non-commercial licence).
+ */
+effnet: boolean, 
+/**
+ * `off`, `downloading`, `ready` or `failed` (with `effnet_error`).
+ */
+effnet_status: string, effnet_error: string | null, 
+/**
+ * Tracks analysed with EffNet, and still to analyse.
+ */
+effnet_analyzed: number, effnet_pending: number, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

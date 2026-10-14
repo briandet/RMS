@@ -60,6 +60,8 @@ struct Job {
     rhythm: bool,
     /// No current audio fingerprint.
     print: bool,
+    /// No current EffNet analysis (and that analysis is on).
+    effnet: bool,
 }
 
 /// How far the background analysis got.
@@ -85,8 +87,9 @@ impl Library {
         ffmpeg: Option<&str>,
         stop: &AtomicBool,
     ) -> usize {
+        let effnet = self.effnet();
         let jobs = match self.conn() {
-            Ok(c) => pending(&c),
+            Ok(c) => pending(&c, effnet.is_some()),
             Err(_) => return 0,
         };
         // a scan resets the gains (and genres, ids) of the tracks it (re)stored from their tags
@@ -138,6 +141,15 @@ impl Library {
                                 let _ =
                                     crate::print::match_local(&c, &job.fingerprint, p, job.secs);
                             }
+                        }
+                        if let (true, Some(m)) = (job.effnet, &effnet) {
+                            let a = samples.as_deref().and_then(|s| {
+                                crate::effnet::analyze(m, s, SAMPLE_RATE)
+                                    .map_err(|e| debug!("EffNet analysis of {}: {}", job.url, e))
+                                    .ok()
+                                    .flatten()
+                            });
+                            self.store_effnet(&c, &job.fingerprint, a.as_ref());
                         }
                         if !job.features {
                             done.fetch_add(1, Ordering::Relaxed);
@@ -256,22 +268,30 @@ const LOCAL: &str = "t.fingerprint IS NOT NULL";
 /// Joins the analysis of `t`'s audio (bind the version).
 pub(crate) const CURRENT: &str = "a.fingerprint = t.fingerprint AND a.version = ?";
 
-fn pending(c: &Connection) -> Vec<Job> {
+fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
     let sql = format!(
         "SELECT t.fingerprint, t.url, t.duration, a.fingerprint IS NULL, r.fingerprint IS NULL, \
-           p.fingerprint IS NULL \
+           p.fingerprint IS NULL, ?4 AND e.fingerprint IS NULL \
          FROM tracks t \
-         LEFT JOIN track_analysis a ON {CURRENT} \
-         LEFT JOIN track_rhythm r ON r.fingerprint = t.fingerprint AND r.version = ? \
-         LEFT JOIN track_chromaprint p ON p.fingerprint = t.fingerprint AND p.version = ? \
-         WHERE {LOCAL} AND (a.fingerprint IS NULL OR r.fingerprint IS NULL OR p.fingerprint IS NULL) \
+         LEFT JOIN track_analysis a ON a.fingerprint = t.fingerprint AND a.version = ?1 \
+         LEFT JOIN track_rhythm r ON r.fingerprint = t.fingerprint AND r.version = ?2 \
+         LEFT JOIN track_chromaprint p ON p.fingerprint = t.fingerprint AND p.version = ?3 \
+         LEFT JOIN track_effnet e ON e.fingerprint = t.fingerprint AND e.version = ?5 \
+         WHERE {LOCAL} AND (a.fingerprint IS NULL OR r.fingerprint IS NULL OR p.fingerprint IS NULL \
+           OR (?4 AND e.fingerprint IS NULL)) \
          GROUP BY t.fingerprint ORDER BY t.url"
     );
     let Ok(mut st) = c.prepare(&sql) else {
         return Vec::new();
     };
     let rows = st.query_map(
-        params![version(), crate::rhythm::VERSION, crate::print::VERSION],
+        params![
+            version(),
+            crate::rhythm::VERSION,
+            crate::print::VERSION,
+            effnet,
+            crate::effnet::VERSION
+        ],
         |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -281,6 +301,7 @@ fn pending(c: &Connection) -> Vec<Job> {
                     r.get::<_, bool>(3)?,
                     r.get::<_, bool>(4)?,
                     r.get::<_, bool>(5)?,
+                    r.get::<_, bool>(6)?,
                 ),
             ))
         },
@@ -289,18 +310,21 @@ fn pending(c: &Connection) -> Vec<Job> {
         return Vec::new();
     };
     rows.flatten()
-        .filter_map(|(fingerprint, url, secs, (features, rhythm, print))| {
-            let path = path_from_file_url(&url)?;
-            Some(Job {
-                fingerprint,
-                url,
-                path,
-                secs,
-                features,
-                rhythm,
-                print,
-            })
-        })
+        .filter_map(
+            |(fingerprint, url, secs, (features, rhythm, print, effnet))| {
+                let path = path_from_file_url(&url)?;
+                Some(Job {
+                    fingerprint,
+                    url,
+                    path,
+                    secs,
+                    features,
+                    rhythm,
+                    print,
+                    effnet,
+                })
+            },
+        )
         .collect()
 }
 
