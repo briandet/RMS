@@ -1976,6 +1976,13 @@ impl Controller {
         if !self.all_players.is_empty() {
             self.new_master();
         }
+        // the last one left is no longer in a group (Lyrion: `Sync::unsync`)
+        if self.member_count() == 1 {
+            self.sync_group_id = None;
+            for p in self.all_players() {
+                p.prefs.remove("syncgroupid");
+            }
+        }
     }
 
     pub(crate) fn after_join(&mut self, player: &Arc<Player>, no_restart: bool) {

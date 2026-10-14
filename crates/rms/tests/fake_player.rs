@@ -1122,3 +1122,47 @@ fn announcement_on_a_player_that_was_off() {
     );
     assert_eq!(code, 404);
 }
+
+#[test]
+fn the_last_player_left_in_a_sync_group_is_no_longer_grouped() {
+    let (music, _files) = make_music();
+    let server = start_server(music.path());
+    let caps = "Model=squeezelite,ModelName=SqueezeLite,MaxSampleRate=192000,flc,pcm,mp3";
+    let macs = [
+        "00:04:20:aa:00:01",
+        "00:04:20:aa:00:02",
+        "00:04:20:aa:00:03",
+    ];
+    let mut players: Vec<FakePlayer> = (1..=3)
+        .map(|i| FakePlayer::connect_as(server.slim, 12, &[0, 4, 0x20, 0xaa, 0, i], caps))
+        .collect();
+    for p in &mut players {
+        p.expect(b"audg", Duration::from_secs(5));
+    }
+    let group = |mac: &str| -> i64 {
+        cli(server.cli, &format!("{mac} playerpref syncgroupid ?"))
+            .last()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    };
+    // `<player> sync <buddy>`: the player joins the buddy's group
+    cli(server.cli, &format!("{} sync {}", macs[1], macs[0]));
+    cli(server.cli, &format!("{} sync {}", macs[2], macs[0]));
+    let gid = group(macs[0]);
+    assert!(gid > 0);
+    assert!(macs.iter().all(|m| group(m) == gid));
+
+    // one leaves: the other two stay a group
+    cli(server.cli, &format!("{} sync -", macs[2]));
+    assert_eq!(group(macs[2]), 0);
+    assert_eq!((group(macs[0]), group(macs[1])), (gid, gid));
+
+    // another leaves: the one left is on its own, not a group of one
+    cli(server.cli, &format!("{} sync -", macs[1]));
+    assert_eq!(macs.map(group), [0, 0, 0]);
+    let groups = cli(server.cli, "syncgroups ?");
+    assert!(
+        !groups.iter().any(|t| t.starts_with("sync_members")),
+        "{groups:?}"
+    );
+}

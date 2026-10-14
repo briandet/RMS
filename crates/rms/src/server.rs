@@ -89,6 +89,7 @@ impl Server {
     pub fn new(config: Config) -> anyhow::Result<Arc<Server>> {
         std::fs::create_dir_all(&config.data_dir)?;
         let prefs = Prefs::open(&config.prefs_dir());
+        prefs.clear_lone_sync_groups();
         if let Some(port) = config.http_port {
             prefs.server.set("httpport", json!(port));
         }
