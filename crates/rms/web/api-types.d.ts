@@ -87,6 +87,27 @@ index?: number,
  */
 name?: string, };
 
+export type Spectrum = { kind: SpectrumKind, 
+/**
+ * What the curve belongs to; a different key is a different curve.
+ */
+key: string, 
+/**
+ * Readings per second.
+ */
+fps: number, 
+/**
+ * Position in the track (seconds) of the first reading.
+ */
+start: number, 
+/**
+ * The readings, base64: two bytes each, four levels 0–15 (bass, low mids, high mids,
+ * treble), the first of each pair in the high four bits.
+ */
+curve: string, };
+
+export type SpectrumKind = "track" | "live" | "none";
+
 export type Track = { 
 /**
  * Library track id; absent for streams and services.
@@ -156,6 +177,195 @@ analyzed: boolean,
  * What kind of music it is, by EffNet (when that analysis is on and has reached it).
  */
 kind?: TrackKind, };
+
+export type TrackKind = { styles: Array<Label>, moods: Array<Label>, themes: Array<Label>, instruments: Array<Label>, };
+
+export type Label = { name: string, score: number, };
+
+export type TrackAnalysis = { track_id: number, title: string, artist?: string, file: AnalysisFile, 
+/**
+ * bliss: what it sounds like, which drives similar songs and mixes; loudness.
+ */
+bliss: AnalysisStage<BlissAnalysis>, 
+/**
+ * Tempo, beats, key and energy.
+ */
+rhythm: AnalysisStage<RhythmAnalysis>, 
+/**
+ * The audio fingerprint, to recognise the same recording.
+ */
+chromaprint: AnalysisStage<ChromaprintAnalysis>, 
+/**
+ * EffNet-Discogs: what kind of music it is.
+ */
+effnet: AnalysisStage<EffnetAnalysis>, 
+/**
+ * The MusicBrainz lookup.
+ */
+musicbrainz: AnalysisStage<MusicBrainzAnalysis>, };
+
+export type AnalysisStatus = "done" | "failed" | "stale" | "pending" | "skipped" | "off";
+
+export type AnalysisStage<T> = { status: AnalysisStatus, 
+/**
+ * Version of the analysis that made the stored results, and the current one.
+ */
+version?: number, current_version: number, 
+/**
+ * Unix time.
+ */
+analyzed_at?: number, 
+/**
+ * Present when `done`.
+ */
+result?: T, };
+
+export type AnalysisFile = { url: string, path?: string, 
+/**
+ * Identifies the audio across moves and renames; the analyses are stored under it.
+ */
+fingerprint?: string, format: string, 
+/**
+ * Bytes.
+ */
+size?: number, 
+/**
+ * Bits per second.
+ */
+bitrate?: number, vbr: boolean, sample_rate?: number, sample_size?: number, channels?: number, lossless: boolean, 
+/**
+ * Seconds.
+ */
+duration?: number, 
+/**
+ * A cue-sheet track: where it starts and ends in the file, seconds.
+ */
+segment_start?: number, segment_end?: number, 
+/**
+ * ReplayGain, dB, and peak, from the tags or the measured loudness.
+ */
+replay_gain?: number, replay_peak?: number, 
+/**
+ * The `BPM` tag.
+ */
+bpm_tag?: number, };
+
+export type Feature = { name: string, value: number, };
+
+export type Neighbour = { id: number, title: string, artist?: string, 
+/**
+ * bliss: the distance (smaller is closer); EffNet: the cosine similarity (larger is
+ * closer, at most 1).
+ */
+score: number, };
+
+export type BlissAnalysis = { 
+/**
+ * bliss's features, normalised to about -1..1, in its order: tempo, zero-crossing rate,
+ * spectral centroid, rolloff and flatness (mean, deviation), loudness (mean, deviation),
+ * then chroma.
+ */
+features: Array<Feature>, 
+/**
+ * Integrated loudness (EBU R128), LUFS.
+ */
+loudness?: number, 
+/**
+ * True peak, linear (1.0 is full scale).
+ */
+peak?: number, 
+/**
+ * The library tracks that sound closest.
+ */
+nearest: Array<Neighbour>, 
+/**
+ * Tracks closer than this are taken for the same recording.
+ */
+duplicate_distance: number, };
+
+export type RhythmAnalysis = { 
+/**
+ * Beats per minute; 0 when there is no steady beat.
+ */
+bpm: number, 
+/**
+ * How steady and strong the beat is, 0–1 (below about 0.3: not beat-matched in mixes).
+ */
+beat_confidence: number, 
+/**
+ * Beats tracked, and 4/4 bars from the first downbeat.
+ */
+beats: number, bars: number, 
+/**
+ * Seconds into the track.
+ */
+first_downbeat?: number, 
+/**
+ * Camelot code (`8A`) and name (`A minor`).
+ */
+key: string, key_name: string, 
+/**
+ * 0–1: how clearly the key beats the runner-up.
+ */
+key_confidence: number, 
+/**
+ * Loudness per bar (per 2 seconds without a beat), dB.
+ */
+energy: Array<number>, 
+/**
+ * Seconds per `energy` value.
+ */
+energy_step?: number, };
+
+export type ChromaprintAnalysis = { 
+/**
+ * 32-bit items, about 8 a second.
+ */
+items: number, 
+/**
+ * Seconds of audio it covers (the first two minutes at most).
+ */
+duration?: number, 
+/**
+ * Library tracks that sound like the same recording (by bliss), and whether their
+ * fingerprints confirm it.
+ */
+duplicates: Array<Duplicate>, };
+
+export type Duplicate = { id: number, title: string, artist?: string, same_recording: boolean, };
+
+export type EffnetAnalysis = { labels: TrackKind, 
+/**
+ * The library tracks closest in kind.
+ */
+nearest: Array<Neighbour>, };
+
+export type MusicBrainzAnalysis = { 
+/**
+ * Recording id.
+ */
+mbid?: string, isrc?: string, artist_mbid?: string, genres: Array<string>, 
+/**
+ * How it was found: `tag`, `isrc`, `acoustid` or `search`; `none` when it wasn't.
+ */
+how: string, };
+
+export type AnalysisProgress = { 
+/**
+ * The background analysis (bliss, rhythm, Chromaprint, EffNet and spectrum bars, in one
+ * pass over the audio) is running.
+ */
+running: boolean, bliss: AnalysisCount, rhythm: AnalysisCount, chromaprint: AnalysisCount, effnet: AnalysisCount, spectrum: AnalysisCount, musicbrainz: AnalysisCount, };
+
+export type AnalysisCount = { 
+/**
+ * Turned on in the server settings.
+ */
+enabled: boolean, total: number, done: number, failed: number, 
+/**
+ * Not analysed yet, or by an older version.
+ */
+pending: number, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
@@ -595,6 +805,11 @@ chromecast_players: boolean,
  */
 airplay_players: boolean, 
 /**
+ * Players fetch internet radio from the station themselves rather than through the
+ * server (which then can't show radio's spectrum bars).
+ */
+radio_direct: boolean, 
+/**
  * Folder with pictures named after artists; empty for none.
  */
 art_folder: string, online_artist_images: boolean, 
@@ -674,7 +889,7 @@ effnet_status: string, effnet_error: string | null,
  */
 effnet_analyzed: number, effnet_pending: number, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

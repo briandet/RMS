@@ -7,6 +7,7 @@
 //   #/library/artist/<id>?name=     albums by artist
 //   #/library/album/<id>?name=      album tracks
 //   #/library/tags/<id>?name=       the album's tags and its MusicBrainz release
+//   #/library/track/<id>?name=      what the analyses made of a track
 //   #/library/genre/<id>?name=      albums in genre
 //   #/library/year/<year>           albums from year
 //   #/library/folders/<id>?name=    music folder contents
@@ -17,6 +18,7 @@
 //   #/library/listenbrainz/<id>?name=  recommendations / a playlist made for you
 
 import { tagsPage, releaseLabel } from './tags.js';
+import { trackPage } from './track.js';
 import {
   getAlbumRelease, getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
   getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
@@ -50,7 +52,7 @@ function releaseGroup(al, artistId) {
   return 'other';
 }
 
-const TAB_OF = { artist: 'artists', album: 'albums', tags: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
+const TAB_OF = { artist: 'artists', album: 'albums', tags: 'albums', track: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 
 const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
@@ -241,6 +243,10 @@ const ROUTES = {
 
   tags(v, id) {
     return tagsPage(v, id);
+  },
+
+  track(v, id) {
+    return trackPage(v, id);
   },
 
   // ------------------------------------------------------------ genres

@@ -10,6 +10,7 @@ import * as Search from './views/search.js';
 import * as Settings from './views/settings.js';
 import { initBrowserPlayer } from './browser-player.js';
 import { openMenu } from './views/menu.js';
+import { spectrumBars } from './spectrum.js';
 
 const mobile = matchMedia('(max-width: 899px)');
 
@@ -217,12 +218,6 @@ function stateIcon(name, label) {
   return h('span', { class: 'state-icon', role: 'img', 'aria-label': label, title: label }, icon(name));
 }
 
-/** Little moving bars: the player is playing (decoration, not its real level). */
-function playingBars() {
-  return h('span', { class: 'eq-bars', role: 'img', 'aria-label': 'playing', title: 'Playing' },
-    h('i'), h('i'), h('i'), h('i'));
-}
-
 /** The player picker: players grouped by kind, each kind under its heading. */
 function openPlayerMenu() {
   const btn = $('#player-select');
@@ -236,7 +231,7 @@ function openPlayerMenu() {
       label: p.name || p.id,
       icon: groups.length > 1 ? null : ic,
       detail: !p.connected ? stateIcon('linkoff', 'Disconnected') : !p.power ? stateIcon('power', 'Off')
-        : p.mode === 'play' ? playingBars() : null,
+        : p.mode === 'play' ? spectrumBars(p.id) : null,
       dim: !p.connected || !p.power,
       checked: p.id === store.playerId,
       run: () => selectPlayer(p.id, true),

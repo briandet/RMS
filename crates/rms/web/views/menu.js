@@ -156,7 +156,10 @@ export function itemEntries(ctx, key, value, label, { album, artist, extra = [] 
 export function trackEntries(ctx, t, extra = []) {
   const album = t.album_id != null ? { id: t.album_id, name: t.album } : null;
   const artist = t.artist_id != null ? { id: t.artist_id, name: t.artist } : null;
-  if (t.id != null) return itemEntries(ctx, 'track_id', t.id, t.title || 'track', { album, artist, extra });
+  if (t.id != null) {
+    const details = t.id > 0 && { label: 'Analysis details', icon: 'note', run: () => { location.hash = `#/library/track/${enc(t.id)}?name=${enc(t.title || '')}`; } };
+    return itemEntries(ctx, 'track_id', t.id, t.title || 'track', { album, artist, extra: [details, ...extra].filter(Boolean) });
+  }
   return [
     t.url && { label: 'Play now', icon: 'play', run: () => ctx.playItem('load', 'url', t.url, t.title) },
     t.url && { label: 'Add to queue', icon: 'add', run: () => ctx.playItem('add', 'url', t.url, t.title) },

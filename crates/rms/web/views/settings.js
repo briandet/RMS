@@ -4,7 +4,7 @@ import {
   serverRoot, getPlayerSettings, patchPlayerSettings, getSettings, patchSettings, scanLibrary,
   getSpotify, spotifyLogin, spotifyLogout, patchSpotify, forgetSpotifyLearned,
   addListenBrainzAccount, patchListenBrainzAccount, removeListenBrainzAccount, getTagEdits,
-  undoTagEdit,
+  undoTagEdit, getAnalysisProgress,
 } from '../api.js';
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
@@ -572,9 +572,35 @@ export function render(node, { ctx }) {
       toast(`${label} failed: ${e.message}`, 'error');
     }
   } }, label);
+  // how far the background analyses have got, refreshed while they run
+  const analysisStatus = h('div', { class: 'field' });
+  let analysisTimer = null;
+  async function renderAnalysis() {
+    clearTimeout(analysisTimer);
+    let p;
+    try { p = await getAnalysisProgress(); } catch { return; }
+    if (!alive) return;
+    const rows = [['Sound (bliss)', p.bliss], ['Tempo and key', p.rhythm], ['Fingerprint', p.chromaprint],
+      ['Kind (EffNet)', p.effnet], ['Spectrum bars', p.spectrum], ['MusicBrainz', p.musicbrainz]];
+    const n = (x) => x.toLocaleString();
+    analysisStatus.replaceChildren(
+      h('label', {}, 'Analysis', p.running ? h('span', { class: 'muted small' }, ' — running ', h('span', { class: 'spinner inline' })) : null),
+      h('table', { class: 'analysis-table' },
+        h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Done'), h('th', {}, 'Failed'), h('th', {}, 'To do'))),
+        h('tbody', {}, rows.map(([label, c]) => h('tr', {},
+          h('td', {}, label, c.enabled ? null : h('span', { class: 'muted small' }, ' (off)')),
+          h('td', {}, `${n(c.done)}${c.total ? ` (${Math.floor((c.done / c.total) * 100)}%)` : ''}`),
+          h('td', {}, n(c.failed)),
+          h('td', {}, n(c.pending)))))),
+      h('p', { class: 'muted small' }, `Of ${n(p.bliss.total)} distinct songs. A song’s menu → “Analysis details” shows what each analysis made of it.`));
+    if (p.running) analysisTimer = setTimeout(renderAnalysis, 5000);
+  }
+  renderAnalysis();
+
   scanSection.append(
     h('h2', { id: 'set-scan' }, 'Scan'),
     scanStatus,
+    analysisStatus,
     h('div', { class: 'button-row' },
       scanBtn('Rescan library', 'changes', null, true),
       scanBtn('Rescan playlists', 'playlists'),
@@ -698,7 +724,20 @@ export function render(node, { ctx }) {
             await saveServer({ [key]: e.target.checked }, e.target.checked ? `${label} devices will join as players` : `${label} devices no longer play`);
           } }),
           h('label', { for: id }, label, h('span', { class: 'muted small block' }, help)));
-      }));
+      }),
+      radioField(settings));
+  }
+
+  /** Whether players fetch internet radio from the station or through the server. */
+  function radioField(settings) {
+    const id = fieldId();
+    return h('div', { class: 'field check' },
+      h('input', { id, type: 'checkbox', checked: !!settings.radio_direct, onchange: async (e) => {
+        await saveServer({ radio_direct: e.target.checked }, e.target.checked
+          ? 'Players will fetch radio from the station' : 'Radio will play through the server');
+      } }),
+      h('label', { for: id }, 'Players fetch radio from the station',
+        h('span', { class: 'muted small block' }, 'Squeezeboxes connect to internet radio stations themselves, as in Lyrion. Off, radio plays through the server: one connection for synced players, and the spectrum bars move with radio too.')));
   }
 
   // ---------------------------------------------------------------- wire up
@@ -759,7 +798,7 @@ export function render(node, { ctx }) {
     on('browser-player', renderBrowser),
   );
 
-  return () => { alive = false; clearInterval(spotifyPoll); offs.forEach((f) => f()); };
+  return () => { alive = false; clearInterval(spotifyPoll); clearTimeout(analysisTimer); offs.forEach((f) => f()); };
 }
 
 function appearance(ctx) {

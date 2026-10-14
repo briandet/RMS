@@ -12,6 +12,11 @@ static RUNNING: AtomicBool = AtomicBool::new(false);
 /// Set when the pref is turned off, to stop a running analysis.
 static STOP: AtomicBool = AtomicBool::new(false);
 
+/// The background analysis is running.
+pub fn running() -> bool {
+    RUNNING.load(Ordering::SeqCst)
+}
+
 fn enabled(server: &Server) -> bool {
     server.prefs.server.get_bool("sonicAnalysis")
 }

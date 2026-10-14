@@ -98,6 +98,34 @@ pub struct Player {
     pub sleep: Option<f64>,
 }
 
+/// What a player is playing as spectrum bars (`GET /api/v1/players/{id}/spectrum`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct Spectrum {
+    pub kind: SpectrumKind,
+    /// What the curve belongs to; a different key is a different curve.
+    pub key: String,
+    /// Readings per second.
+    pub fps: u32,
+    /// Position in the track (seconds) of the first reading.
+    pub start: f64,
+    /// The readings, base64: two bytes each, four levels 0–15 (bass, low mids, high mids,
+    /// treble), the first of each pair in the high four bits.
+    pub curve: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum SpectrumKind {
+    /// The whole track's curve: fetch it once per track.
+    Track,
+    /// A stream's readings from a second before `from` on, as far as they go: ask again
+    /// for more.
+    Live,
+    /// Nothing to show (not playing, or the audio can't be analysed).
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(optional_fields)]
 pub struct QueueInfo {
@@ -245,6 +273,337 @@ impl From<rms_library::find::TrackDetail> for TrackDetail {
             loudness: d.loudness,
             analyzed: d.analyzed,
             kind: None,
+        }
+    }
+}
+
+/// What the analyses made of a library track (`GET /api/v1/tracks/{id}/analysis`): the file,
+/// then each analysis with where it stands and its results.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TrackAnalysis {
+    pub track_id: i64,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    pub file: AnalysisFile,
+    /// bliss: what it sounds like, which drives similar songs and mixes; loudness.
+    pub bliss: AnalysisStage<BlissAnalysis>,
+    /// Tempo, beats, key and energy.
+    pub rhythm: AnalysisStage<RhythmAnalysis>,
+    /// The audio fingerprint, to recognise the same recording.
+    pub chromaprint: AnalysisStage<ChromaprintAnalysis>,
+    /// EffNet-Discogs: what kind of music it is.
+    pub effnet: AnalysisStage<EffnetAnalysis>,
+    /// The MusicBrainz lookup.
+    pub musicbrainz: AnalysisStage<MusicBrainzAnalysis>,
+}
+
+/// Where one analysis stands for a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AnalysisStatus {
+    /// Current results.
+    Done,
+    /// Analysed by the current version, but nothing came of it (unreadable audio, too short,
+    /// not found); tried again when the file changes.
+    Failed,
+    /// Results of an older version, waiting to be redone.
+    Stale,
+    /// Not analysed yet.
+    Pending,
+    /// Never analysed: longer than 20 minutes, or not a local file.
+    Skipped,
+    /// The analysis is turned off on this server.
+    Off,
+}
+
+impl From<rms_library::report::Status> for AnalysisStatus {
+    fn from(s: rms_library::report::Status) -> Self {
+        use rms_library::report::Status as S;
+        match s {
+            S::Done => AnalysisStatus::Done,
+            S::Failed => AnalysisStatus::Failed,
+            S::Stale => AnalysisStatus::Stale,
+            S::Pending => AnalysisStatus::Pending,
+            S::Skipped => AnalysisStatus::Skipped,
+            S::Off => AnalysisStatus::Off,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AnalysisStage<T> {
+    pub status: AnalysisStatus,
+    /// Version of the analysis that made the stored results, and the current one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<i64>,
+    pub current_version: i64,
+    /// Unix time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analyzed_at: Option<i64>,
+    /// Present when `done`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<T>,
+}
+
+impl<T> AnalysisStage<T> {
+    /// A library analysis stage, its status adjusted by `status` and its results by `result`.
+    pub fn map<A>(
+        s: rms_library::report::Stage<A>,
+        status: impl FnOnce(rms_library::report::Status) -> rms_library::report::Status,
+        result: impl FnOnce(A) -> T,
+    ) -> Self {
+        AnalysisStage {
+            status: status(s.status).into(),
+            version: s.version,
+            current_version: s.current_version,
+            analyzed_at: s.analyzed_at,
+            result: s.data.map(result),
+        }
+    }
+}
+
+/// The file and what the scanner read from it.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct AnalysisFile {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Identifies the audio across moves and renames; the analyses are stored under it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    pub format: String,
+    /// Bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    /// Bits per second.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bitrate: Option<i64>,
+    pub vbr: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_size: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channels: Option<i64>,
+    pub lossless: bool,
+    /// Seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f64>,
+    /// A cue-sheet track: where it starts and ends in the file, seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_start: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_end: Option<f64>,
+    /// ReplayGain, dB, and peak, from the tags or the measured loudness.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_gain: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replay_peak: Option<f64>,
+    /// The `BPM` tag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bpm_tag: Option<i64>,
+}
+
+impl From<rms_library::report::FileInfo> for AnalysisFile {
+    fn from(f: rms_library::report::FileInfo) -> Self {
+        AnalysisFile {
+            path: rms_library::url::path_from_file_url(&f.url)
+                .map(|p| p.to_string_lossy().into_owned()),
+            url: f.url,
+            fingerprint: f.fingerprint,
+            format: f.format,
+            size: f.size,
+            bitrate: f.bitrate,
+            vbr: f.vbr,
+            sample_rate: f.sample_rate,
+            sample_size: f.sample_size,
+            channels: f.channels,
+            lossless: f.lossless,
+            duration: f.duration,
+            segment_start: f.segment.map(|s| s.0),
+            segment_end: f.segment.map(|s| s.1).filter(|e| *e > 0.0),
+            replay_gain: f.replay_gain,
+            replay_peak: f.replay_peak,
+            bpm_tag: f.bpm_tag,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct Feature {
+    pub name: String,
+    pub value: f32,
+}
+
+/// Another library track and how close it is.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct Neighbour {
+    pub id: i64,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    /// bliss: the distance (smaller is closer); EffNet: the cosine similarity (larger is
+    /// closer, at most 1).
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct BlissAnalysis {
+    /// bliss's features, normalised to about -1..1, in its order: tempo, zero-crossing rate,
+    /// spectral centroid, rolloff and flatness (mean, deviation), loudness (mean, deviation),
+    /// then chroma.
+    pub features: Vec<Feature>,
+    /// Integrated loudness (EBU R128), LUFS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loudness: Option<f64>,
+    /// True peak, linear (1.0 is full scale).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak: Option<f64>,
+    /// The library tracks that sound closest.
+    pub nearest: Vec<Neighbour>,
+    /// Tracks closer than this are taken for the same recording.
+    pub duplicate_distance: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct RhythmAnalysis {
+    /// Beats per minute; 0 when there is no steady beat.
+    pub bpm: f32,
+    /// How steady and strong the beat is, 0–1 (below about 0.3: not beat-matched in mixes).
+    pub beat_confidence: f32,
+    /// Beats tracked, and 4/4 bars from the first downbeat.
+    pub beats: usize,
+    pub bars: usize,
+    /// Seconds into the track.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_downbeat: Option<f32>,
+    /// Camelot code (`8A`) and name (`A minor`).
+    pub key: String,
+    pub key_name: String,
+    /// 0–1: how clearly the key beats the runner-up.
+    pub key_confidence: f32,
+    /// Loudness per bar (per 2 seconds without a beat), dB.
+    pub energy: Vec<f32>,
+    /// Seconds per `energy` value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub energy_step: Option<f32>,
+}
+
+impl From<rms_library::report::RhythmInfo> for RhythmAnalysis {
+    fn from(r: rms_library::report::RhythmInfo) -> Self {
+        RhythmAnalysis {
+            bpm: r.bpm,
+            beat_confidence: r.beat_confidence,
+            beats: r.beats,
+            bars: r.bars,
+            first_downbeat: r.first_downbeat,
+            key: r.key,
+            key_name: r.key_name,
+            key_confidence: r.key_confidence,
+            energy: r.energy,
+            energy_step: r.energy_step,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct ChromaprintAnalysis {
+    /// 32-bit items, about 8 a second.
+    pub items: usize,
+    /// Seconds of audio it covers (the first two minutes at most).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f64>,
+    /// Library tracks that sound like the same recording (by bliss), and whether their
+    /// fingerprints confirm it.
+    pub duplicates: Vec<Duplicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct Duplicate {
+    pub id: i64,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    pub same_recording: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct EffnetAnalysis {
+    pub labels: TrackKind,
+    /// The library tracks closest in kind.
+    pub nearest: Vec<Neighbour>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct MusicBrainzAnalysis {
+    /// Recording id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mbid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isrc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_mbid: Option<String>,
+    pub genres: Vec<String>,
+    /// How it was found: `tag`, `isrc`, `acoustid` or `search`; `none` when it wasn't.
+    pub how: String,
+}
+
+impl From<rms_library::report::MusicBrainz> for MusicBrainzAnalysis {
+    fn from(m: rms_library::report::MusicBrainz) -> Self {
+        MusicBrainzAnalysis {
+            mbid: m.mbid,
+            isrc: m.isrc,
+            artist_mbid: m.artist_mbid,
+            genres: m.genres,
+            how: m.how,
+        }
+    }
+}
+
+/// How far the analyses have got over the library (`GET /api/v1/library/analysis`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct AnalysisProgress {
+    /// The background analysis (bliss, rhythm, Chromaprint, EffNet and spectrum bars, in one
+    /// pass over the audio) is running.
+    pub running: bool,
+    pub bliss: AnalysisCount,
+    pub rhythm: AnalysisCount,
+    pub chromaprint: AnalysisCount,
+    pub effnet: AnalysisCount,
+    pub spectrum: AnalysisCount,
+    pub musicbrainz: AnalysisCount,
+}
+
+/// One analysis over the library's distinct local audio.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, TS)]
+pub struct AnalysisCount {
+    /// Turned on in the server settings.
+    pub enabled: bool,
+    pub total: i64,
+    pub done: i64,
+    pub failed: i64,
+    /// Not analysed yet, or by an older version.
+    pub pending: i64,
+}
+
+impl AnalysisCount {
+    pub fn new(enabled: bool, c: rms_library::report::Count) -> Self {
+        AnalysisCount {
+            enabled,
+            total: c.total,
+            done: c.done,
+            failed: c.failed,
+            pending: c.pending,
         }
     }
 }
@@ -1016,6 +1375,9 @@ pub struct ServerSettings {
     pub chromecast_players: bool,
     /// AirPlay speakers on the network play as players.
     pub airplay_players: bool,
+    /// Players fetch internet radio from the station themselves rather than through the
+    /// server (which then can't show radio's spectrum bars).
+    pub radio_direct: bool,
     /// Folder with pictures named after artists; empty for none.
     pub art_folder: String,
     pub online_artist_images: bool,
@@ -1103,6 +1465,7 @@ pub struct ServerSettingsPatch {
     pub upnp_players: Option<bool>,
     pub chromecast_players: Option<bool>,
     pub airplay_players: Option<bool>,
+    pub radio_direct: Option<bool>,
     pub art_folder: Option<String>,
     pub online_artist_images: Option<bool>,
     pub spotify_client_id: Option<String>,

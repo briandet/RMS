@@ -9,7 +9,8 @@
 //!   keyed by the track's audio fingerprint, so a changed file is redone and a moved one is
 //!   not.  The same pass measures loudness for ReplayGain ([`crate::loudness`]).
 //!   The same decoded audio gives the track's rhythm and key ([`crate::rhythm`], stored in
-//!   `track_rhythm`) and its audio fingerprint ([`crate::print`], `track_chromaprint`).
+//!   `track_rhythm`), its audio fingerprint ([`crate::print`], `track_chromaprint`) and its
+//!   spectrum bars ([`crate::spectrum`], `track_spectrum`).
 //! * [`Index`] holds every analysed track's features in memory for nearest-neighbour search
 //!   with bliss's weighted distance; the mixer uses it to rank candidates and to leave out
 //!   [near duplicates](Index::near_duplicate).
@@ -38,9 +39,14 @@ pub fn version() -> i64 {
 pub const SAMPLE_RATE: u32 = 22050;
 /// Longer tracks (DJ mixes, audiobooks, whole-album files) are not analysed: one feature
 /// vector says little about them and decoding them takes a lot of memory.
-const MAX_SECS: f64 = 20.0 * 60.0;
+pub(crate) const MAX_SECS: f64 = 20.0 * 60.0;
 /// At most this many seed songs are compared against the library.
 const MAX_SEEDS: usize = 50;
+/// [`DUPLICATE_DISTANCE`], for reports.
+pub fn duplicate_distance() -> f32 {
+    DUPLICATE_DISTANCE
+}
+
 /// Tracks closer than this (bliss distance) are taken for the same recording: another
 /// encoding, a remaster or a slightly different edit.  Measured on real music: re-encodes and
 /// trims 0.01–0.05, a heavy remaster 0.13–0.23, different songs 0.43 and up (median 0.89).
@@ -62,6 +68,8 @@ struct Job {
     print: bool,
     /// No current EffNet analysis (and that analysis is on).
     effnet: bool,
+    /// No current spectrum curve.
+    spectrum: bool,
 }
 
 /// How far the background analysis got.
@@ -141,6 +149,12 @@ impl Library {
                                 let _ =
                                     crate::print::match_local(&c, &job.fingerprint, p, job.secs);
                             }
+                        }
+                        if job.spectrum {
+                            let curve = samples
+                                .as_deref()
+                                .map(|s| crate::spectrum::curve(s, SAMPLE_RATE));
+                            let _ = crate::spectrum::store(&c, &job.fingerprint, curve.as_deref());
                         }
                         if let (true, Some(m)) = (job.effnet, &effnet) {
                             let a = samples.as_deref().and_then(|s| {
@@ -271,14 +285,15 @@ pub(crate) const CURRENT: &str = "a.fingerprint = t.fingerprint AND a.version = 
 fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
     let sql = format!(
         "SELECT t.fingerprint, t.url, t.duration, a.fingerprint IS NULL, r.fingerprint IS NULL, \
-           p.fingerprint IS NULL, ?4 AND e.fingerprint IS NULL \
+           p.fingerprint IS NULL, ?4 AND e.fingerprint IS NULL, s.fingerprint IS NULL \
          FROM tracks t \
          LEFT JOIN track_analysis a ON a.fingerprint = t.fingerprint AND a.version = ?1 \
          LEFT JOIN track_rhythm r ON r.fingerprint = t.fingerprint AND r.version = ?2 \
          LEFT JOIN track_chromaprint p ON p.fingerprint = t.fingerprint AND p.version = ?3 \
          LEFT JOIN track_effnet e ON e.fingerprint = t.fingerprint AND e.version = ?5 \
+         LEFT JOIN track_spectrum s ON s.fingerprint = t.fingerprint AND s.version = ?6 \
          WHERE {LOCAL} AND (a.fingerprint IS NULL OR r.fingerprint IS NULL OR p.fingerprint IS NULL \
-           OR (?4 AND e.fingerprint IS NULL)) \
+           OR (?4 AND e.fingerprint IS NULL) OR s.fingerprint IS NULL) \
          GROUP BY t.fingerprint ORDER BY t.url"
     );
     let Ok(mut st) = c.prepare(&sql) else {
@@ -290,7 +305,8 @@ fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
             crate::rhythm::VERSION,
             crate::print::VERSION,
             effnet,
-            crate::effnet::VERSION
+            crate::effnet::VERSION,
+            crate::spectrum::VERSION
         ],
         |r| {
             Ok((
@@ -302,6 +318,7 @@ fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
                     r.get::<_, bool>(4)?,
                     r.get::<_, bool>(5)?,
                     r.get::<_, bool>(6)?,
+                    r.get::<_, bool>(7)?,
                 ),
             ))
         },
@@ -311,7 +328,7 @@ fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
     };
     rows.flatten()
         .filter_map(
-            |(fingerprint, url, secs, (features, rhythm, print, effnet))| {
+            |(fingerprint, url, secs, (features, rhythm, print, effnet, spectrum))| {
                 let path = path_from_file_url(&url)?;
                 Some(Job {
                     fingerprint,
@@ -322,6 +339,7 @@ fn pending(c: &Connection, effnet: bool) -> Vec<Job> {
                     rhythm,
                     print,
                     effnet,
+                    spectrum,
                 })
             },
         )
@@ -381,8 +399,15 @@ pub(crate) fn store_rhythm(
 
 /// A track's audio in bliss's format.
 fn decode(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
-    let slice = fragment(&job.url);
-    let secs = slice.map(|(s, e)| e - s).or(job.secs).unwrap_or(0.0);
+    decode_url(&job.url, job.secs, ffmpeg)
+}
+
+/// The audio of a local track (its `file://` URL, a cue-sheet track's with its slice) in
+/// bliss's format: mono f32 at [`SAMPLE_RATE`].
+pub fn decode_url(url: &str, secs: Option<f64>, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
+    let path = path_from_file_url(url).ok_or("not a local file")?;
+    let slice = fragment(url);
+    let secs = slice.map(|(s, e)| e - s).or(secs).unwrap_or(0.0);
     if secs > MAX_SECS {
         return Err(format!("too long ({secs:.0}s)"));
     }
@@ -390,12 +415,12 @@ fn decode(job: &Job, ffmpeg: Option<&str>) -> Result<Vec<f32>, String> {
         // a cue-sheet track: only ffmpeg can cut it out without decoding the whole file
         Some((start, end)) => {
             let ff = ffmpeg.ok_or("cue-sheet track needs ffmpeg")?;
-            decode_ffmpeg(ff, &job.path, Some((start, end - start)))?
+            decode_ffmpeg(ff, &path, Some((start, end - start)))?
         }
-        None => match decode_symphonia(&job.path) {
+        None => match decode_symphonia(&path) {
             Ok(s) => s,
             Err(e) => match ffmpeg {
-                Some(ff) => decode_ffmpeg(ff, &job.path, None)?,
+                Some(ff) => decode_ffmpeg(ff, &path, None)?,
                 None => return Err(e),
             },
         },
@@ -545,6 +570,22 @@ impl Index {
 
     pub fn len(&self) -> usize {
         self.ids.len()
+    }
+
+    /// The `n` library tracks that sound most like `id`, closest first, with their bliss
+    /// distance (empty when `id` isn't analysed).
+    pub fn nearest(&self, id: i64, n: usize) -> Vec<(i64, f32)> {
+        let Some(&me) = self.pos.get(&id) else {
+            return Vec::new();
+        };
+        let mine = self.row(me);
+        let mut all: Vec<(i64, f32)> = (0..self.ids.len())
+            .filter(|&i| i != me && self.ids[i] > 0)
+            .map(|i| (self.ids[i], self.distance2(mine, self.row(i)).sqrt()))
+            .collect();
+        all.sort_unstable_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+        all.truncate(n);
+        all
     }
 
     /// Number of features per track.

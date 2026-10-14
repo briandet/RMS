@@ -550,6 +550,12 @@
       "error": "no such track"
     }
   },
+  "GET /api/v1/tracks/999/analysis (analysis of unknown track)": {
+    "status": 404,
+    "body": {
+      "error": "no such track"
+    }
+  },
   "GET /api/v1/folders (top folder)": {
     "status": 200,
     "body": {
@@ -1075,6 +1081,7 @@
       "upnp_players": false,
       "chromecast_players": false,
       "airplay_players": false,
+      "radio_direct": false,
       "art_folder": "",
       "online_artist_images": false,
       "spotify_client_id": "",
@@ -1114,6 +1121,7 @@
       "upnp_players": false,
       "chromecast_players": false,
       "airplay_players": false,
+      "radio_direct": false,
       "art_folder": "",
       "online_artist_images": false,
       "spotify_client_id": "",
@@ -1151,7 +1159,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `radio_direct`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {

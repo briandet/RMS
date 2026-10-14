@@ -123,9 +123,11 @@ The script builds a release binary (the web UI is built in), installs it as
   stream is produced once for the whole group and paced by its slowest player.
 * **Streaming**: local files are sent natively when the player can decode them, otherwise
   transcoded with ffmpeg (LMS rules: prefer native, honour `maxBitrate` and the player's
-  `MaxSampleRate`).  Internet radio is streamed directly by the player (`RESP` → `cont`,
-  ICY metadata via `META`) or proxied/transcoded when the player can't (HTTPS without
-  `CanHTTPS`, HLS).  PLS / M3U / ASX / XSPF station playlists are expanded.
+  `MaxSampleRate`).  Internet radio plays through the server (proxied, or transcoded where
+  the player can't take it: HLS, HTTPS without `CanHTTPS`): one connection to the station
+  for a sync group, and spectrum bars.  With `radioDirect` (*Players fetch radio from the
+  station*, Settings) players connect to stations themselves as in Lyrion (`RESP` → `cont`,
+  ICY metadata via `META`).  PLS / M3U / ASX / XSPF station playlists are expanded.
 * **Control API**: the complete Lyrion dispatch table; `status`, `serverstatus`,
   `players`, `playlist …`, `playlistcontrol`, `mixer`, `sync`, `power`, `pref`, `rescan`,
   `favorites`, `alarm`, … with LMS result shapes; subscriptions (`subscribe:N`) re-executed
@@ -175,6 +177,13 @@ The script builds a release binary (the web UI is built in), installs it as
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then UPnP, then
   Chromecast, then AirPlay.  The others come back when it disconnects.
+* **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
+  treble, moving with the music, in the web UI's player menu and now playing.  They are
+  played back from the player's position, so no audio goes to the browser: a library
+  track's levels are worked out by the background analysis (about 10 KB a track, or when it
+  first plays), and a stream the server relays (radio, Spotify) is decoded and analysed as
+  it goes, with ffmpeg.  Radio the players fetch themselves (`radioDirect`), tracks over 20
+  minutes and anything else without levels get bars that just bounce.
 * **Watching the music folders** (`autorescan`, on by default, unlike Lyrion): music
   copied in, retagged, renamed or removed shows up by itself a few seconds later; only the
   folders that changed are scanned.  It uses the operating system's file notifications

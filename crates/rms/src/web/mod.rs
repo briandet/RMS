@@ -99,9 +99,14 @@ async fn stream_handler(
     };
     let cancel = player.stream_cancel_token();
     let source = match crate::stream::source::open(&spec, &server.http).await {
+        // a sync group's shared source is analysed where it is read
+        Ok(s) if spec.shared.is_none() => crate::stream::spectrum::tap(s, &spec),
         Ok(s) => s,
         Err(e) => {
             warn!("{}: cannot open stream source: {}", player.id, e);
+            // nothing reached the player: it is ready for the retry or the next track, as
+            // when a station refuses a player that connects to it itself
+            player.state.lock().ready_to_stream = true;
             let c = player.controller();
             c.lock()
                 .player_streaming_failed(player.id, "PROBLEM_OPENING", false);
@@ -201,6 +206,7 @@ fn end_of_stream(
         return;
     }
     if bytes == 0 {
+        player.state.lock().ready_to_stream = true;
         c.player_streaming_failed(player.id, "PROBLEM_OPENING", false);
     } else {
         debug!("{}: local end of stream after {} bytes", player.id, bytes);

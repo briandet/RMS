@@ -36,6 +36,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V9_RELEASE_ART,
     SCHEMA_V10_TRACK_COVERS,
     SCHEMA_V11_EFFNET,
+    SCHEMA_V12_SPECTRUM,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -506,6 +507,16 @@ CREATE TABLE track_effnet (
   version     INTEGER NOT NULL,
   embedding   BLOB,  -- 1280 numbers, half precision little-endian; NULL: could not be analysed
   labels      TEXT   -- JSON: styles, moods, themes, instruments
+) STRICT, WITHOUT ROWID;
+"#;
+
+/// Spectrum bars ([`crate::spectrum`]) of each audio, keyed by the audio fingerprint like
+/// `track_analysis` (kept by a wipe).
+const SCHEMA_V12_SPECTRUM: &str = r#"
+CREATE TABLE track_spectrum (
+  fingerprint TEXT PRIMARY KEY,
+  version     INTEGER NOT NULL,
+  curve       BLOB   -- 20 readings a second, four 4-bit levels each; NULL: could not be decoded
 ) STRICT, WITHOUT ROWID;
 "#;
 
