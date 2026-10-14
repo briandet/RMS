@@ -951,6 +951,7 @@ fn native_api() {
     get!("bad genre list", "/api/v1/tracks?genre=1,rock");
     get!("unknown track", "/api/v1/tracks/999");
     get!("similar to unknown track", "/api/v1/tracks/999/similar");
+    get!("analysis of unknown track", "/api/v1/tracks/999/analysis");
     let top = get!("top folder", "/api/v1/folders");
     let alpha = top["items"]
         .as_array()

@@ -2036,3 +2036,124 @@ fn find_tracks_by_history_tempo_and_key() {
         vec!["Blues".to_string(), "Jazz".to_string()]
     );
 }
+
+#[test]
+fn analysis_report_and_progress() {
+    use rms_library::report::Status;
+    need_ffmpeg!();
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let all = f.lib.tracks_for(&TrackFilter::default()).unwrap();
+    let (a, b, c3) = (all[0].id, all[1].id, all[2].id);
+    let c = raw_db(&f);
+    let fp = |id: i64| -> String {
+        c.query_row("SELECT fingerprint FROM tracks WHERE id = ?", [id], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    };
+
+    // a and b sound the same and share a fingerprint; c is elsewhere
+    let mut x = 12345u32;
+    let print: Vec<u32> = (0..200)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x
+        })
+        .collect();
+    for (id, feat) in [
+        (a, features(0.5, 0.5)),
+        (b, features(0.5, 0.5)),
+        (c3, features(9.0, 0.0)),
+    ] {
+        c.execute(
+            "INSERT INTO track_analysis (fingerprint, version, features, loudness, peak, analyzed_at)
+             VALUES (?, ?, ?, -9.5, 0.9, 7)",
+            rusqlite::params![fp(id), rms_library::sonic::version(), feat],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO track_chromaprint (fingerprint, version, print, duration, analyzed_at)
+             VALUES (?, ?, ?, 2.0, 7)",
+            rusqlite::params![
+                fp(id),
+                rms_library::print::VERSION,
+                rms_library::print::to_blob(&print)
+            ],
+        )
+        .unwrap();
+    }
+    let rhythm = rms_library::rhythm::Rhythm {
+        bpm: 120.0,
+        beat_confidence: 0.8,
+        beats: (0..16).map(|i| i as f32 * 0.5).collect(),
+        downbeat: 1,
+        key: 9,
+        minor: true,
+        key_confidence: 0.6,
+        energy: vec![-20.0, -12.0, -10.0],
+    };
+    c.execute(
+        "INSERT INTO track_rhythm (fingerprint, version, bpm, camelot, rhythm, analyzed_at)
+         VALUES (?, ?, 120, '8A', ?, 7)",
+        rusqlite::params![fp(a), rms_library::rhythm::VERSION, rhythm.to_blob()],
+    )
+    .unwrap();
+    // an older rhythm analysis of b: stale
+    c.execute(
+        "INSERT INTO track_rhythm (fingerprint, version, bpm, camelot, rhythm, analyzed_at)
+         VALUES (?, 0, 120, '8A', NULL, 7)",
+        [fp(b)],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO track_musicbrainz (fingerprint, mbid, genres, how, looked_up_at)
+         VALUES (?, 'abc', ?, 'tag', 7)",
+        rusqlite::params![fp(a), "rock\u{1f}indie"],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO track_musicbrainz (fingerprint, how, looked_up_at) VALUES (?, 'none', 7)",
+        [fp(b)],
+    )
+    .unwrap();
+
+    let r = f.lib.analysis_report(a, true).unwrap();
+    assert_eq!(r.sound.status, Status::Done);
+    let sound = r.sound.data.unwrap();
+    assert_eq!(sound.features[0].0, "tempo");
+    assert_eq!(sound.loudness, Some(-9.5));
+    assert_eq!(sound.nearest[0].0, b, "{:?}", sound.nearest);
+    assert!(sound.nearest[0].1 < sound.duplicate_distance);
+    let rh = r.rhythm.data.unwrap();
+    assert_eq!((rh.bpm, rh.beats, rh.key.as_str()), (120.0, 16, "8A"));
+    assert_eq!(rh.key_name, "A minor");
+    assert_eq!(rh.first_downbeat, Some(0.5));
+    assert_eq!(rh.energy_step, Some(2.0));
+    let p = r.print.data.unwrap();
+    assert_eq!(p.items, 200);
+    assert_eq!(p.duplicates, vec![(b, true)]);
+    assert_eq!(r.kind.status, Status::Off);
+    let mb = r.musicbrainz.data.unwrap();
+    assert_eq!(mb.genres, ["rock", "indie"]);
+    assert_eq!(r.musicbrainz.status, Status::Done);
+
+    let r = f.lib.analysis_report(b, true).unwrap();
+    assert_eq!(r.rhythm.status, Status::Stale);
+    assert_eq!(r.musicbrainz.status, Status::Failed);
+    // nothing analysed yet
+    let r = f.lib.analysis_report(all[3].id, false).unwrap();
+    assert_eq!(r.sound.status, Status::Pending);
+    assert_eq!(r.musicbrainz.status, Status::Off);
+    assert!(r.file.fingerprint.is_some());
+    assert!(f.lib.analysis_report(-12345, false).is_none());
+
+    let p = f.lib.analysis_progress();
+    assert_eq!(p.sound.done, 3);
+    assert_eq!(p.sound.total, p.sound.done + p.sound.pending);
+    assert_eq!((p.rhythm.done, p.print.done), (1, 3));
+    assert_eq!((p.musicbrainz.done, p.musicbrainz.failed), (1, 1));
+    assert_eq!(f.lib.titles(&[a])[&a].0, all[0].title);
+}

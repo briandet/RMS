@@ -9,7 +9,7 @@ use crate::Library;
 use rusqlite::{params, OptionalExtension};
 
 /// Separator of the genre names stored.
-const SEP: char = '\u{1f}';
+pub(crate) const SEP: char = '\u{1f}';
 /// A lookup that found nothing is tried again after this long (MusicBrainz grows).
 const RETRY_SECS: i64 = 90 * 86400;
 

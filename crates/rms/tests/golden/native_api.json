@@ -550,6 +550,12 @@
       "error": "no such track"
     }
   },
+  "GET /api/v1/tracks/999/analysis (analysis of unknown track)": {
+    "status": 404,
+    "body": {
+      "error": "no such track"
+    }
+  },
   "GET /api/v1/folders (top folder)": {
     "status": 200,
     "body": {

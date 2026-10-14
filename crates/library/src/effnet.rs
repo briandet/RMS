@@ -749,6 +749,21 @@ impl StyleIndex {
         Self::dot(self.row(i), self.row(j)) as f32 / (self.norms[i] * self.norms[j])
     }
 
+    /// The `n` library tracks closest in kind to `id`, closest first, with their cosine
+    /// similarity (empty when `id` isn't analysed).
+    pub fn nearest(&self, id: i64, n: usize) -> Vec<(i64, f32)> {
+        let Some(&me) = self.pos.get(&id) else {
+            return Vec::new();
+        };
+        let mut all: Vec<(i64, f32)> = (0..self.ids.len())
+            .filter(|&i| i != me && self.ids[i] > 0)
+            .map(|i| (self.ids[i], self.cosine(me, i)))
+            .collect();
+        all.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        all.truncate(n);
+        all
+    }
+
     /// Cosine similarity of two analysed tracks.
     pub fn similarity(&self, a: i64, b: i64) -> Option<f32> {
         Some(self.cosine(*self.pos.get(&a)?, *self.pos.get(&b)?))
