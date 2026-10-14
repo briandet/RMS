@@ -196,6 +196,7 @@ pub async fn spotify_status(server: &Arc<Server>) -> Result<SpotifyStatus, Comma
         user: string(r.get("user")),
         product: string(r.get("product")),
         error: string(r.get("error")),
+        connect_error: string(r.get("connect_error")),
         learn: crate::plugins::spotify::learn::enabled(server),
         learned: server.library.remote_totals("spotify").analyzed.max(0) as u64,
     })

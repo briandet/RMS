@@ -200,6 +200,8 @@ export function render(node, { ctx }) {
       spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
+        st.connect_error && h('p', { class: 'muted small' }, st.connect_error,
+          '. RMS tries again later; signing out and in again can help.'),
         st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
         selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
           settings?.spotify_bitrate, (v) => saveServer({ spotify_bitrate: v })),

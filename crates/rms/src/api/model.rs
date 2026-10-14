@@ -965,6 +965,9 @@ pub struct SpotifyStatus {
     /// Why browsing or playback doesn't work right now.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Why a player isn't available as a Spotify Connect device (tried again later).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_error: Option<String>,
     /// Learn what tracks played from Spotify sound like, for mixes.
     pub learn: bool,
     /// Tracks learned so far.

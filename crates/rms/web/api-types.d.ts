@@ -551,6 +551,10 @@ product?: string,
  */
 error?: string, 
 /**
+ * Why a player isn't available as a Spotify Connect device (tried again later).
+ */
+connect_error?: string, 
+/**
  * Learn what tracks played from Spotify sound like, for mixes.
  */
 learn: boolean, 
