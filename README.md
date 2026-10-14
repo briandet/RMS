@@ -463,12 +463,15 @@ screens, the web UI) against a generated library and compares the answers with
 --test it conformance` rewrites them (review the diff).  For manual testing, squeezelite with
 `-o -` (audio to stdout) works without a sound card.
 
-Build times: the dev profile keeps line tables only (backtraces have file and line, a
-debugger has less), dependencies have no debug info, and `cargo build` and `cargo test`
-share every artifact (no dev-dependency feature differences: changing one rebuilds tokio and
-everything above it twice).  In `crates/rms`, spawn tasks with `crate::util::spawn` and
-`crate::util::spawn_blocking`, not tokio's: each future given to tokio's directly gets its
-own copy of the task machinery.  A faster linker helps a little more:
+Build times: release builds are incremental and skip cross-crate LTO, so rebuilding after a
+`git pull` takes seconds to a minute rather than minutes (`cargo build --profile dist` keeps
+the old thin-LTO settings).  The dev profile keeps line tables only (backtraces have file and
+line; set `debug = true` locally for a debugger), dependencies have no debug info, and
+`cargo build` and `cargo test` share every artifact: keep dev-dependencies from adding
+features to normal dependencies, or each switch rebuilds tokio and everything above it.  In
+`crates/rms`, spawn tasks with `crate::util::spawn` and `crate::util::spawn_blocking`, not
+tokio's (clippy enforces it): each future handed to tokio's directly gets its own copy of
+the task machinery.  A faster linker helps a little more:
 with [mold](https://github.com/rui314/mold) installed, add to `~/.cargo/config.toml`
 
 ```toml

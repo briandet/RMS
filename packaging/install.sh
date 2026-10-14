@@ -33,7 +33,7 @@ for svc in lyrionmusicserver logitechmediaserver; do
 done
 
 echo "==> Building"
-cargo build --release --locked -p rms
+cargo build --release --locked -p rms --bin rms
 
 echo "==> Installing /usr/local/bin/rms"
 sudo install -m 755 target/release/rms /usr/local/bin/rms
