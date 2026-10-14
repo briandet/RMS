@@ -11,6 +11,7 @@ mod airplay_player;
 mod analysis;
 mod browser_player;
 mod chromecast_player;
+mod cometd_streaming;
 mod conformance;
 mod cover_art;
 mod effnet;

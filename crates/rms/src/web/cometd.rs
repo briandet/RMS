@@ -254,9 +254,9 @@ fn extract_message(
 }
 
 fn json_response(events: Vec<Value>) -> Response {
-    let mut r = Response::new(Body::from(
-        serde_json::to_vec(&Value::Array(events)).unwrap_or_default(),
-    ));
+    let body = serde_json::to_vec(&Value::Array(events)).unwrap_or_default();
+    debug!("cometd -> {}", String::from_utf8_lossy(&body));
+    let mut r = Response::new(Body::from(body));
     let h = r.headers_mut();
     h.insert(
         header::CONTENT_TYPE,
@@ -305,6 +305,7 @@ pub async fn handle(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
+    debug!("cometd <- {}", msg);
     let mgr = &server.cometd;
     let mut events: Vec<Value> = Vec::new();
     let mut errors: Vec<Value> = Vec::new();
@@ -486,7 +487,10 @@ pub async fn handle(
                                     delayed = false;
                                 }
                             } else {
-                                mgr.deliver(vec![res], None);
+                                // to the client named in the response channel even if its
+                                // /meta/subscribe for that channel hasn't arrived yet (the
+                                // CometD Java client in Squeezer sends them concurrently)
+                                mgr.deliver(vec![res], Some(&response_clid));
                             }
                         }
                     }
@@ -553,17 +557,25 @@ pub async fn handle(
             debug!("cometd {}: streaming connection established", c);
             let first_chunk =
                 Bytes::from(serde_json::to_vec(&Value::Array(first)).unwrap_or_default());
+            debug!(
+                "cometd {} stream -> {}",
+                c,
+                String::from_utf8_lossy(&first_chunk)
+            );
             let rest = futures::stream::unfold(
                 (rx, server.clone(), c.clone()),
                 |(mut rx, server, c)| async move {
                     match rx.recv().await {
-                        Some(evs) => Some((
-                            Ok::<Bytes, std::io::Error>(Bytes::from(
-                                serde_json::to_vec(&Value::Array(evs)).unwrap_or_default(),
-                            )),
-                            (rx, server, c),
-                        )),
+                        Some(evs) => {
+                            let chunk = serde_json::to_vec(&Value::Array(evs)).unwrap_or_default();
+                            debug!("cometd {} stream -> {}", c, String::from_utf8_lossy(&chunk));
+                            Some((
+                                Ok::<Bytes, std::io::Error>(Bytes::from(chunk)),
+                                (rx, server, c),
+                            ))
+                        }
                         None => {
+                            debug!("cometd {}: streaming connection ended", c);
                             // connection replaced or client removed: start the 10 s grace period
                             let mut clients = server.cometd.clients.lock();
                             if let Some(cl) = clients.get_mut(&c) {
