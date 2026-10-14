@@ -652,9 +652,26 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .menu-heading .icon { width: 14px; height: 14px; flex: none; }
 .menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-detail { color: var(--muted); font-size: .85rem; flex: none; }
-.menu-item .menu-check { visibility: hidden; color: var(--accent); }
-.menu-item.checked .menu-check { visibility: visible; }
-.menu-item.checked { font-weight: 600; }
+.menu-group .menu-item { padding-left: 32px; }
+.menu-item.checked { font-weight: 600; background: var(--accent-soft); }
+.menu-item.checked:hover { background: var(--accent-soft); }
+.menu-item.checked:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* playing: four bars bouncing out of step */
+.eq-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; vertical-align: middle; }
+.eq-bars i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom; animation: eq-bounce .9s ease-in-out infinite alternate; }
+.eq-bars i:nth-child(1) { animation-duration: .8s; }
+.eq-bars i:nth-child(2) { animation-duration: 1.1s; animation-delay: -.4s; }
+.eq-bars i:nth-child(3) { animation-duration: .7s; animation-delay: -.2s; }
+.eq-bars i:nth-child(4) { animation-duration: 1s; animation-delay: -.6s; }
+@keyframes eq-bounce { from { transform: scaleY(.25); } to { transform: scaleY(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .eq-bars i { animation: none; }
+  .eq-bars i:nth-child(1) { transform: scaleY(.5); }
+  .eq-bars i:nth-child(2) { transform: scaleY(.9); }
+  .eq-bars i:nth-child(3) { transform: scaleY(.35); }
+  .eq-bars i:nth-child(4) { transform: scaleY(.7); }
+}
 .more-btn { color: var(--muted); }
 .card .actions .more-btn { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; }
 .card .actions .more-btn .icon { width: 18px; height: 18px; }

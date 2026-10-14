@@ -27,7 +27,7 @@ export function closeMenu() {
  * Show a menu.  `at`: {x, y} (pointer) or an element to open under.  `entries`: [{label,
  * icon, run, danger, checked, detail}], 'sep' for a separator, or {heading, icon} to start a
  * group of entries under a heading.  `checked` (true or false) makes the entries a choice of
- * one, the checked one marked.  `align: 'start'` lines the menu up with the element's left
+ * one, the checked one highlighted.  `detail` (text or an element) goes at the end.  `align: 'start'` lines the menu up with the element's left
  * edge instead of its right.  `onClose` runs when it closes.
  */
 export function openMenu(at, title, entries, { align = 'end', onClose } = {}) {
@@ -57,8 +57,7 @@ export function openMenu(at, title, entries, { align = 'end', onClose } = {}) {
       role: choice ? 'menuitemradio' : 'menuitem', 'aria-checked': choice ? String(e.checked) : null, tabindex: '-1',
       onclick: (ev) => { ev.stopPropagation(); closeMenu(); e.run(); },
     }, e.icon && icon(e.icon), h('span', { class: 'menu-label' }, e.label),
-    e.detail && h('span', { class: 'menu-detail' }, e.detail),
-    choice && icon('check', 'icon menu-check'));
+    e.detail && h('span', { class: 'menu-detail' }, e.detail));
     buttons.push(b);
     if (e.checked) first = b;
     parent.append(b);

@@ -212,6 +212,12 @@ function renderPlayerSelect() {
   btn.title = cur ? [cur.model_name || cur.model || 'Player', cur.ip, cur.id].filter(Boolean).join(' · ') : '';
 }
 
+/** Little moving bars: the player is playing (decoration, not its real level). */
+function playingBars() {
+  return h('span', { class: 'eq-bars', role: 'img', 'aria-label': 'playing', title: 'Playing' },
+    h('i'), h('i'), h('i'), h('i'));
+}
+
 /** The player picker: players grouped by kind, each kind under its heading. */
 function openPlayerMenu() {
   const btn = $('#player-select');
@@ -224,7 +230,7 @@ function openPlayerMenu() {
     ...ps.map((p) => ({
       label: p.name || p.id,
       icon: groups.length > 1 ? null : ic,
-      detail: !p.connected ? 'disconnected' : !p.power ? 'off' : p.mode === 'play' ? 'playing' : null,
+      detail: !p.connected ? 'disconnected' : !p.power ? 'off' : p.mode === 'play' ? playingBars() : null,
       checked: p.id === store.playerId,
       run: () => selectPlayer(p.id, true),
     })),
