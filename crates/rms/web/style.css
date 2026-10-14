@@ -657,6 +657,10 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .menu-item.checked:hover { background: var(--accent-soft); }
 .menu-item.checked:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 
+.menu-item.dim .menu-label { color: var(--muted); }
+.state-icon { display: inline-flex; color: var(--muted); }
+.menu-item .state-icon .icon { width: 16px; height: 16px; }
+
 /* playing: four bars bouncing out of step */
 .eq-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; vertical-align: middle; }
 .eq-bars i { width: 3px; height: 100%; border-radius: 1px; background: var(--accent); transform-origin: bottom; animation: eq-bounce .9s ease-in-out infinite alternate; }

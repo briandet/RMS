@@ -2,7 +2,7 @@
 
 import { command, getPlayer, getQueue, connectEvents, itemFor } from './api.js';
 import { store, on, emit, currentPlayer, elapsed, patchPlayer } from './store.js';
-import { $, $$, h, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
+import { $, $$, h, icon, toast, storage, debounce, hydrateIcons, setIcon, isTyping } from './util.js';
 import * as NowPlaying from './views/nowplaying.js';
 import * as Queue from './views/queue.js';
 import * as Library from './views/library.js';
@@ -212,6 +212,11 @@ function renderPlayerSelect() {
   btn.title = cur ? [cur.model_name || cur.model || 'Player', cur.ip, cur.id].filter(Boolean).join(' · ') : '';
 }
 
+/** A player's state as a small icon, named for screen readers and on hover. */
+function stateIcon(name, label) {
+  return h('span', { class: 'state-icon', role: 'img', 'aria-label': label, title: label }, icon(name));
+}
+
 /** Little moving bars: the player is playing (decoration, not its real level). */
 function playingBars() {
   return h('span', { class: 'eq-bars', role: 'img', 'aria-label': 'playing', title: 'Playing' },
@@ -230,7 +235,9 @@ function openPlayerMenu() {
     ...ps.map((p) => ({
       label: p.name || p.id,
       icon: groups.length > 1 ? null : ic,
-      detail: !p.connected ? 'disconnected' : !p.power ? 'off' : p.mode === 'play' ? playingBars() : null,
+      detail: !p.connected ? stateIcon('linkoff', 'Disconnected') : !p.power ? stateIcon('power', 'Off')
+        : p.mode === 'play' ? playingBars() : null,
+      dim: !p.connected || !p.power,
       checked: p.id === store.playerId,
       run: () => selectPlayer(p.id, true),
     })),

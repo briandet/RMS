@@ -183,7 +183,8 @@ function makePlayer(i) {
   const p = {
     playerid: mac, name: ['Living Room', 'Kitchen', 'Office', 'Bedroom TV', 'JBL Boombox 3', 'Living Room (UPnP)', 'Chrome on macOS'][i] || `Player ${i + 1}`,
     model, modelname: ['SqueezeLite', 'Squeezebox Classic', 'Squeezebox Boom', 'Chromecast', 'AirPlay', 'UPnP renderer', 'Web browser'][i] || 'SqueezeLite',
-    ip: `192.168.1.${20 + i}`, connected: true, power: true,
+    // of the extra kinds, the AirPlay speaker is off and the UPnP renderer gone
+    ip: `192.168.1.${20 + i}`, connected: i !== 5, power: i !== 4,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),
     settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0' },
