@@ -175,8 +175,8 @@ The script builds a release binary (the web UI is built in), installs it as
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
   pairing) are not supported; sync with these players is loose (they buffer by themselves).
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
-  Chromecast) is one player, by its IP address: a Squeezebox player wins, then UPnP, then
-  Chromecast, then AirPlay.  The others come back when it disconnects.
+  Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
+  then UPnP, then AirPlay.  The others come back when it disconnects.
 * **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
   treble, moving with the music, in the web UI's player menu and now playing.  They are
   played back from the player's position, so no audio goes to the browser: a library

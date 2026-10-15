@@ -8,8 +8,10 @@
 //! Turning a protocol off in the settings ends its players at once.
 //!
 //! A device found in several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
-//! Chromecast) is one player: the best way wins (Squeezebox, then UPnP, Chromecast,
-//! AirPlay), by the device's IP address.  The others are not bridged while it is
+//! Chromecast) is one player: the best way wins (Squeezebox, then Chromecast, UPnP,
+//! AirPlay), by the device's IP address.  Chromecast before UPnP: it gives the position to
+//! a fraction of a second (UPnP renderers mostly in whole seconds, some stale), and where a
+//! device does both it is usually the better kept of the two.  The others are not bridged while it is
 //! connected, and come back (on their next discovery) when it isn't.
 
 use super::{FromRenderer, Identity, ToRenderer};
@@ -81,8 +83,8 @@ pub struct Device {
 /// Squeezebox players (slimproto, not bridged) are 0.
 fn rank(key: &str) -> u8 {
     match key.split(':').next() {
-        Some("upnp") => 1,
-        Some("chromecast") => 2,
+        Some("chromecast") => 1,
+        Some("upnp") => 2,
         _ => 3,
     }
 }
@@ -185,7 +187,7 @@ pub fn found(server: &Arc<Server>, device: Device, start: Start) {
 }
 
 /// End bridges of devices another player now plays to better (a Squeezebox player that
-/// connected, a UPnP renderer found after the Chromecast), and forget their players.
+/// connected, a Chromecast found after the UPnP renderer), and forget their players.
 pub fn dedupe(server: &Arc<Server>) {
     let mut ended = Vec::new();
     {
@@ -272,6 +274,13 @@ pub fn start(server: &Arc<Server>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_device_is_played_to_the_best_way() {
+        // (a Squeezebox player, not bridged, beats them all)
+        assert!(rank("chromecast:abc") < rank("upnp:uuid:abc"));
+        assert!(rank("upnp:uuid:abc") < rank("airplay:abc"));
+    }
 
     #[test]
     fn protocols_are_known() {
