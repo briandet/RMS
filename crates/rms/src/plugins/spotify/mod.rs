@@ -262,6 +262,15 @@ impl Spotify {
         self.server.get().cloned().unwrap_or_default()
     }
 
+    /// The client id of the sign-in (its refresh token's), or the default one.
+    pub(crate) fn sign_in_client_id(&self) -> String {
+        self.oauth
+            .lock()
+            .as_ref()
+            .map(|o| o.client_id.clone())
+            .unwrap_or_else(default_client_id)
+    }
+
     pub fn signed_in(&self) -> bool {
         self.dir.join("credentials.json").exists() || self.oauth.lock().is_some()
     }
