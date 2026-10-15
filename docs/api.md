@@ -779,14 +779,19 @@ tens of thousands of stations: search, popular, top voted, by country, genre and
 ### Spotify
 
 `GET /api/v1/spotify` is 404 when this server has no Spotify support, otherwise
-`{"signed_in": true, "user": "…", "product": "premium", "error": "…", "connect_error": "…",
-"learn": true, "learned": 120}`.  `connect_error`: why a player isn't available as a Spotify
+`{"signed_in": true, "playback": true, "browsing_own_app": false, "user": "…", "product":
+"premium", "error": "…", "connect_error": "…", "learn": true, "learned": 120}`.  `playback`:
+signed in for playback and Spotify Connect, which only work with Spotify's own client id;
+`browsing_own_app`: browsing goes through the user's own app (`spotify_client_id`), else
+through the playback sign-in.  `connect_error`: why a player isn't available as a Spotify
 Connect device (RMS tries again later and later, up to every 30 minutes).  `learn`: what Spotify tracks sound like is learned as they play, for
 mixes; `learned`: how many are.  `PATCH /api/v1/spotify` with `{"learn": false}` turns it
 off; `DELETE /api/v1/spotify/learned` forgets them.
 
 Signing in: `POST /api/v1/spotify/login` with `{}` returns `{"url": …}`, the Spotify page to
-open.  Spotify then sends the browser to `http://127.0.0.1:5588/login?code=…`.  On the
+open: a sign-in with the own client id (`spotify_client_id`, for browsing) when one is set,
+else with Spotify's own (for playback and browsing).  `{"playback": true}` starts the playback
+sign-in whatever the setting.  Spotify then sends the browser to `http://127.0.0.1:5588/login?code=…`.  On the
 server's own computer RMS receives that by itself (watch `signed_in`); elsewhere, post the
 address the browser ended up on as `{"code": "<address>"}`, which returns `{"user": …}`.
 `POST /api/v1/spotify/logout` signs out.

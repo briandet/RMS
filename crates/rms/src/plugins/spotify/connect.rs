@@ -12,10 +12,11 @@
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
 //!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
-//!   device id, and only with the client id they were issued for, so each device keeps its
-//!   own credentials (`spotify/connect/<player>/`), got the first time with the sign-in's
-//!   token, in a session of the sign-in's client id.  A device that can't be set up is
-//!   tried again later and later, and the Spotify settings say why.
+//!   device id, and only with the client id they were issued for: each device keeps its own
+//!   (`spotify/connect/<player>/`), got the first time with the playback sign-in's token
+//!   (Spotify's own client id: login5, where Connect gets its token, refuses developer
+//!   apps).  A device that can't be set up is tried again later and later, and the Spotify
+//!   settings say why.
 
 use super::Spotify;
 use crate::control::request::Source;
@@ -112,6 +113,11 @@ fn failed(k: &str, player: &str, error: String) {
     f.error = error;
     f.count += 1;
     f.retry_at = Instant::now() + wait;
+}
+
+/// A new playback sign-in: set up the devices that failed now, not after their wait.
+pub fn signed_in_again() {
+    failures().clear();
 }
 
 /// Key of a player in `spotify://connect:<key>` URLs (its MAC without colons).
@@ -440,12 +446,11 @@ async fn add_device(
     let k = key(&p.id);
     let dir = sp.dir.join("connect").join(&k);
     let cache = Cache::new(Some(dir.clone()), None, None, None).ok();
-    // A device logs in with the sign-in's token the first time and keeps the credentials
-    // Spotify gives it (they only work for its device id).  Credentials only get the device
-    // its access token (login5) with the client id they were issued for, so the session
-    // takes the sign-in's id, and the credentials are kept with it (`client_id`): ones of
-    // another id (an older sign-in) are dropped, as are ones Spotify refuses.
-    let client_id = sp.sign_in_client_id();
+    // A device logs in with the playback sign-in's token the first time and keeps the
+    // credentials Spotify gives it (they only work for its device id), of Spotify's own
+    // client id, kept with them (`client_id`): ones of another id (from before the two
+    // sign-ins) are dropped, as are ones Spotify refuses.
+    let client_id = super::DEFAULT_CLIENT_ID.to_string();
     let id_file = dir.join("client_id");
     let stored = cache
         .as_ref()
@@ -456,7 +461,7 @@ async fn add_device(
         Some(c) => c,
         None => {
             let _ = std::fs::remove_file(dir.join("credentials.json"));
-            let token = sp.oauth_token().await?;
+            let token = sp.playback_token().await?;
             Credentials::with_access_token(token)
         }
     };

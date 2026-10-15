@@ -419,6 +419,13 @@ to `http://127.0.0.1:5588/login`, which RMS answers when the browser runs on the
 machine.  Otherwise that page won't load; paste its address from the address bar into the
 form in the settings card.  The login is saved under `<data-dir>/spotify/`.
 
+Spotify limits the shared client ID RMS signs in with, so browsing may stall; your own app
+(a client ID from developer.spotify.com, in the settings card) has its own limit.  It is for
+browsing only: playback and Spotify Connect only work with Spotify's own app (librespot gets
+their tokens from Spotify's login5, which refuses other apps).  With your own client ID set
+there are two sign-ins in the settings card, **Sign in for playback** (Spotify's app) and
+**Sign in with your app** (browsing); without one, a single sign-in does both.
+
 Liked Songs, your playlists, saved albums and followed artists, recently played, top tracks
 and artists, new releases and search are then in the web UI's Library → Spotify tab, in the
 Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, albums and

@@ -1426,6 +1426,10 @@ pub struct NewFavorite {
 #[ts(optional_fields)]
 pub struct SpotifyStatus {
     pub signed_in: bool,
+    /// Signed in for playback and Spotify Connect (with Spotify's own client id).
+    pub playback: bool,
+    /// Browsing goes through the user's own app (a sign-in with its client id).
+    pub browsing_own_app: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     /// `premium`, `free`, …
@@ -1458,6 +1462,10 @@ pub struct SpotifyPatch {
 pub struct SpotifyLogin {
     #[serde(default)]
     pub code: Option<String>,
+    /// Start the playback sign-in (Spotify's own client id) rather than one with the own
+    /// client id (`spotify_client_id`, for browsing).
+    #[serde(default)]
+    pub playback: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default, TS)]

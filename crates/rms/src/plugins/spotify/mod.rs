@@ -98,11 +98,44 @@ struct PendingLogin {
     client_id: String,
 }
 
+/// The two sign-ins.  Playback (the librespot session, Spotify Connect) only works with
+/// Spotify's own client id: login5, which Connect gets its token from, refuses developer
+/// apps.  Browsing (the Web API) works with either, and the user's own app has its own
+/// rate limit.  Without an own client id one sign-in (playback's) serves both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// The user's own app: the Web API.
+    Browsing,
+    /// Spotify's own client id: the session and Connect devices (and the Web API when there
+    /// is no browsing sign-in).
+    Playback,
+}
+
+impl Slot {
+    fn file(self) -> &'static str {
+        match self {
+            Slot::Browsing => "oauth.json",
+            Slot::Playback => "oauth_playback.json",
+        }
+    }
+
+    fn for_client_id(client_id: &str) -> Slot {
+        if client_id == DEFAULT_CLIENT_ID {
+            Slot::Playback
+        } else {
+            Slot::Browsing
+        }
+    }
+}
+
 pub struct Spotify {
     dir: PathBuf,
     http: reqwest::Client,
     session: tokio::sync::Mutex<Option<Session>>,
+    /// The browsing sign-in ([`Slot::Browsing`]).
     oauth: Mutex<Option<OAuthState>>,
+    /// The playback sign-in ([`Slot::Playback`]).
+    playback: Mutex<Option<OAuthState>>,
     pending: Mutex<Option<PendingLogin>>,
     /// Track metadata by `spotify://track:<id>` URL.
     pub meta: DashMap<String, TrackMeta>,
@@ -126,14 +159,13 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
     INSTANCE
         .get_or_init(|| {
             let dir = data_dir.join("spotify");
-            let oauth = std::fs::read_to_string(dir.join("oauth.json"))
-                .ok()
-                .and_then(|s| serde_json::from_str(&s).ok());
+            let (oauth, playback) = load_sign_ins(&dir);
             Arc::new(Spotify {
                 dir,
                 http,
                 session: tokio::sync::Mutex::new(None),
                 oauth: Mutex::new(oauth),
+                playback: Mutex::new(playback),
                 pending: Mutex::new(None),
                 meta: DashMap::new(),
                 lists: Mutex::new(Default::default()),
@@ -143,6 +175,33 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
             })
         })
         .clone()
+}
+
+/// The browsing and playback sign-ins saved in `dir`.  A sign-in of the default client id
+/// from before there were two is playback's (moved to its file).
+fn load_sign_ins(dir: &std::path::Path) -> (Option<OAuthState>, Option<OAuthState>) {
+    let read = |slot: Slot| -> Option<OAuthState> {
+        std::fs::read_to_string(dir.join(slot.file()))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    };
+    let mut oauth = read(Slot::Browsing);
+    let mut playback = read(Slot::Playback);
+    if playback.is_none()
+        && oauth
+            .as_ref()
+            .is_some_and(|o| Slot::for_client_id(&o.client_id) == Slot::Playback)
+    {
+        playback = oauth.take();
+        if let Some(o) = &playback {
+            let _ = std::fs::write(
+                dir.join(Slot::Playback.file()),
+                serde_json::to_string(o).unwrap_or_default(),
+            );
+        }
+        let _ = std::fs::remove_file(dir.join(Slot::Browsing.file()));
+    }
+    (oauth, playback)
 }
 
 /// `spotify://track:ID` / `spotify:track:ID` / open.spotify.com links → (`kind`, `id`).
@@ -240,12 +299,19 @@ impl Spotify {
         id
     }
 
-    fn save_oauth(&self) {
-        let g = self.oauth.lock();
+    fn slot(&self, slot: Slot) -> &Mutex<Option<OAuthState>> {
+        match slot {
+            Slot::Browsing => &self.oauth,
+            Slot::Playback => &self.playback,
+        }
+    }
+
+    fn save_oauth(&self, slot: Slot) {
+        let g = self.slot(slot).lock();
         if let Some(o) = g.as_ref() {
             let _ = std::fs::create_dir_all(&self.dir);
             let _ = std::fs::write(
-                self.dir.join("oauth.json"),
+                self.dir.join(slot.file()),
                 serde_json::to_string(o).unwrap_or_default(),
             );
         }
@@ -262,17 +328,19 @@ impl Spotify {
         self.server.get().cloned().unwrap_or_default()
     }
 
-    /// The client id of the sign-in (its refresh token's), or the default one.
-    pub(crate) fn sign_in_client_id(&self) -> String {
-        self.oauth
-            .lock()
-            .as_ref()
-            .map(|o| o.client_id.clone())
-            .unwrap_or_else(default_client_id)
+    pub fn signed_in(&self) -> bool {
+        self.playback_signed_in() || self.oauth.lock().is_some()
     }
 
-    pub fn signed_in(&self) -> bool {
-        self.dir.join("credentials.json").exists() || self.oauth.lock().is_some()
+    /// Signed in for playback: a session can log in (stored credentials, or the playback
+    /// sign-in's token).
+    pub fn playback_signed_in(&self) -> bool {
+        self.dir.join("credentials.json").exists() || self.playback.lock().is_some()
+    }
+
+    /// Browsing goes through the user's own app.
+    pub fn browsing_own_app(&self) -> bool {
+        self.oauth.lock().is_some()
     }
 
     pub fn username(&self) -> Option<String> {
@@ -392,7 +460,8 @@ impl Spotify {
             .to_string();
         let expires = resp["expires_in"].as_u64().unwrap_or(3600);
         *self.pending.lock() = None;
-        *self.oauth.lock() = Some(OAuthState {
+        let slot = Slot::for_client_id(&client_id);
+        *self.slot(slot).lock() = Some(OAuthState {
             refresh_token: resp["refresh_token"].as_str().unwrap_or("").to_string(),
             client_id: client_id.clone(),
             access_token: Some((
@@ -400,37 +469,37 @@ impl Spotify {
                 Instant::now() + Duration::from_secs(expires.saturating_sub(60)),
             )),
         });
-        self.save_oauth();
+        self.save_oauth(slot);
         self.lists.lock().clear();
-        // Log a playback session in with the new token; librespot stores reusable
-        // credentials.  A token of the user's own app may not be accepted for playback:
-        // then keep the session credentials of an earlier sign-in, if there are any.
-        let cached = self.dir.join("credentials.json");
-        let backup = self.dir.join("credentials.json.prev");
-        let had_cached = std::fs::rename(&cached, &backup).is_ok();
-        *self.session.lock().await = None;
-        match self.connect(Credentials::with_access_token(access)).await {
-            Ok(session) => {
-                let _ = std::fs::remove_file(&backup);
-                let user = session.username();
-                info!("Spotify: signed in as {user} (client id {client_id})");
-                Ok(user)
-            }
-            Err(e) if had_cached => {
-                let _ = std::fs::rename(&backup, &cached);
-                warn!("{e} with client id {client_id}; keeping the earlier playback sign-in");
-                let session = self.session().await?;
-                Ok(session.username())
-            }
-            Err(e) => Err(if client_id == DEFAULT_CLIENT_ID {
-                e
-            } else {
-                format!(
-                    "{e}. Spotify accepted your app for browsing but not for playback: \
-                     clear the client id, sign in once, then set it again and sign in."
-                )
-            }),
+        if slot == Slot::Browsing {
+            // the user's own app: browsing only (Spotify refuses it for playback)
+            let me: Value = self
+                .http
+                .get(format!("{API}/me"))
+                .bearer_auth(&access)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?
+                .json()
+                .await
+                .unwrap_or(Value::Null);
+            let user = me["display_name"]
+                .as_str()
+                .or(me["id"].as_str())
+                .unwrap_or("")
+                .to_string();
+            info!("Spotify: signed in for browsing as {user} (client id {client_id})");
+            return Ok(user);
         }
+        // Log a playback session in with the new token; librespot stores reusable
+        // credentials.  The Connect devices log in afresh with it.
+        let _ = std::fs::remove_file(self.dir.join("credentials.json"));
+        *self.session.lock().await = None;
+        let session = self.connect(Credentials::with_access_token(access)).await?;
+        connect::signed_in_again();
+        let user = session.username();
+        info!("Spotify: signed in for playback as {user}");
+        Ok(user)
     }
 
     /// Forget the account.
@@ -439,10 +508,12 @@ impl Spotify {
             s.shutdown();
         }
         *self.oauth.lock() = None;
+        *self.playback.lock() = None;
         *self.user.lock() = None;
         self.lists.lock().clear();
         let _ = std::fs::remove_file(self.dir.join("credentials.json"));
-        let _ = std::fs::remove_file(self.dir.join("oauth.json"));
+        let _ = std::fs::remove_file(self.dir.join(Slot::Browsing.file()));
+        let _ = std::fs::remove_file(self.dir.join(Slot::Playback.file()));
         // the Connect devices' own credentials (`connect::add_device`)
         let _ = std::fs::remove_dir_all(self.dir.join("connect"));
     }
@@ -475,18 +546,37 @@ impl Spotify {
         if let Some(creds) = self.credentials_cache().and_then(|c| c.credentials()) {
             match self.connect(creds).await {
                 Ok(s) => return Ok(s),
-                Err(e) => warn!("{e}; trying the refresh token"),
+                Err(e) => warn!("{e}; trying the playback sign-in"),
             }
         }
-        let token = self.oauth_token().await?;
+        let token = self.playback_token().await?;
         self.connect(Credentials::with_access_token(token)).await
     }
 
-    /// A Web API access token from the stored refresh token.
+    /// A token of the playback sign-in (Spotify's own client id), for sessions.
+    pub(crate) async fn playback_token(&self) -> Result<String, String> {
+        self.token(Slot::Playback).await
+    }
+
+    /// A Web API access token: the browsing sign-in's, else the playback sign-in's.
     async fn oauth_token(&self) -> Result<String, String> {
+        if self.oauth.lock().is_some() {
+            self.token(Slot::Browsing).await
+        } else {
+            self.token(Slot::Playback).await
+        }
+    }
+
+    /// An access token of a sign-in, from its refresh token.
+    async fn token(&self, slot: Slot) -> Result<String, String> {
         let (refresh, client_id) = {
-            let g = self.oauth.lock();
-            let o = g.as_ref().ok_or("not signed in to Spotify")?;
+            let g = self.slot(slot).lock();
+            let o = g.as_ref().ok_or(match slot {
+                Slot::Browsing => "not signed in to Spotify",
+                Slot::Playback => {
+                    "not signed in to Spotify for playback (Settings → Spotify → Sign in for playback)"
+                }
+            })?;
             if let Some((t, until)) = &o.access_token {
                 if *until > Instant::now() {
                     return Ok(t.clone());
@@ -516,7 +606,7 @@ impl Spotify {
             .ok_or("Spotify refused the refresh token; sign in again")?
             .to_string();
         let expires = resp["expires_in"].as_u64().unwrap_or(3600);
-        if let Some(o) = self.oauth.lock().as_mut() {
+        if let Some(o) = self.slot(slot).lock().as_mut() {
             o.access_token = Some((
                 access.clone(),
                 Instant::now() + Duration::from_secs(expires.saturating_sub(60)),
@@ -525,24 +615,13 @@ impl Spotify {
                 o.refresh_token = r.to_string();
             }
         }
-        self.save_oauth();
+        self.save_oauth(slot);
         Ok(access)
     }
 
-    /// Token for the Web API: the OAuth token, else one from the session (keymaster).
+    /// Token for the Web API.
     async fn api_token(&self) -> Result<String, String> {
-        if self.oauth.lock().is_some() {
-            if let Ok(t) = self.oauth_token().await {
-                return Ok(t);
-            }
-        }
-        let session = self.session().await?;
-        session
-            .token_provider()
-            .get_token(&SCOPES[1..].join(","))
-            .await
-            .map(|t| t.access_token)
-            .map_err(|e| e.to_string())
+        self.oauth_token().await
     }
 
     // ---- Web API ------------------------------------------------------------------------------
@@ -617,8 +696,10 @@ impl Spotify {
                 200 => return resp.json().await.map_err(|e| e.to_string()),
                 401 => {
                     // token expired early
-                    if let Some(o) = self.oauth.lock().as_mut() {
-                        o.access_token = None;
+                    for slot in [Slot::Browsing, Slot::Playback] {
+                        if let Some(o) = self.slot(slot).lock().as_mut() {
+                            o.access_token = None;
+                        }
                     }
                 }
                 429 => {
@@ -846,6 +927,44 @@ mod tests {
         for bad in ["", "abc", "not a client id at all, no no no", &own[1..]] {
             assert_eq!(client_id_or_default(bad), DEFAULT_CLIENT_ID, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_default_client_id_sign_in_is_playbacks() {
+        let own = "0123456789abcdef0123456789abcdef";
+        assert_eq!(Slot::for_client_id(DEFAULT_CLIENT_ID), Slot::Playback);
+        assert_eq!(Slot::for_client_id(own), Slot::Browsing);
+        let state = |id: &str| {
+            serde_json::to_string(&OAuthState {
+                refresh_token: format!("refresh-{id}"),
+                client_id: id.to_string(),
+                access_token: None,
+            })
+            .unwrap()
+        };
+        // from before the two sign-ins, of the default client id: moved to playback
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("oauth.json"), state(DEFAULT_CLIENT_ID)).unwrap();
+        let (browsing, playback) = load_sign_ins(dir.path());
+        assert!(browsing.is_none());
+        assert_eq!(playback.unwrap().client_id, DEFAULT_CLIENT_ID);
+        assert!(!dir.path().join("oauth.json").exists());
+        assert!(dir.path().join("oauth_playback.json").exists());
+        // of the user's own app: browsing, and no playback sign-in yet
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("oauth.json"), state(own)).unwrap();
+        let (browsing, playback) = load_sign_ins(dir.path());
+        assert_eq!(browsing.unwrap().client_id, own);
+        assert!(playback.is_none());
+        // both
+        std::fs::write(
+            dir.path().join("oauth_playback.json"),
+            state(DEFAULT_CLIENT_ID),
+        )
+        .unwrap();
+        let (browsing, playback) = load_sign_ins(dir.path());
+        assert_eq!(browsing.unwrap().client_id, own);
+        assert_eq!(playback.unwrap().client_id, DEFAULT_CLIENT_ID);
     }
 
     #[test]

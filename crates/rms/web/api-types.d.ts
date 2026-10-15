@@ -831,7 +831,15 @@ artwork?: string, };
 
 export type NewFavorite = { url: string, title: string, };
 
-export type SpotifyStatus = { signed_in: boolean, user?: string, 
+export type SpotifyStatus = { signed_in: boolean, 
+/**
+ * Signed in for playback and Spotify Connect (with Spotify's own client id).
+ */
+playback: boolean, 
+/**
+ * Browsing goes through the user's own app (a sign-in with its client id).
+ */
+browsing_own_app: boolean, user?: string, 
 /**
  * `premium`, `free`, …
  */
@@ -853,7 +861,12 @@ learn: boolean,
  */
 learned: number, };
 
-export type SpotifyLogin = { code?: string, };
+export type SpotifyLogin = { code?: string, 
+/**
+ * Start the playback sign-in (Spotify's own client id) rather than one with the own
+ * client id (`spotify_client_id`, for browsing).
+ */
+playback?: boolean, };
 
 export type SpotifyLoginResult = { 
 /**
