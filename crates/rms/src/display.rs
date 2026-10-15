@@ -286,6 +286,15 @@ impl Kind {
         }
     }
 
+    /// The brightest `grfb` value (the top of `brightness_map` without the Boom's automatic
+    /// level).
+    fn max_brightness(self) -> u16 {
+        match self {
+            Kind::Boom => 5,
+            _ => 4,
+        }
+    }
+
     fn default_fonts(self) -> &'static [&'static str] {
         match self {
             Kind::Boom => &["light_n", "standard_n", "full_n"],
@@ -1458,7 +1467,45 @@ fn visu_frame(params: &[u32]) -> ServerFrame {
     ServerFrame::Visu(b.into())
 }
 
+/// The display test: every pixel on at full brightness, the visualizer off.  What was sent
+/// is remembered as usual, so the normal screen comes back when the test ends.
+fn update_test_pattern(p: &Arc<Player>, kind: Kind, ds: &mut DisplayState) {
+    // the transition into the test is dropped: the pattern shows at once
+    p.ui.lock().transition = None;
+    let brightness = kind.max_brightness();
+    if ds.sent_brightness != Some(brightness) {
+        p.send(ServerFrame::Grfb(brightness));
+        ds.sent_brightness = Some(brightness);
+    }
+    if ds.sent_visu.as_deref() != Some(&[0]) {
+        p.send(visu_frame(&[0]));
+        ds.sent_visu = Some(vec![0]);
+    }
+    let all_on = vec![0xff; kind.width() * 4];
+    if ds.sent.as_ref() != Some(&all_on) {
+        p.send(ServerFrame::Grfe {
+            offset: 0,
+            transition: b'c',
+            param: 0,
+            bitmap: all_on.clone().into(),
+        });
+        ds.sent = Some(all_on.clone());
+    }
+    if kind == Kind::Transporter && ds.sent2.as_ref() != Some(&all_on) {
+        p.send(ServerFrame::Grfe {
+            offset: 640,
+            transition: b'c',
+            param: 0,
+            bitmap: all_on.clone().into(),
+        });
+        ds.sent2 = Some(all_on);
+    }
+}
+
 fn update_player(server: &Arc<Server>, p: &Arc<Player>, kind: Kind, ds: &mut DisplayState) {
+    if p.ui.lock().test_pattern {
+        return update_test_pattern(p, kind, ds);
+    }
     let now = crate::util::now();
     // the UI changed the screen: redraw now
     let generation = p.ui.lock().generation;

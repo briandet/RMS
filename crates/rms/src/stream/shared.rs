@@ -107,7 +107,7 @@ impl SharedSource {
                 st.started = true;
                 let mut spec = spec.clone();
                 spec.shared = None;
-                tokio::spawn(produce(self.clone(), spec, http.clone()));
+                crate::util::spawn(produce(self.clone(), spec, http.clone()));
             }
             id
         };
@@ -284,7 +284,7 @@ mod tests {
         let sp = spec(&path, &shared);
         let mut slow = shared.subscribe(&sp, &http);
         let fast = shared.subscribe(&sp, &http);
-        let fast = tokio::spawn(collect(fast));
+        let fast = crate::util::spawn(collect(fast));
         // the slow player takes one chunk; the fast one gets at most AHEAD past it
         let first = slow.next().await.unwrap().unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -320,7 +320,7 @@ mod tests {
         let http = reqwest::Client::new();
         let sp = spec(&path, &shared);
         // the second player never connects: the first is held at AHEAD until the grace ends
-        let only = tokio::spawn(collect(shared.subscribe(&sp, &http)));
+        let only = crate::util::spawn(collect(shared.subscribe(&sp, &http)));
         tokio::time::sleep(ATTACH_GRACE / 2).await;
         assert!(!only.is_finished());
         assert!(shared.state.lock().buffered <= AHEAD + super::super::source::CHUNK);

@@ -8,8 +8,10 @@
 //! Turning a protocol off in the settings ends its players at once.
 //!
 //! A device found in several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
-//! Chromecast) is one player: the best way wins (Squeezebox, then UPnP, Chromecast,
-//! AirPlay), by the device's IP address.  The others are not bridged while it is
+//! Chromecast) is one player: the best way wins (Squeezebox, then Chromecast, UPnP,
+//! AirPlay), by the device's IP address.  Chromecast before UPnP: it gives the position to
+//! a fraction of a second (UPnP renderers mostly in whole seconds, some stale), and where a
+//! device does both it is usually the better kept of the two.  The others are not bridged while it is
 //! connected, and come back (on their next discovery) when it isn't.
 
 use super::{FromRenderer, Identity, ToRenderer};
@@ -81,8 +83,8 @@ pub struct Device {
 /// Squeezebox players (slimproto, not bridged) are 0.
 fn rank(key: &str) -> u8 {
     match key.split(':').next() {
-        Some("upnp") => 1,
-        Some("chromecast") => 2,
+        Some("chromecast") => 1,
+        Some("upnp") => 2,
         _ => 3,
     }
 }
@@ -163,8 +165,8 @@ pub fn found(server: &Arc<Server>, device: Device, start: Start) {
     let server2 = server.clone();
     let key2 = key.clone();
     let (ip, name) = (device.ip, device.identity.name.clone());
-    let task = tokio::spawn(async move {
-        let driver = tokio::spawn(start(io));
+    let task = crate::util::spawn(async move {
+        let driver = crate::util::spawn(start(io));
         let _ = super::run(server2, device.identity, to_tx, from_rx).await;
         driver.abort();
         if let Some(m) = RUNNING.lock().as_mut() {
@@ -185,7 +187,7 @@ pub fn found(server: &Arc<Server>, device: Device, start: Start) {
 }
 
 /// End bridges of devices another player now plays to better (a Squeezebox player that
-/// connected, a UPnP renderer found after the Chromecast), and forget their players.
+/// connected, a Chromecast found after the UPnP renderer), and forget their players.
 pub fn dedupe(server: &Arc<Server>) {
     let mut ended = Vec::new();
     {
@@ -216,7 +218,7 @@ pub fn dedupe(server: &Arc<Server>) {
     }
     // forget the players once their connections have closed
     let server = server.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         for mac in ended {
             if let Some(p) = server.player(&mac) {
@@ -264,14 +266,21 @@ pub fn base_url(server: &Server) -> String {
 
 /// Start each protocol's discovery.
 pub fn start(server: &Arc<Server>) {
-    tokio::spawn(super::upnp::run(server.clone()));
-    tokio::spawn(super::chromecast::run(server.clone()));
-    tokio::spawn(super::airplay::run(server.clone()));
+    crate::util::spawn(super::upnp::run(server.clone()));
+    crate::util::spawn(super::chromecast::run(server.clone()));
+    crate::util::spawn(super::airplay::run(server.clone()));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_device_is_played_to_the_best_way() {
+        // (a Squeezebox player, not bridged, beats them all)
+        assert!(rank("chromecast:abc") < rank("upnp:uuid:abc"));
+        assert!(rank("upnp:uuid:abc") < rank("airplay:abc"));
+    }
 
     #[test]
     fn protocols_are_known() {

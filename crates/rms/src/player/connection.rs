@@ -26,11 +26,11 @@ pub async fn listen(server: Arc<Server>) -> anyhow::Result<()> {
     );
     let listener = TcpListener::bind(&addr).await?;
     info!("slimproto listening on {}", addr);
-    tokio::spawn(heartbeat(server.clone()));
+    crate::util::spawn(heartbeat(server.clone()));
     loop {
         let (sock, peer) = listener.accept().await?;
         let server = server.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             let _ = sock.set_nodelay(true);
             if let Err(e) = handle(server, sock, peer).await {
                 debug!("slimproto connection {} ended: {}", peer, e);
@@ -113,7 +113,7 @@ async fn handle(
     let (player, conn_id, cancel) = server.player_connected(&helo, peer, tx);
 
     let writer_cancel = cancel.clone();
-    let writer = tokio::spawn(async move {
+    let writer = crate::util::spawn(async move {
         let mut sink = sink;
         loop {
             tokio::select! {

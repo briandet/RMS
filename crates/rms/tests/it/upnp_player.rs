@@ -2,14 +2,11 @@
 //! SOAP control URLs, fetches the streams it is given and plays them on a clock; the
 //! server finds it through the `upnpRenderers` pref and plays an album on it.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use common::*;
 use quick_xml::escape::escape;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -24,6 +21,8 @@ const LENGTH: f64 = 5.0;
 struct Fake {
     /// Whether it takes `SetNextAVTransportURI`.
     gapless: bool,
+    /// How long tracks play, when not [`LENGTH`].
+    length: Option<f64>,
     state: String,
     uri: String,
     next: Option<String>,
@@ -43,10 +42,14 @@ impl Fake {
         self.position + self.since.map_or(0.0, |s| s.elapsed().as_secs_f64())
     }
 
+    fn length(&self) -> f64 {
+        self.length.unwrap_or(LENGTH)
+    }
+
     /// Move the clock on: to the next track, or stop at the end of the last one.
     fn advance(&mut self) {
-        while self.state == "PLAYING" && self.position() >= LENGTH {
-            let over = self.position() - LENGTH;
+        while self.state == "PLAYING" && self.position() >= self.length() {
+            let over = self.position() - self.length();
             match self.next.take() {
                 Some(next) => {
                     self.uri = next;
@@ -233,7 +236,7 @@ async fn control(
             }
             "GetPositionInfo" => {
                 out.push(("Track", "1".into()));
-                out.push(("TrackDuration", hms(LENGTH)));
+                out.push(("TrackDuration", hms(f.length())));
                 out.push(("TrackMetaData", String::new()));
                 out.push(("TrackURI", f.uri.clone()));
                 out.push(("RelTime", hms(f.position())));
@@ -539,4 +542,68 @@ async fn a_renderer_that_is_also_a_squeezebox_player_is_one_player() {
     })
     .await;
     pref(http, "bridgeUpnp", "0").await;
+}
+
+/// Renderers give the position in whole seconds; the player's is known to a fraction of a
+/// second after a few polls, not up to a second behind.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_position_is_known_to_a_fraction_of_a_second() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("A/long.flac");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=440:duration=30"])
+        .args(["-metadata", "title=Long", "-metadata", "album=Album"])
+        .arg(&file)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let server = start_server(dir.path());
+    let http = server.http;
+    for _ in 0..100 {
+        if get_json(http, "/api/v1/server").await["library"]["tracks"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let (fake, location) = start_renderer("Clock", "test-clock", true).await;
+    fake.with(|f| f.length = Some(30.0));
+    pref(http, "upnpRenderers", &json!([location]).to_string()).await;
+    pref(http, "bridgeUpnp", "1").await;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let id = loop {
+        let players = get_json(http, "/api/v1/players").await;
+        let found = players
+            .as_array()
+            .and_then(|a| a.iter().find(|p| p["name"] == "Clock").cloned());
+        if let Some(p) = found {
+            break p["id"].as_str().unwrap().to_string();
+        }
+        assert!(Instant::now() < deadline, "no player: {players}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    wait_until("Play", 10, || fake.with(|f| f.state == "PLAYING")).await;
+
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    for _ in 0..4 {
+        let (cli_port, id2) = (server.cli, id.clone());
+        let time = tokio::task::spawn_blocking(move || cli(cli_port, &format!("{id2} time ?")))
+            .await
+            .unwrap();
+        let truth = fake.with(|f| f.position());
+        let server_time: f64 = time.last().unwrap().parse().unwrap();
+        assert!(
+            (server_time - truth).abs() < 0.3,
+            "server {server_time:.2} s, renderer {truth:.2} s"
+        );
+        tokio::time::sleep(Duration::from_millis(700)).await;
+    }
 }

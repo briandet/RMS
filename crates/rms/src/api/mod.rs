@@ -235,7 +235,7 @@ async fn get_spectrum(
     let library = server.library.clone();
     let ffmpeg = server.has_ffmpeg().then(crate::server::ffmpeg_path);
     let curve =
-        tokio::task::spawn_blocking(move || library.track_spectrum(track, ffmpeg.as_deref()))
+        crate::util::spawn_blocking(move || library.track_spectrum(track, ffmpeg.as_deref()))
             .await
             .ok()
             .flatten();
@@ -428,7 +428,7 @@ async fn get_album_tags(
     ApiQuery(q): ApiQuery<TagsQuery>,
 ) -> Response {
     let s2 = s.clone();
-    let r = tokio::task::spawn_blocking(move || {
+    let r = crate::util::spawn_blocking(move || {
         crate::tagedit::proposal(&s2, id, q.release.as_deref().filter(|r| !r.is_empty()))
     })
     .await;
@@ -474,7 +474,7 @@ async fn get_album_files(
         .unwrap_or_else(|| crate::tagedit::template(&s));
     let s2 = s.clone();
     let t2 = template.clone();
-    match tokio::task::spawn_blocking(move || crate::tagedit::move_plan(&s2, id, &t2)).await {
+    match crate::util::spawn_blocking(move || crate::tagedit::move_plan(&s2, id, &t2)).await {
         Ok(Ok(plan)) => Json(library::album_files(&s, template, plan)).into_response(),
         Ok(Err(e)) => tag_error(e, "album"),
         Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
@@ -535,7 +535,7 @@ async fn get_cover_art(
     ApiQuery(q): ApiQuery<CoverQuery>,
 ) -> Response {
     let (s2, s3) = (s.clone(), s.clone());
-    let Ok(Some(((state, archive), release))) = tokio::task::spawn_blocking(move || {
+    let Ok(Some(((state, archive), release))) = crate::util::spawn_blocking(move || {
         s2.library.album_job(id)?;
         Some((
             (

@@ -95,7 +95,7 @@ pub async fn explore(
     let deadline = Instant::now() + BUDGET;
     let lib = server.library.clone();
     let ids = seeds.to_vec();
-    let (recs, artists) = tokio::task::spawn_blocking(move || lib.seed_mbids(&ids))
+    let (recs, artists) = crate::util::spawn_blocking(move || lib.seed_mbids(&ids))
         .await
         .unwrap_or_default();
     // with a ListenBrainz account: what it recommends for its user, too
@@ -241,7 +241,7 @@ pub async fn explore(
                 artist_mbid: c.artist_mbid.clone(),
                 because: Some(c.because.clone()),
             };
-            let _ = tokio::task::spawn_blocking(move || lib.note_discovered(&p)).await;
+            let _ = crate::util::spawn_blocking(move || lib.note_discovered(&p)).await;
             picks.push(id);
         }
     }
@@ -257,7 +257,7 @@ async fn resolve(
 ) -> Option<(i64, String)> {
     let lib = server.library.clone();
     let cand = c.clone();
-    let local = tokio::task::spawn_blocking(move || {
+    let local = crate::util::spawn_blocking(move || {
         if lib.artist_rejected(&cand.artist) {
             return Err(());
         }
@@ -302,7 +302,7 @@ async fn resolve(
         }
         sp.remember(&t);
         let lib = server.library.clone();
-        let r = tokio::task::spawn_blocking(move || {
+        let r = crate::util::spawn_blocking(move || {
             if lib.heard(&remote.url) {
                 return None;
             }
@@ -323,7 +323,7 @@ async fn resolve(
 async fn owned(server: &Arc<Server>, c: &Candidate) -> bool {
     let lib = server.library.clone();
     let c = c.clone();
-    tokio::task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         lib.local_recording(c.recording.as_deref(), &c.artist, &c.title)
             .is_some()
     })
@@ -345,7 +345,7 @@ async fn fetch(server: &Arc<Server>, url: &str) -> Vec<Value> {
 async fn fetch_json(server: &Arc<Server>, url: &str, max_age: i64, token: Option<&str>) -> Value {
     let lib = server.library.clone();
     let key = url.to_string();
-    if let Ok(Some(body)) = tokio::task::spawn_blocking(move || lib.cached(&key, max_age)).await {
+    if let Ok(Some(body)) = crate::util::spawn_blocking(move || lib.cached(&key, max_age)).await {
         return serde_json::from_str(&body).unwrap_or_default();
     }
     let mut req = server
@@ -372,7 +372,7 @@ async fn fetch_json(server: &Arc<Server>, url: &str, max_age: i64, token: Option
     };
     let lib = server.library.clone();
     let key = url.to_string();
-    let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
+    let _ = crate::util::spawn_blocking(move || lib.cache(&key, &body)).await;
     v
 }
 
@@ -582,7 +582,7 @@ async fn recording_metadata(
     for m in mbids {
         let lib = server.library.clone();
         let key = format!("lb-recording:{m}");
-        let cached = tokio::task::spawn_blocking(move || lib.cached(&key, CACHE_SECS))
+        let cached = crate::util::spawn_blocking(move || lib.cached(&key, CACHE_SECS))
             .await
             .ok()
             .flatten();
@@ -606,7 +606,7 @@ async fn recording_metadata(
             let Some(x) = v.get(m) else { continue };
             let lib = server.library.clone();
             let (key, body) = (format!("lb-recording:{m}"), x.to_string());
-            let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
+            let _ = crate::util::spawn_blocking(move || lib.cache(&key, &body)).await;
             if let Some(r) = recording_from(m, x) {
                 out.insert(m.clone(), r);
             }
@@ -821,7 +821,7 @@ enum Item {
 async fn playable(server: &Arc<Server>, r: &Recording) -> Option<Item> {
     let lib = server.library.clone();
     let rec = r.clone();
-    let local = tokio::task::spawn_blocking(move || {
+    let local = crate::util::spawn_blocking(move || {
         lib.local_recording(Some(&rec.mbid), &rec.artist, &rec.title)
     })
     .await
@@ -833,7 +833,7 @@ async fn playable(server: &Arc<Server>, r: &Recording) -> Option<Item> {
     let key = format!("lb-spotify:{}", r.mbid);
     let lib = server.library.clone();
     let k = key.clone();
-    if let Ok(Some(hit)) = tokio::task::spawn_blocking(move || lib.cached(&k, 7 * 86400)).await {
+    if let Ok(Some(hit)) = crate::util::spawn_blocking(move || lib.cached(&k, 7 * 86400)).await {
         return (!hit.is_empty()).then_some(Item::Url(hit));
     }
     let sp = crate::plugins::spotify::get().filter(|s| s.signed_in())?;
@@ -846,7 +846,7 @@ async fn playable(server: &Arc<Server>, r: &Recording) -> Option<Item> {
     };
     let lib = server.library.clone();
     let body = url.clone().unwrap_or_default();
-    let _ = tokio::task::spawn_blocking(move || lib.cache(&key, &body)).await;
+    let _ = crate::util::spawn_blocking(move || lib.cache(&key, &body)).await;
     url.map(Item::Url)
 }
 

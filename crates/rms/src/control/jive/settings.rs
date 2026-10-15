@@ -233,7 +233,7 @@ pub fn jive_alarm(server: &Arc<Server>, r: &mut Request) {
         let server = server.clone();
         let client = r.client;
         let snooze_secs = p.prefs.get_i64("alarmSnoozeSeconds").max(1) as u64;
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             let pause = |v: &str| vec!["pause".to_string(), v.to_string()];
             crate::control::dispatch::execute_tokens(
                 &server,

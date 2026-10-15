@@ -221,7 +221,7 @@ pub async fn serve(server: Arc<Server>) -> anyhow::Result<()> {
     let app = router(server.clone())
         .layer(tower_http::cors::CorsLayer::permissive())
         .into_make_service_with_connect_info::<std::net::SocketAddr>();
-    tokio::spawn(tls::serve(server.clone(), app.clone()));
+    crate::util::spawn(tls::serve(server.clone(), app.clone()));
     let shutdown = server.shutdown.clone();
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { shutdown.cancelled().await })

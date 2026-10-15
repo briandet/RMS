@@ -2,13 +2,10 @@
 //! files which aren't models), kept, and a failure to load them shows in the settings.  Off
 //! stops it; on again reuses the files already downloaded.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::State;
 use axum::http::Uri;
 use axum::Router;
-use common::*;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

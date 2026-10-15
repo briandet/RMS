@@ -444,7 +444,7 @@ impl Server {
         }
         let server = self.clone();
         let p = player.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(FORGET_DISCONNECTED_SECS)).await;
             if !p.is_connected() {
                 server.forget_player(&p);
@@ -775,7 +775,7 @@ impl Server {
         done: Option<Box<dyn FnOnce() + Send>>,
     ) {
         let p = player.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             let target = p.volume();
             let steps = ((secs.abs() / 0.05).ceil() as i32).clamp(1, 200);
             let step_ms = ((secs.abs() * 1000.0) / steps as f64) as u64;

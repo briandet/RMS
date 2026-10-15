@@ -105,7 +105,7 @@ async fn query(
         q = q.param(k, v);
     }
     let lib = server.library.clone();
-    match tokio::task::spawn_blocking(move || lib.query(&q)).await {
+    match crate::util::spawn_blocking(move || lib.query(&q)).await {
         Ok(Ok(row)) => Ok(row),
         Ok(Err(e)) => Err(LibraryError::Invalid(e.to_string())),
         Err(e) => Err(LibraryError::Failed(e.to_string())),
@@ -259,7 +259,7 @@ pub async fn album_by_id(server: &Arc<Server>, id: i64) -> Result<AlbumDetail, L
 /// The MusicBrainz release the album was matched to.
 pub async fn album_release(server: &Arc<Server>, id: i64) -> Result<AlbumRelease, LibraryError> {
     let lib = server.library.clone();
-    tokio::task::spawn_blocking(move || {
+    crate::util::spawn_blocking(move || {
         if lib.album_job(id).is_none() {
             return Err(LibraryError::NotFound);
         }
@@ -599,7 +599,7 @@ pub async fn tracks(server: &Arc<Server>, p: TrackParams) -> Result<Page<Track>,
     let mut page = if p.needs_finder() {
         let f = p.finder()?;
         let lib = server.library.clone();
-        let (total, ids) = tokio::task::spawn_blocking(move || lib.find_tracks(&f))
+        let (total, ids) = crate::util::spawn_blocking(move || lib.find_tracks(&f))
             .await
             .map_err(|e| LibraryError::Failed(e.to_string()))?
             .map_err(|e| LibraryError::Failed(e.to_string()))?;
@@ -624,7 +624,7 @@ pub async fn tracks(server: &Arc<Server>, p: TrackParams) -> Result<Page<Track>,
 /// Library tracks in the order of `ids` (ids that aren't tracks are left out).
 async fn tracks_by_ids(server: &Arc<Server>, ids: Vec<i64>) -> Result<Vec<Track>, LibraryError> {
     let lib = server.library.clone();
-    let rows = tokio::task::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
+    let rows = crate::util::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     Ok(rows.iter().filter_map(track).collect())
@@ -634,7 +634,7 @@ async fn tracks_by_ids(server: &Arc<Server>, ids: Vec<i64>) -> Result<Vec<Track>
 async fn add_details(server: &Arc<Server>, tracks: &mut [Track]) -> Result<(), LibraryError> {
     let ids: Vec<i64> = tracks.iter().filter_map(|t| t.id).collect();
     let lib = server.library.clone();
-    let (mut details, mut kinds) = tokio::task::spawn_blocking(move || {
+    let (mut details, mut kinds) = crate::util::spawn_blocking(move || {
         let kinds: std::collections::HashMap<i64, rms_library::effnet::Labels> = ids
             .iter()
             .filter_map(|id| Some((*id, lib.effnet_labels(*id)?)))
@@ -708,7 +708,7 @@ pub async fn similar(
     let n = r.limit.unwrap_or(SIMILAR).clamp(1, MAX_SIMILAR);
     let exclude: std::collections::HashSet<i64> = r.exclude.into_iter().collect();
     let lib = server.library.clone();
-    let ids = tokio::task::spawn_blocking(move || {
+    let ids = crate::util::spawn_blocking(move || {
         use rand::seq::SliceRandom;
         let mut rng = rand::rng();
         // every track seed counts; a big album / artist / genre / year is sampled
@@ -757,7 +757,7 @@ pub async fn playlists(
     });
     let lib = server.library.clone();
     let ids: Vec<i64> = page.items.iter().map(|p| p.id).collect();
-    let editable = tokio::task::spawn_blocking(move || {
+    let editable = crate::util::spawn_blocking(move || {
         ids.iter()
             .map(|id| lib.playlist_editable(*id).unwrap_or(false))
             .collect::<Vec<_>>()
@@ -772,7 +772,7 @@ pub async fn playlists(
 
 pub async fn playlist_by_id(server: &Arc<Server>, id: i64) -> Result<Playlist, LibraryError> {
     let lib = server.library.clone();
-    let found = tokio::task::spawn_blocking(move || {
+    let found = crate::util::spawn_blocking(move || {
         lib.playlist_by_id(id)
             .map(|(name, _, _)| (name, lib.playlist_editable(id).unwrap_or(false)))
     })
@@ -798,7 +798,7 @@ async fn track_by_id(server: &Arc<Server>, id: i64) -> Option<Track> {
 pub async fn top_tracks(server: &Arc<Server>, id: i64) -> Result<Vec<Track>, LibraryError> {
     artist_by_id(server, id).await?;
     let lib = server.library.clone();
-    let ids = tokio::task::spawn_blocking(move || lib.most_played_by_artist(id, 10))
+    let ids = crate::util::spawn_blocking(move || lib.most_played_by_artist(id, 10))
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     let mut out = Vec::new();
@@ -816,7 +816,7 @@ pub async fn similar_artists(
 ) -> Result<Vec<SimilarArtist>, LibraryError> {
     artist_by_id(server, id).await?;
     let lib = server.library.clone();
-    let Some(mbid) = tokio::task::spawn_blocking(move || lib.artist_mbid(id))
+    let Some(mbid) = crate::util::spawn_blocking(move || lib.artist_mbid(id))
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?
     else {
@@ -827,7 +827,7 @@ pub async fn similar_artists(
     for (name, m) in found {
         let lib = server.library.clone();
         let n = name.clone();
-        let local = tokio::task::spawn_blocking(move || lib.artist_in_library(Some(&m), &n))
+        let local = crate::util::spawn_blocking(move || lib.artist_in_library(Some(&m), &n))
             .await
             .ok()
             .flatten()
@@ -896,7 +896,7 @@ pub async fn folder(
         .map(|e| e.id)
         .collect();
     let lib = server.library.clone();
-    let rows = tokio::task::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
+    let rows = crate::util::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     let mut tracks: std::collections::HashMap<i64, Track> = rows
@@ -963,7 +963,7 @@ pub async fn track_analysis(
     let prefs = &server.prefs.server;
     let sonic_on = prefs.get_bool("sonicAnalysis");
     let musicbrainz_on = prefs.get_bool(crate::plugins::musicbrainz::PREF);
-    let (report, titles) = tokio::task::spawn_blocking(move || {
+    let (report, titles) = crate::util::spawn_blocking(move || {
         let r = lib.analysis_report(id, musicbrainz_on)?;
         let mut ids = vec![id];
         if let Some(s) = &r.sound.data {
@@ -1053,7 +1053,7 @@ pub async fn analysis_progress(
 ) -> Result<super::model::AnalysisProgress, LibraryError> {
     use super::model::{AnalysisCount, AnalysisProgress};
     let lib = server.library.clone();
-    let p = tokio::task::spawn_blocking(move || lib.analysis_progress())
+    let p = crate::util::spawn_blocking(move || lib.analysis_progress())
         .await
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     let prefs = &server.prefs.server;

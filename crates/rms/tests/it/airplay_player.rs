@@ -1,10 +1,7 @@
 //! An AirPlay speaker as a player: a fake RAOP receiver (RTSP, RTP audio in ALAC frames,
 //! the control and timing ports) given to the server in `airplayHosts`.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};

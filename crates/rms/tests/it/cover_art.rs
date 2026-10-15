@@ -2,13 +2,10 @@
 //! a release listed, the one chosen saved in the album's folder and embedded in its files
 //! (replacing what was there), what the library serves following; undone, all as it was.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::Path as UrlPath;
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use rms_library::tagwrite;
 use serde_json::{json, Value};
 use std::path::Path;

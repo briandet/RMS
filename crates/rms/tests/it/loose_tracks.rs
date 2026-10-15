@@ -5,13 +5,10 @@
 //! page treats the tracks without an album tag as loose tracks, and won't put a cover in a
 //! folder other music shares.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Path as UrlPath, Query};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;

@@ -4,10 +4,8 @@
 //! from `/stream.mp3`, reports STAT events like squeezelite does, and the test checks the
 //! server's reactions via the CLI and JSON-RPC.
 
-mod common;
-
+use crate::common::*;
 use bytes::{BufMut, Bytes, BytesMut};
-use common::*;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;

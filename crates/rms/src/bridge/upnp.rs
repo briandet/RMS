@@ -30,8 +30,10 @@ const SSDP_ADDR: &str = "239.255.255.250:1900";
 const SEARCH_FOR: Duration = Duration::from_secs(3);
 /// How often devices are looked for.
 const SEARCH_EVERY: Duration = Duration::from_secs(60);
-/// How often a playing renderer is asked what it is doing.
-const POLL_EVERY: Duration = Duration::from_secs(1);
+/// How often a playing renderer is asked what it is doing.  Not a whole second: positions
+/// come in whole seconds, and polls that fall at different points of the renderer's seconds
+/// tell where in a second it is (see [`super::PositionClock`]).
+const POLL_EVERY: Duration = Duration::from_millis(750);
 /// A renderer that doesn't answer for this long is gone.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(30);
 /// A track that hasn't started this long after `Play` failed.
@@ -471,6 +473,10 @@ enum Phase {
 struct Status {
     state: String,
     elapsed: Option<f64>,
+    /// `elapsed` is in whole seconds (`RelTime` without a fraction, as most renderers give it).
+    whole: bool,
+    /// When `elapsed` was true (halfway through the request).
+    at: Instant,
     duration: Option<f64>,
     track_uri: String,
 }
@@ -491,8 +497,10 @@ struct Driver {
     play_asked: Instant,
     /// When the renderer last answered.
     last_answer: Instant,
-    /// The last position seen while playing.
+    /// The last position the renderer gave while playing.
     elapsed: f64,
+    /// The position to a fraction of a second.
+    position: super::PositionClock,
     /// Streams given out, to make each URI distinct.
     loads: u64,
     /// The volume last set.
@@ -520,6 +528,7 @@ async fn drive(http: reqwest::Client, renderer: Renderer, io: DriverIo) {
         play_asked: Instant::now(),
         last_answer: Instant::now(),
         elapsed: 0.0,
+        position: super::PositionClock::new(),
         loads: 0,
         volume: None,
     };
@@ -738,13 +747,17 @@ impl Driver {
         let Ok(info) = self.call_av("GetTransportInfo", &[]).await else {
             return;
         };
+        let asked = Instant::now();
         let Ok(position) = self.call_av("GetPositionInfo", &[]).await else {
             return;
         };
+        let at = asked + asked.elapsed() / 2;
         let field = |m: &HashMap<String, String>, k: &str| m.get(k).cloned().unwrap_or_default();
         let status = Status {
             state: field(&info, "CurrentTransportState"),
             elapsed: parse_time(&field(&position, "RelTime")),
+            whole: !field(&position, "RelTime").contains('.'),
+            at,
             duration: parse_time(&field(&position, "TrackDuration")).filter(|d| *d > 0.0),
             track_uri: field(&position, "TrackURI"),
         };
@@ -764,11 +777,13 @@ impl Driver {
                     {
                         self.phase = Phase::Playing;
                         self.elapsed = 0.0;
+                        self.position.reset();
                         self.report(FromRenderer::Started).await;
                     }
                 }
                 Phase::Paused => {
                     self.phase = Phase::Playing;
+                    self.position.reset();
                     self.report(FromRenderer::Resumed).await;
                 }
                 Phase::Playing => {
@@ -779,6 +794,7 @@ impl Driver {
                     if self.next.is_some() && (is_current(&self.next) || restarted) {
                         self.current = self.next.take();
                         self.elapsed = 0.0;
+                        self.position.reset();
                         self.report(FromRenderer::Started).await;
                     }
                 }
@@ -820,8 +836,11 @@ impl Driver {
             _ => {}
         }
         if self.phase == Phase::Playing {
-            if let Some(elapsed) = s.elapsed {
-                self.elapsed = elapsed;
+            if let Some(reported) = s.elapsed {
+                self.elapsed = reported;
+                let elapsed = self
+                    .position
+                    .report(reported, s.whole, s.at, Instant::now());
                 self.report(FromRenderer::Progress {
                     elapsed,
                     duration: s.duration,

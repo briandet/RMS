@@ -2,13 +2,10 @@
 //! songs ListenBrainz finds similar to the seed — from the library here — that tags and
 //! sound alone would not, remembers them, and asks ListenBrainz only once a month.
 
-#[macro_use]
-mod common;
-
+use crate::common::*;
 use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use common::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

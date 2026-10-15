@@ -111,7 +111,7 @@ pub async fn upload(
     let dir = Path::new(&media).join(FOLDER).join(&sub);
     // written under a hidden name first, so a scan never sees half a file
     let (path, data) = (dir.clone(), data.to_vec());
-    let path = tokio::task::spawn_blocking(move || -> std::io::Result<PathBuf> {
+    let path = crate::util::spawn_blocking(move || -> std::io::Result<PathBuf> {
         std::fs::create_dir_all(&path)?;
         let tmp = path.join(format!(".upload-{:016x}.part", rand::random::<u64>()));
         std::fs::write(&tmp, &data)?;
@@ -129,7 +129,7 @@ pub async fn upload(
     let lib = server.library.clone();
     let u = url.clone();
     // a file is scanned on its name alone; one whose audio couldn't be read has no length
-    let ids = tokio::task::spawn_blocking(move || {
+    let ids = crate::util::spawn_blocking(move || {
         let ids = lib.tracks_of_file(&u);
         let readable = !ids.is_empty()
             && ids

@@ -715,7 +715,7 @@ fn enqueue(server: &Arc<Server>, p: &Arc<Player>, entries: Vec<Entry>, how: Enqu
 /// Library tracks as queue entries.
 pub async fn library_entries(server: &Arc<Server>, f: rms_library::TrackFilter) -> Vec<Entry> {
     let lib = server.library.clone();
-    let tracks = tokio::task::spawn_blocking(move || lib.tracks_for(&f))
+    let tracks = crate::util::spawn_blocking(move || lib.tracks_for(&f))
         .await
         .ok()
         .and_then(|r| r.ok())

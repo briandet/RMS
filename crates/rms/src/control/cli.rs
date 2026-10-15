@@ -44,7 +44,7 @@ pub async fn listen(server: Arc<Server>) -> anyhow::Result<()> {
     loop {
         let (sock, peer) = listener.accept().await?;
         let server = server.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             debug!("CLI connection from {}", peer);
             if let Err(e) = handle(server, sock).await {
                 debug!("CLI connection {} ended: {}", peer, e);
@@ -64,7 +64,7 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
     let cnx = format!("cli:{}", conn_id);
     let (mut rd, mut wr) = sock.into_split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    let writer = tokio::spawn(async move {
+    let writer = crate::util::spawn(async move {
         while let Some(line) = rx.recv().await {
             if wr.write_all(line.as_bytes()).await.is_err() {
                 break;
@@ -82,7 +82,7 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
         let tx = tx.clone();
         let subscribe = subscribe.clone();
         let term_shared = term_shared.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             let mut nrx = server.notifier.subscribe();
             loop {
                 let n = match nrx.recv().await {
@@ -222,7 +222,7 @@ async fn process_line(
         "shutdown" => {
             send(tokens, None);
             let s = server.clone();
-            tokio::spawn(async move {
+            crate::util::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 s.shutdown.cancel();
             });

@@ -41,10 +41,10 @@ pub fn spawn_analysis(server: &Arc<Server>) {
     }
     STOP.store(false, Ordering::SeqCst);
     let s = server.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         let lib = s.library.clone();
         let ffmpeg = s.has_ffmpeg().then(crate::server::ffmpeg_path);
-        let res = tokio::task::spawn_blocking(move || {
+        let res = crate::util::spawn_blocking(move || {
             lib.analyze_pending(threads(), ffmpeg.as_deref(), &STOP)
         })
         .await;

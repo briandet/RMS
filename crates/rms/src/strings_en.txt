@@ -296,6 +296,7 @@ DISCOVERING_FILES_PROGRESS	Discovering music files/directories
 DISCOVERING_PLAYLIST_PROGRESS	Discovering playlists
 DISCSUBTITLE	Set/Album Subtitle
 DISPLAY_SETTINGS	Display
+DISPLAY_TEST	Display Test
 DONT_USE_MUSICMAGIC	Don't use MusicIP
 DOUBLE_LINE	Large Text
 DOWN	Down

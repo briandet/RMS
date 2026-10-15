@@ -87,7 +87,7 @@ async fn relay(server: Arc<Server>, identity: Identity, mut socket: WebSocket) {
     {
         return;
     }
-    let bridge = tokio::spawn(super::run(server, identity, to_tx, from_rx));
+    let bridge = crate::util::spawn(super::run(server, identity, to_tx, from_rx));
     loop {
         tokio::select! {
             cmd = to_rx.recv() => {

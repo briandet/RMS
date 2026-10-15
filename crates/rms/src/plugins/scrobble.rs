@@ -233,7 +233,7 @@ fn scrobbles(server: &Server, url: &str) -> bool {
 
 /// Follow the players and scrobble what they play, for as long as the server runs.
 pub async fn run(server: Arc<Server>) {
-    tokio::spawn(send_loop(server.clone()));
+    crate::util::spawn(send_loop(server.clone()));
     let mut plays: HashMap<MacAddress, Play> = HashMap::new();
     let mut tick = tokio::time::interval(TICK);
     loop {
@@ -281,7 +281,7 @@ pub async fn run(server: Arc<Server>) {
             }
             let lib = server.library.clone();
             let url = track.url.clone();
-            let info = tokio::task::spawn_blocking(move || lib.listen_info(&url))
+            let info = crate::util::spawn_blocking(move || lib.listen_info(&url))
                 .await
                 .ok()
                 .flatten()
@@ -381,7 +381,7 @@ fn now_playing(server: &Server, to: &[Account], meta: &Value) {
     let body = json!({ "listen_type": "playing_now", "payload": [{ "track_metadata": meta }] });
     for a in to {
         let req = submit(server, &a.token, &body);
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             if let Err(e) = req.await {
                 debug!("now playing: {e:?}");
             }
@@ -397,7 +397,7 @@ pub async fn subsonic(server: &Arc<Server>, url: &str, at: Option<i64>, submissi
     }
     let lib = server.library.clone();
     let u = url.to_string();
-    let Some(info) = tokio::task::spawn_blocking(move || lib.listen_info(&u))
+    let Some(info) = crate::util::spawn_blocking(move || lib.listen_info(&u))
         .await
         .ok()
         .flatten()
@@ -478,7 +478,7 @@ async fn send_loop(server: Arc<Server>) {
             loop {
                 let lib = server.library.clone();
                 let k = key.clone();
-                let batch = tokio::task::spawn_blocking(move || lib.queued_listens(&k, BATCH))
+                let batch = crate::util::spawn_blocking(move || lib.queued_listens(&k, BATCH))
                     .await
                     .unwrap_or_default();
                 if batch.is_empty() {

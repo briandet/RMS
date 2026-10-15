@@ -1,9 +1,6 @@
 //! HTTPS: the server's own certificate authority, and the same routes as over HTTP.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread")]

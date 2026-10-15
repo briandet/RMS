@@ -2,10 +2,7 @@
 //! Receiver's messages) given to the server in `chromecastHosts`.  The test moves the
 //! device's playback along itself, so nothing depends on timing.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;

@@ -9,7 +9,10 @@ license = "GPL-2.0-only"
 repository = "https://github.com/rustydc/rms"
 
 [workspace.dependencies]
-tokio = { version = "1", features = ["full"] }
+# test-util is for tests (paused clocks), but as a dev-dependency feature it makes `cargo test`
+# build a second copy of tokio and everything above it (hyper, axum, reqwest, librespot, the
+# rms binary itself) next to `cargo build`'s.  Unpaused, it costs one atomic load per clock read.
+tokio = { version = "1", features = ["full", "test-util"] }
 bytes = "1"
 thiserror = "2"
 anyhow = "1"
@@ -18,7 +21,27 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+# Release builds are rebuilt on every upgrade (packaging/install.sh), so they are incremental
+# and skip cross-crate LTO: with thin LTO, 4 codegen units and no incremental, a one-line
+# change took over 4 minutes to rebuild (now seconds), and the scan and analysis benchmarks
+# came out the same.  Dependencies are still built at opt-level 3, once.
 [profile.release]
 opt-level = 3
+lto = false
+codegen-units = 16
+incremental = true
+
+# The old release settings, for a binary to hand out: `cargo build --profile dist`.
+[profile.dist]
+inherits = "release"
 lto = "thin"
 codegen-units = 4
+incremental = false
+
+# Line tables keep file:line in backtraces; full debug info made the binary ~1 GB and every
+# link slower.  Set `debug = true` locally to step through code in a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

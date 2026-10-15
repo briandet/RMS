@@ -86,7 +86,7 @@ pub fn start(server: &Arc<Server>) {
             ),
         }
     }
-    let task = tokio::spawn(run(server.clone(), rx, roots, playlists));
+    let task = crate::util::spawn(run(server.clone(), rx, roots, playlists));
     *running = Some(Running {
         _watcher: watcher,
         task: task.abort_handle(),

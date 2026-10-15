@@ -255,7 +255,7 @@ pub async fn open(
     // Finish when librespot reports the end of the track (all audio is queued by then).
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
     let url_owned = url.to_string();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         let mut done = Some(done_tx);
         while let Some(ev) = events.recv().await {
             let result = match ev {

@@ -22,7 +22,7 @@ async fn run(server: Arc<Server>, mut r: Request, name: LibQueryName) -> Request
         params,
     };
     let lib = server.library.clone();
-    match tokio::task::spawn_blocking(move || lib.query(&q)).await {
+    match crate::util::spawn_blocking(move || lib.query(&q)).await {
         Ok(Ok(results)) => {
             r.merge_results(results);
             r.set_done();

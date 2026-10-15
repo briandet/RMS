@@ -2,10 +2,7 @@
 //! file lands in `Uploads/` of the music folder, is scanned, and comes back as a track; a
 //! taken name gets a number; what isn't music is refused and removed again.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpStream;

@@ -726,7 +726,7 @@ impl Controller {
                 });
                 let lib = server.library.clone();
                 let started = url.clone();
-                tokio::task::spawn_blocking(move || {
+                crate::util::spawn_blocking(move || {
                     if let Some(u) = skipped {
                         lib.mark_skipped(&u);
                     }
@@ -735,7 +735,7 @@ impl Controller {
                 if !crate::util::is_remote_url(&url) {
                     let lib = server.library.clone();
                     let u = url.clone();
-                    tokio::task::spawn_blocking(move || lib.mark_played(&u));
+                    crate::util::spawn_blocking(move || lib.mark_played(&u));
                 }
                 if let Some(m) = self.master() {
                     m.prefs.set("currentSong", json!(index));
@@ -1082,7 +1082,7 @@ impl Controller {
             };
             t.max(1)
         };
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             let start = crate::util::now();
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(125)).await;
@@ -1254,7 +1254,7 @@ impl Controller {
         self.set_streaming_state(StreamingState::TrackWait);
         info!("{}: will retry {} in {}s", self.master_id, url, interval);
         let me = self.me.clone();
-        tokio::spawn(async move {
+        crate::util::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs_f64(interval)).await;
             let Some(c) = me.upgrade() else { return };
             let mut c = c.lock();
@@ -1362,7 +1362,7 @@ impl Controller {
             // Spotify: no stream to probe, just the track's metadata
             let me = self.me.clone();
             let url = entry.url.clone();
-            tokio::spawn(async move {
+            crate::util::spawn(async move {
                 let (meta, playable) = match crate::plugins::spotify::get() {
                     Some(sp) => tokio::join!(sp.track_meta(&url), sp.track_playable(&url)),
                     None => (None, true),
@@ -1392,7 +1392,7 @@ impl Controller {
         } else if needs_probe {
             let me = self.me.clone();
             let url = entry.url.clone();
-            tokio::spawn(async move {
+            crate::util::spawn(async move {
                 let resolved = server.resolve_remote(&url).await;
                 let Some(c) = me.upgrade() else { return };
                 let mut c = c.lock();

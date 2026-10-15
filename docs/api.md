@@ -832,4 +832,4 @@ nothing preloaded), `error`; and with Web Audio `clock` and `fetched`.
 JSON-RPC (`/jsonrpc.js`), Cometd (`/cometd`) and the CLI (port 9090) stay for Squeezebox
 players, SqueezePlay/Squeezer, Home Assistant and other existing clients.  What these
 clients send is recorded in `crates/rms/tests/golden/` and checked by
-`cargo test -p rms --test conformance`.
+`cargo test -p rms --test it conformance`.

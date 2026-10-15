@@ -57,7 +57,7 @@ pub async fn open(spec: &StreamSpec, http: &reqwest::Client) -> std::io::Result<
                 .spawn()?;
             let stdout = child.stdout.take().expect("piped stdout");
             if let Some(mut stderr) = child.stderr.take() {
-                tokio::spawn(async move {
+                crate::util::spawn(async move {
                     let mut s = String::new();
                     let _ = stderr.read_to_string(&mut s).await;
                     let s = s.trim();

@@ -63,7 +63,7 @@ pub fn apply(server: &Arc<Server>) {
         *busy = true;
     }
     let s = server.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         let r = prepare(&s).await;
         *BUSY.lock() = false;
         match r {
@@ -107,7 +107,7 @@ async fn prepare(server: &Arc<Server>) -> Result<(), String> {
     }
     set(Status::Downloading(missing.len(), missing.len()));
     let d = dir.clone();
-    let models = tokio::task::spawn_blocking(move || rms_library::effnet::Models::load(&d))
+    let models = crate::util::spawn_blocking(move || rms_library::effnet::Models::load(&d))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("loading the models from {}: {e}", dir.display()))?;

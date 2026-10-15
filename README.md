@@ -175,8 +175,8 @@ The script builds a release binary (the web UI is built in), installs it as
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
   pairing) are not supported; sync with these players is loose (they buffer by themselves).
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
-  Chromecast) is one player, by its IP address: a Squeezebox player wins, then UPnP, then
-  Chromecast, then AirPlay.  The others come back when it disconnects.
+  Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
+  then UPnP, then AirPlay.  The others come back when it disconnects.
 * **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
   treble, moving with the music, in the web UI's player menu and now playing.  They are
   played back from the player's position, so no audio goes to the browser: a library
@@ -202,7 +202,10 @@ The script builds a release binary (the web UI is built in), installs it as
   (progress bar, elapsed/remaining time, buffer fullness, clock, VU meter and spectrum
   visualizers), server-side scrolling of long titles, the volume bar, the date/time
   screensaver while off, Transporter's second screen and brightness while on / off / idle
-  (Boom's automatic brightness included).
+  (Boom's automatic brightness included).  A display test lights every pixel at full
+  brightness until a button is pressed, for checking a VFD for dead or dim spots: Settings →
+  Advanced → Player Display → Display Test on the player, or `<player> button displaytest`
+  over the CLI.
 * **On-screen menus** for those players, driven by the IR remote and front panel buttons:
   Lyrion's IR timing (press / repeat / hold / single) and its own `Default.map` button
   maps, Home → My Music / Radio / Favorites / Search / Settings, browsing with accelerated
@@ -453,13 +456,31 @@ app is only a player, not a library browser — use the web UI or Squeezer to br
 cargo test --workspace           # unit tests, end-to-end tests and client conformance
 ```
 
-`crates/rms/tests/fake_player.rs` runs the server binary and drives it through
-slimproto, HTTP streaming, the CLI and JSON-RPC.  `crates/rms/tests/conformance.rs` makes
+The end-to-end tests are one test binary per crate (`tests/it/`, a module per file):
+`cargo test -p rms --test it conformance` runs one file's tests.
+`crates/rms/tests/it/fake_player.rs` runs the server binary and drives it through
+slimproto, HTTP streaming, the CLI and JSON-RPC.  `crates/rms/tests/it/conformance.rs` makes
 the requests real clients make (Home Assistant, SqueezePlay, Squeezer, a Squeezebox 3's
 screens, the web UI) against a generated library and compares the answers with
 `crates/rms/tests/golden/`; after an intended change, `UPDATE_GOLDEN=1 cargo test -p rms
---test conformance` rewrites them (review the diff).  For manual testing, squeezelite with
+--test it conformance` rewrites them (review the diff).  For manual testing, squeezelite with
 `-o -` (audio to stdout) works without a sound card.
+
+Build times: release builds are incremental and skip cross-crate LTO, so rebuilding after a
+`git pull` takes seconds to a minute rather than minutes (`cargo build --profile dist` keeps
+the old thin-LTO settings).  The dev profile keeps line tables only (backtraces have file and
+line; set `debug = true` locally for a debugger), dependencies have no debug info, and
+`cargo build` and `cargo test` share every artifact: keep dev-dependencies from adding
+features to normal dependencies, or each switch rebuilds tokio and everything above it.  In
+`crates/rms`, spawn tasks with `crate::util::spawn` and `crate::util::spawn_blocking`, not
+tokio's (clippy enforces it): each future handed to tokio's directly gets its own copy of
+the task machinery.  A faster linker helps a little more:
+with [mold](https://github.com/rui314/mold) installed, add to `~/.cargo/config.toml`
+
+```toml
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
 
 Layout:
 

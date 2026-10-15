@@ -29,7 +29,7 @@ pub fn spawn_fetch(server: &Arc<Server>) {
         return;
     }
     let s = server.clone();
-    tokio::spawn(async move {
+    crate::util::spawn(async move {
         let n = fetch_missing(&s).await;
         RUNNING.store(false, Ordering::SeqCst);
         if n > 0 {
@@ -149,7 +149,7 @@ async fn fetch_missing(server: &Arc<Server>) -> usize {
         return 0;
     }
     let l = lib.clone();
-    let artists = tokio::task::spawn_blocking(move || l.contributors_without_portrait())
+    let artists = crate::util::spawn_blocking(move || l.contributors_without_portrait())
         .await
         .unwrap_or_default();
     let mut assigned = 0;
@@ -160,7 +160,7 @@ async fn fetch_missing(server: &Arc<Server>) -> usize {
         match lookup(server, &dir, &name).await {
             Lookup::Found(path) => {
                 let l = lib.clone();
-                let ok = tokio::task::spawn_blocking(move || l.set_contributor_portrait(id, &path))
+                let ok = crate::util::spawn_blocking(move || l.set_contributor_portrait(id, &path))
                     .await
                     .ok()
                     .flatten()

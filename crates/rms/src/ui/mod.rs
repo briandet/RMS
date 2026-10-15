@@ -69,7 +69,9 @@ pub struct View {
     pub parts: Option<Parts>,
     /// Animation for the next frame.
     pub transition: Option<Transition>,
-    /// Changes whenever `parts` or `transition` change.
+    /// Display test: every pixel on, at full brightness (`Mode::DisplayTest`).
+    pub test_pattern: bool,
+    /// Changes whenever `parts`, `transition` or `test_pattern` change.
     pub generation: u64,
 }
 
@@ -88,7 +90,7 @@ pub fn send(server: &Arc<Server>, p: &Arc<Player>, ev: Event) {
     let mut tx = p.ui_tx.lock();
     if tx.as_ref().is_none_or(|t| t.is_closed()) {
         let (t, rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(server.clone(), p.clone(), rx));
+        crate::util::spawn(run(server.clone(), p.clone(), rx));
         *tx = Some(t);
     }
     if let Some(t) = tx.as_ref() {
@@ -101,7 +103,7 @@ pub fn start(server: &Arc<Server>, p: &Arc<Player>) {
     let mut tx = p.ui_tx.lock();
     if tx.as_ref().is_none_or(|t| t.is_closed()) {
         let (t, rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(server.clone(), p.clone(), rx));
+        crate::util::spawn(run(server.clone(), p.clone(), rx));
         *tx = Some(t);
     }
 }
@@ -187,6 +189,8 @@ enum Mode {
     Scanner(scanner::Scanner),
     /// `INPUT.Time`.
     Time(time::TimeInput),
+    /// Display test: the whole display lit until a button is pressed (started at this time).
+    DisplayTest(f64),
 }
 
 impl Mode {
@@ -199,6 +203,7 @@ impl Mode {
             Mode::Volume(_) => "INPUT.Volume",
             Mode::Scanner(_) => "INPUT.Bar",
             Mode::Time(_) => "INPUT.Time",
+            Mode::DisplayTest(_) => "displaytest",
         }
     }
 }
@@ -439,6 +444,12 @@ impl Ui {
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         }
+        // Settings → Advanced → Display → Display Test (players with a graphic display)
+        if let Some(display) = nodes.get_mut("squeezeboxDisplaySettings") {
+            display.push(
+                json!({ "text": s("DISPLAY_TEST"), "id": "displayTest", "rms": "displaytest" }),
+            );
+        }
         // Settings → Advanced
         nodes.entry("settings".into()).or_default().push(json!({
             "text": s("ADVANCED_SETTINGS"), "id": "advancedSettings", "isANode": 1, "weight": 1000,
@@ -604,6 +615,18 @@ impl Ui {
 
     /// `Slim::Hardware::IR::executeButton`.
     async fn execute_button(&mut self, button: &str, from_ir: bool, or_function: bool) {
+        if let Some(Mode::DisplayTest(started)) = self.stack.last() {
+            // any button ends the display test; not the repeats or release of the press
+            // that started it
+            let held = [".repeat", ".hold", ".up", ".single", ".double"]
+                .iter()
+                .any(|s| button.ends_with(s));
+            if !held && Self::now() - started > 0.5 {
+                self.p.state.lock().last_ir = Self::now();
+                self.pop();
+            }
+            return;
+        }
         let chain = self.mode_chain();
         let func = maps()
             .function(&chain, button)
@@ -878,7 +901,8 @@ impl Ui {
                 }
                 _ => return false,
             },
-            None => return false,
+            // (buttons end the display test before they reach a function)
+            Some(Mode::DisplayTest(_)) | None => return false,
         }
         true
     }
@@ -1059,6 +1083,7 @@ impl Ui {
                 self.push(Mode::Playlist(idx));
             }
             Kind::Rms(r) if r == "alarm" => self.alarm_open().await,
+            Kind::Rms(r) if r == "displaytest" => self.push(Mode::DisplayTest(Self::now())),
             Kind::Rms(r) if r.starts_with("alarm:") => {
                 self.alarm_select(&item, &r["alarm:".len()..]).await
             }
@@ -1745,6 +1770,8 @@ impl Ui {
             }
             "left" => self.pop(),
             "right" => self.transition = Some(Transition::BumpRight),
+            // `button displaytest` (CLI); also Settings → Display → Display Test
+            "displaytest" => self.push(Mode::DisplayTest(Self::now())),
             _ => debug!("{}: function {} not implemented", p.id, name),
         }
     }
@@ -1984,7 +2011,10 @@ impl Ui {
         let timeout = self.p.prefs.get_f64("screensavertimeout");
         let showing_np =
             matches!(self.stack.last(), Some(Mode::Playlist(i)) if *i == playing_index);
-        let in_volume = matches!(self.stack.last(), Some(Mode::Volume(_)));
+        let in_volume = matches!(
+            self.stack.last(),
+            Some(Mode::Volume(_) | Mode::DisplayTest(_))
+        );
         if let Some(w) = wanted {
             if self.saver.is_none()
                 && timeout > 0.0
@@ -2018,6 +2048,8 @@ impl Ui {
         for m in self.stack.iter().rev() {
             match m {
                 Mode::Volume(_) => continue,
+                // the display draws the test pattern itself
+                Mode::DisplayTest(_) => return None,
                 Mode::Scanner(sc) => return Some(self.scanner_lines(sc)),
                 Mode::Time(t) => return Some(t.lines()),
                 Mode::List(l) => {
@@ -2094,10 +2126,12 @@ impl Ui {
     fn publish(&mut self) {
         let parts = self.lines();
         let transition = self.transition.take();
-        if parts == self.published && transition.is_none() {
+        let test_pattern = matches!(self.stack.last(), Some(Mode::DisplayTest(_)));
+        let mut v = self.p.ui.lock();
+        if parts == self.published && transition.is_none() && test_pattern == v.test_pattern {
             return;
         }
-        let mut v = self.p.ui.lock();
+        v.test_pattern = test_pattern;
         v.parts = parts.clone();
         if transition.is_some() {
             v.transition = transition;

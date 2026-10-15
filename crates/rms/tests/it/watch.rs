@@ -1,10 +1,7 @@
 //! The library follows the music folder by itself (`autorescan`): music copied in, files
 //! changed, folders renamed and removed show up without a rescan.
 
-#[macro_use]
-mod common;
-
-use common::*;
+use crate::common::*;
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 

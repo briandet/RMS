@@ -149,6 +149,71 @@ pub enum FromRenderer {
     },
 }
 
+/// A renderer's position, kept smooth from what it reports.  Renderers that aren't
+/// accurate report positions that are rounded down (UPnP's `RelTime` is mostly in whole
+/// seconds) or stale (some only refresh it every few seconds); taken as they come, the
+/// player's time would jump back at every report.
+///
+/// Each report puts the moment the track started (its *origin*) in a window: within the
+/// second before for a whole-second position, exactly for one with a fraction.  Reports
+/// that fit narrow the window, and the position is reckoned from its middle.  A report up
+/// to [`STALE_REPORT`] behind it is stale and changes nothing; one ahead of it means the
+/// position was behind, and one further behind is a seek or a stall: either starts a new
+/// window.
+pub(crate) struct PositionClock {
+    /// Times are seconds since this.
+    base: Instant,
+    /// Earliest and latest possible origin.
+    origin: Option<(f64, f64)>,
+}
+
+/// Leeway for the time a request takes to reach the renderer and come back.
+const POSITION_LEEWAY: f64 = 0.05;
+/// How far behind a report may be and still be taken as stale.
+const STALE_REPORT: f64 = 5.0;
+
+impl PositionClock {
+    pub(crate) fn new() -> PositionClock {
+        PositionClock {
+            base: Instant::now(),
+            origin: None,
+        }
+    }
+
+    /// Start over (a new track, a resume).
+    pub(crate) fn reset(&mut self) {
+        self.origin = None;
+    }
+
+    fn secs(&self, t: Instant) -> f64 {
+        t.saturating_duration_since(self.base).as_secs_f64()
+    }
+
+    /// A report of `pos` seconds (`whole`: rounded down to a second) true at `at`; returns
+    /// the position at `now`.
+    pub(crate) fn report(&mut self, pos: f64, whole: bool, at: Instant, now: Instant) -> f64 {
+        let t = self.secs(at);
+        let (lo, hi) = (t - pos - if whole { 1.0 } else { 0.0 }, t - pos);
+        self.origin = match self.origin {
+            // fits: narrow the window
+            Some((a, b)) if lo.max(a) <= hi.min(b) + POSITION_LEEWAY => {
+                let (lo, hi) = (lo.max(a), hi.min(b));
+                if lo <= hi {
+                    Some((lo, hi))
+                } else {
+                    let mid = (lo + hi) / 2.0;
+                    Some((mid, mid))
+                }
+            }
+            // a little behind: stale
+            Some((a, b)) if lo > b && lo - b <= STALE_REPORT => Some((a, b)),
+            _ => Some((lo, hi)),
+        };
+        let (lo, hi) = self.origin.unwrap_or((lo, hi));
+        (self.secs(now) - (lo + hi) / 2.0).max(0.0)
+    }
+}
+
 /// Seconds before the end of a track at which the next one is asked for.
 const PRELOAD_BEFORE_END: f64 = 10.0;
 
@@ -260,6 +325,11 @@ pub async fn run(
                         send(&mut sock, b"SETD", &name).await?;
                         continue;
                     }
+                    if &op == b"strm" {
+                        if let Some((h, _)) = StrmHeader::parse(&body) {
+                            debug!("{}: strm {:?}", identity.name, h.command);
+                        }
+                    }
                     let ev = on_frame(&server, &identity, &mut pb, &to_renderer, &op, &body).await;
                     let jiffies = local().wrapping_add(offset);
                     for e in ev {
@@ -277,6 +347,7 @@ pub async fn run(
                     let _ = sock.shutdown().await;
                     return Ok(());
                 };
+                debug!("{}: the device reports {msg:?}", identity.name);
                 // an accurate renderer's report is true at its clock's `jiffies`: keep ours
                 // in step, so the status message carries exactly that moment
                 if let FromRenderer::Clock { jiffies }
@@ -565,6 +636,58 @@ mod tests {
         assert_eq!(mac_for("x"), mac_for("x"));
         assert_ne!(mac_for("x"), mac_for("y"));
         assert_eq!(mac_for("x").0[0], 0x02);
+    }
+
+    #[test]
+    fn whole_second_positions_to_a_fraction() {
+        let mut c = PositionClock::new();
+        let base = c.base;
+        let at = |t: f64| base + Duration::from_secs_f64(t);
+        // the track started at 0.37 s; polls every 0.75 s from 1 s, each answered with
+        // the position rounded down
+        let origin = 0.37;
+        for k in 0..8 {
+            let t = 1.0 + 0.75 * k as f64;
+            let est = c.report((t - origin).floor(), true, at(t), at(t));
+            let truth = t - origin;
+            let within = if k >= 3 { 0.15 } else { 0.6 };
+            assert!((est - truth).abs() < within, "poll {k}: {est} for {truth}");
+        }
+        // a seek: the next report doesn't fit, and starts over from it
+        let est = c.report(60.0, true, at(7.5), at(7.5));
+        assert!((60.0..61.0).contains(&est), "{est}");
+        // a position with a fraction is taken as it is
+        let mut c = PositionClock::new();
+        let at = |t: f64| c.base + Duration::from_secs_f64(t);
+        let (t, now) = (at(2.0), at(2.5));
+        let est = c.report(1.234, false, t, now);
+        assert!((est - 1.734).abs() < 0.01, "{est}");
+    }
+
+    #[test]
+    fn stale_positions_dont_pull_the_time_back() {
+        let mut c = PositionClock::new();
+        let base = c.base;
+        let at = |t: f64| base + Duration::from_secs_f64(t);
+        // a renderer that refreshes its position every 3 s, polled every 0.75 s: the time
+        // keeps going, close to the truth, never back
+        let origin = 0.2;
+        let mut last = 0.0;
+        for k in 0..40 {
+            let t = 0.5 + 0.75 * k as f64;
+            let truth = t - origin;
+            let reported = (truth / 3.0).floor() * 3.0;
+            let est = c.report(reported, true, at(t), at(t));
+            assert!(est >= last - 0.05, "poll {k}: back from {last} to {est}");
+            if k >= 8 {
+                assert!((est - truth).abs() < 0.6, "poll {k}: {est} for {truth}");
+            }
+            last = est;
+        }
+        // stopped (a stall) for longer than a stale report can be: back to what it says
+        let t = 0.5 + 0.75 * 40.0 + 10.0;
+        let est = c.report(last - 1.0, true, at(t), at(t));
+        assert!((last - 1.0..last).contains(&est), "{est}");
     }
 
     #[test]
