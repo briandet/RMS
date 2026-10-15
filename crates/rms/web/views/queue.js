@@ -3,7 +3,7 @@
 // its Spotify Connect stream, what Spotify plays next (the app's queue) shows below it.
 
 import { store, on, emit, currentPlayer, patchPlayer } from '../store.js';
-import { h, icon, fmtTime, fmtDuration, plural, scrollParent, toast } from '../util.js';
+import { h, icon, fmtTime, fmtDuration, plural, scrollParent, toast, isSpotify, spotifyBadge } from '../util.js';
 import { sizedArtwork, createPlaylist, itemFor, getSpotifyQueue } from '../api.js';
 import { withMenu, addToPlaylistDialog, askName } from './menu.js';
 import { sortable } from './sortable.js';
@@ -86,7 +86,8 @@ function item(t, idx) {
     h('button', { class: 'icon-btn drag-handle', type: 'button', 'aria-label': `Move ${title}. Use up and down arrow keys to reorder.`, title: 'Drag to reorder' }, icon('drag')),
     h('button', { class: 'q-main', type: 'button', 'aria-label': `Play ${title}${t.artist ? ' by ' + t.artist : ''}` },
       thumb,
-      h('span', { class: 'q-text' }, h('span', { class: 'q-title' }, title), sub && h('span', { class: 'q-sub' }, sub))),
+      h('span', { class: 'q-text' }, h('span', { class: 'q-title' }, title),
+        (sub || isSpotify(t.url)) && h('span', { class: 'q-sub' }, isSpotify(t.url) && spotifyBadge(), sub))),
     h('span', { class: 'q-dur' }, t.duration ? fmtTime(t.duration) : ''),
     h('button', { class: 'icon-btn q-remove', type: 'button', 'aria-label': `Remove ${title} from queue`, title: 'Remove' }, icon('close')));
   return withMenu(li, () => [title, queueEntries(t, +li.dataset.index, title)]);

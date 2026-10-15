@@ -187,3 +187,11 @@ export function toast(message, type = 'info', ms = type === 'error' ? 6000 : 300
   while (toastRoot.children.length > 4) toastRoot.firstElementChild.remove();
   setTimeout(close, ms);
 }
+
+/** Whether a track URL is Spotify's (a track, or a player's Spotify Connect stream). */
+export const isSpotify = (url) => /^spotify:/.test(url || '');
+
+/** The small "Spotify" mark on tracks that play from Spotify. */
+export function spotifyBadge(cls = '') {
+  return h('span', { class: `src-badge ${cls}`.trim(), title: 'Plays from Spotify' }, 'Spotify');
+}
