@@ -32,7 +32,7 @@ const SEARCH_FOR: Duration = Duration::from_secs(3);
 const SEARCH_EVERY: Duration = Duration::from_secs(60);
 /// How often a playing renderer is asked what it is doing.  Not a whole second: positions
 /// come in whole seconds, and polls that fall at different points of the renderer's seconds
-/// tell where in a second it is (see [`PositionClock`]).
+/// tell where in a second it is (see [`super::PositionClock`]).
 const POLL_EVERY: Duration = Duration::from_millis(750);
 /// A renderer that doesn't answer for this long is gone.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(30);
@@ -481,59 +481,6 @@ struct Status {
     track_uri: String,
 }
 
-/// The position of a renderer that reports it in whole seconds, to a fraction of a second.
-/// A report of `n` seconds puts the moment the track started (its *origin*) within a second:
-/// between `n + 1` and `n` seconds before the report.  Each report narrows that window, and
-/// the position is reckoned from its middle.  A report outside it (a seek, a stall) starts
-/// a new window.
-struct PositionClock {
-    /// Times are seconds since this.
-    base: Instant,
-    /// Earliest and latest possible origin.
-    origin: Option<(f64, f64)>,
-}
-
-/// Leeway for the time a request takes to reach the renderer and come back.
-const POSITION_LEEWAY: f64 = 0.05;
-
-impl PositionClock {
-    fn new() -> PositionClock {
-        PositionClock {
-            base: Instant::now(),
-            origin: None,
-        }
-    }
-
-    fn reset(&mut self) {
-        self.origin = None;
-    }
-
-    fn secs(&self, t: Instant) -> f64 {
-        t.saturating_duration_since(self.base).as_secs_f64()
-    }
-
-    /// A report of `pos` seconds (`whole`: rounded down to a second) true at `at`; returns
-    /// the position at `now`.
-    fn report(&mut self, pos: f64, whole: bool, at: Instant, now: Instant) -> f64 {
-        let t = self.secs(at);
-        let (lo, hi) = (t - pos - if whole { 1.0 } else { 0.0 }, t - pos);
-        self.origin = match self.origin {
-            Some((a, b)) if lo.max(a) <= hi.min(b) + POSITION_LEEWAY => {
-                let (lo, hi) = (lo.max(a), hi.min(b));
-                if lo <= hi {
-                    Some((lo, hi))
-                } else {
-                    let mid = (lo + hi) / 2.0;
-                    Some((mid, mid))
-                }
-            }
-            _ => Some((lo, hi)),
-        };
-        let (lo, hi) = self.origin.unwrap_or((lo, hi));
-        (self.secs(now) - (lo + hi) / 2.0).max(0.0)
-    }
-}
-
 struct Driver {
     http: reqwest::Client,
     renderer: Renderer,
@@ -553,7 +500,7 @@ struct Driver {
     /// The last position the renderer gave while playing.
     elapsed: f64,
     /// The position to a fraction of a second.
-    position: PositionClock,
+    position: super::PositionClock,
     /// Streams given out, to make each URI distinct.
     loads: u64,
     /// The volume last set.
@@ -581,7 +528,7 @@ async fn drive(http: reqwest::Client, renderer: Renderer, io: DriverIo) {
         play_asked: Instant::now(),
         last_answer: Instant::now(),
         elapsed: 0.0,
-        position: PositionClock::new(),
+        position: super::PositionClock::new(),
         loads: 0,
         volume: None,
     };
@@ -931,38 +878,6 @@ impl Driver {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn whole_second_positions_to_a_fraction() {
-        let mut c = PositionClock::new();
-        let base = c.base;
-        let at = |t: f64| base + Duration::from_secs_f64(t);
-        // the track started at 0.37 s; polls every 0.75 s from 1 s, each answered with
-        // the position rounded down
-        let origin = 0.37;
-        let mut est = 0.0;
-        for k in 0..8 {
-            let t = 1.0 + 0.75 * k as f64;
-            est = c.report((t - origin).floor(), true, at(t), at(t));
-            let truth = t - origin;
-            if k >= 3 {
-                assert!((est - truth).abs() < 0.15, "poll {k}: {est} for {truth}");
-            } else {
-                assert!((est - truth).abs() < 0.6, "poll {k}: {est} for {truth}");
-            }
-        }
-        assert!(est > 0.0);
-        // a seek: the next report doesn't fit, and starts over from it
-        let t = 7.5;
-        let est = c.report(60.0, true, at(t), at(t));
-        assert!((60.0..61.0).contains(&est), "{est}");
-        // a position with a fraction is taken as it is
-        let mut c = PositionClock::new();
-        let at = |t: f64| c.base + Duration::from_secs_f64(t);
-        let (t, now) = (at(2.0), at(2.5));
-        let est = c.report(1.234, false, t, now);
-        assert!((est - 1.734).abs() < 0.01, "{est}");
-    }
 
     const DESCRIPTION: &str = r#"<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
