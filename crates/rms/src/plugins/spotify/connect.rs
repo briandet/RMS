@@ -12,10 +12,10 @@
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
 //!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
-//!   device id, and it only takes access tokens of its own client ids, so each device keeps
-//!   its own credentials (`spotify/connect/<player>/`), got the first time with a token the
-//!   main session asks Spotify for (the official client id's).  A device that can't be set
-//!   up is tried again later and later, and the Spotify settings say why.
+//!   device id, and only with the client id they were issued for, so each device keeps its
+//!   own credentials (`spotify/connect/<player>/`), got the first time with the sign-in's
+//!   token, in a session of the sign-in's client id.  A device that can't be set up is
+//!   tried again later and later, and the Spotify settings say why.
 
 use super::Spotify;
 use crate::control::request::Source;
@@ -438,59 +438,36 @@ async fn add_device(
 ) -> Result<(), String> {
     let name = p.name();
     let k = key(&p.id);
-    let cache = Cache::new(Some(sp.dir.join("connect").join(&k)), None, None, None).ok();
-    // the device's own credentials, else a token of the main session (Spotify's own client
-    // id, as the AP wants), else one of the sign-in (the user's client id: may be refused).
-    // Tokens only when needed: the main session's comes from keymaster, which Spotify
-    // refuses more and more (and librespot logs an error for every refusal).
-    let mut errors = Vec::new();
-    let mut tried = false;
-    if let Some(c) = cache.as_ref().and_then(|c| c.credentials()) {
-        tried = true;
-        match start_device(server, p, &name, &k, c, cache.clone()).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                debug!("Spotify Connect for {name}: with its stored credentials: {e}");
-                errors.push(format!("with its stored credentials: {e}"));
-            }
+    let dir = sp.dir.join("connect").join(&k);
+    let cache = Cache::new(Some(dir.clone()), None, None, None).ok();
+    // A device logs in with the sign-in's token the first time and keeps the credentials
+    // Spotify gives it (they only work for its device id).  Credentials only get the device
+    // its access token (login5) with the client id they were issued for, so the session
+    // takes the sign-in's id, and the credentials are kept with it (`client_id`): ones of
+    // another id (an older sign-in) are dropped, as are ones Spotify refuses.
+    let client_id = sp.sign_in_client_id();
+    let id_file = dir.join("client_id");
+    let stored = cache
+        .as_ref()
+        .and_then(|c| c.credentials())
+        .filter(|_| std::fs::read_to_string(&id_file).is_ok_and(|id| id.trim() == client_id));
+    let from_stored = stored.is_some();
+    let credentials = match stored {
+        Some(c) => c,
+        None => {
+            let _ = std::fs::remove_file(dir.join("credentials.json"));
+            let token = sp.oauth_token().await?;
+            Credentials::with_access_token(token)
         }
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(&id_file, &client_id);
+    let started = start_device(server, p, &name, &k, &client_id, credentials, cache).await;
+    if started.is_err() && from_stored {
+        // refused: log in afresh next time
+        let _ = std::fs::remove_file(dir.join("credentials.json"));
     }
-    match sp.session().await {
-        Ok(session) => match session
-            .token_provider()
-            .get_token(&super::SCOPES.join(","))
-            .await
-        {
-            Ok(t) => {
-                tried = true;
-                let c = Credentials::with_access_token(t.access_token);
-                match start_device(server, p, &name, &k, c, cache.clone()).await {
-                    Ok(()) => return Ok(()),
-                    Err(e) => {
-                        debug!("Spotify Connect for {name}: with a token of the session: {e}");
-                        errors.push(format!("with a token of the session: {e}"));
-                    }
-                }
-            }
-            Err(e) => debug!("Spotify Connect: no session token: {e}"),
-        },
-        Err(e) => debug!("Spotify Connect: no session: {e}"),
-    }
-    if let Ok(token) = sp.oauth_token().await {
-        tried = true;
-        let c = Credentials::with_access_token(token);
-        match start_device(server, p, &name, &k, c, cache.clone()).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                debug!("Spotify Connect for {name}: with the sign-in's token: {e}");
-                errors.push(format!("with the sign-in's token: {e}"));
-            }
-        }
-    }
-    if !tried {
-        return Err("not signed in".into());
-    }
-    Err(errors.join("; "))
+    started
 }
 
 async fn start_device(
@@ -498,6 +475,7 @@ async fn start_device(
     p: &Arc<crate::player::Player>,
     name: &str,
     k: &str,
+    client_id: &str,
     credentials: Credentials,
     cache: Option<Cache>,
 ) -> Result<(), String> {
@@ -508,6 +486,7 @@ async fn start_device(
     let session = Session::new(
         SessionConfig {
             device_id: format!("{:0>40}", k),
+            client_id: client_id.to_string(),
             ..Default::default()
         },
         cache,
