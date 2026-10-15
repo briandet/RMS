@@ -866,6 +866,16 @@ learn: boolean,
  */
 learned: number, };
 
+export type SpotifyQueue = { 
+/**
+ * The player plays its Spotify Connect device (else `items` is empty).
+ */
+connect: boolean, items: Array<Track>, 
+/**
+ * Why Spotify's queue can't be shown.
+ */
+error?: string, };
+
 export type SpotifyLogin = { code?: string, 
 /**
  * Start the playback sign-in (Spotify's own client id) rather than one with the own

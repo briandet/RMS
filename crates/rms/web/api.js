@@ -66,6 +66,9 @@ export function getQueue(playerId) {
   return api(`${playerPath(playerId)}/queue`);
 }
 
+/** What Spotify plays next on a player's Spotify Connect device. @returns {Promise<import('./api-types').SpotifyQueue>} */
+export const getSpotifyQueue = (playerId) => api(`${playerPath(playerId)}/spotify-queue`);
+
 // ---------------------------------------------------------------- library & services
 //
 // Types come from api-types.d.ts (generated from the server's model); lists are `Page`s.

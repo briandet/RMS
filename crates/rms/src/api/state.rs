@@ -192,6 +192,17 @@ pub(super) fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
             title = t.trim().to_string();
         }
     }
+    // a player's Spotify Connect stream: its tracks are the app's; name the stream itself
+    let connect = url.starts_with("spotify://connect:")
+        || string(row.get("url")).is_some_and(|u| u.starts_with("spotify://connect:"));
+    let station = if connect {
+        if title.is_empty() {
+            title = "Spotify Connect".into();
+        }
+        Some("Spotify Connect".to_string())
+    } else {
+        station
+    };
     let artwork = string(row.get("artwork_url"))
         .map(|u| artwork_path(&u))
         .or_else(|| {

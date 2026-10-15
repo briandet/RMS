@@ -1,7 +1,7 @@
 // Now Playing panel (side column on desktop, own tab on mobile) and the mobile mini player.
 
 import { store, on, elapsed, currentTrack, currentPlayer, patchPlayer } from '../store.js';
-import { h, icon, setIcon, fmtTime, throttle, toast } from '../util.js';
+import { h, icon, setIcon, fmtTime, throttle, toast, isSpotify, spotifyBadge } from '../util.js';
 import { sizedArtwork, currentArtUrl, addFavorite as addFavoriteApi } from '../api.js';
 import { connectHelp, enc } from './common.js';
 import { spectrumBars } from '../spectrum.js';
@@ -46,6 +46,8 @@ function buildPanel(root) {
   el.title = h('h2', { class: 'np-title' });
   el.artist = h('div', { class: 'np-artist' });
   el.album = h('div', { class: 'np-album' });
+  el.source = spotifyBadge('np-source');
+  el.source.hidden = true;
   el.fav = btn('heart', 'Add to favorites', addFavorite, 'np-fav');
 
   el.elapsed = h('span', { class: 'time' }, '0:00');
@@ -90,7 +92,7 @@ function buildPanel(root) {
     el.notice,
     el.art,
     h('div', { class: 'np-meta' },
-      h('div', { class: 'np-text' }, el.title, el.artist, el.album),
+      h('div', { class: 'np-text' }, el.title, el.artist, el.album, el.source),
       spectrumBars(() => store.playerId, 'np-bars'),
       el.fav),
     h('div', { class: 'np-seek' }, el.elapsed, el.seek, el.duration),
@@ -177,6 +179,7 @@ function render() {
     el.art.classList.remove('loaded');
   }
   el.art.classList.toggle('radio', d.remote);
+  el.source.hidden = !isSpotify(tr?.url);
   el.fav.hidden = !(tr?.url || d.remote);
 
   // Transport
