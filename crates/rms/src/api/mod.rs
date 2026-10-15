@@ -132,6 +132,12 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/settings", get(get_settings).patch(patch_settings))
         .route("/api/v1/library/scan", post(post_scan))
         .route("/api/v1/library/analysis", get(get_analysis_progress))
+        .route("/api/v1/query", post(post_query))
+        .route("/api/v1/query/fields", get(get_query_fields))
+        .route(
+            "/api/v1/query/views",
+            get(get_query_views).put(put_query_views),
+        )
         .route(
             "/api/v1/{*rest}",
             get(not_found)
@@ -694,6 +700,34 @@ async fn get_track_analysis(State(s): State<Arc<Server>>, ApiPath(id): ApiPath<i
 
 async fn get_analysis_progress(State(s): State<Arc<Server>>) -> Response {
     library_reply(library::analysis_progress(&s).await, "library")
+}
+
+async fn post_query(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<model::TableRequest>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(r) => library_reply(library::table(&s, r).await, "query"),
+        Err(r) => r,
+    }
+}
+
+async fn get_query_fields() -> Response {
+    Json(library::table_fields()).into_response()
+}
+
+async fn get_query_views(State(s): State<Arc<Server>>) -> Response {
+    Json(library::table_views(&s)).into_response()
+}
+
+async fn put_query_views(
+    State(s): State<Arc<Server>>,
+    b: Result<Json<Vec<model::TableView>>, JsonRejection>,
+) -> Response {
+    match body(b) {
+        Ok(v) => library_reply(library::set_table_views(&s, v), "view"),
+        Err(r) => r,
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]

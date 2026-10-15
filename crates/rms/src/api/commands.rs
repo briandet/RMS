@@ -81,6 +81,7 @@ pub async fn run(
         }
         Command::Unsync => PlayerCommand::Unsync,
         Command::Enqueue { item, mode, start } => {
+            let item = resolve_query(server, item).await?;
             let how = match mode {
                 EnqueueMode::Play => Enqueue::Play { start, fade: None },
                 EnqueueMode::Add => Enqueue::Add,
@@ -151,7 +152,7 @@ fn execute(
 /// What an item stands for, as queue entries, without a player: library items, URLs and
 /// ListenBrainz items (Spotify and radio menu items need a player's service menus).
 pub async fn item_entries(server: &Arc<Server>, item: Item) -> Result<Vec<Entry>, CommandError> {
-    match item {
+    match resolve_query(server, item).await? {
         Item::Spotify { .. } | Item::Radio { .. } => Err(CommandError::Invalid(
             "a Spotify or radio menu item can only be played".into(),
         )),
@@ -159,6 +160,20 @@ pub async fn item_entries(server: &Arc<Server>, item: Item) -> Result<Vec<Entry>
             .await
             .map_err(CommandError::Failed),
         other => Ok(core::entries_for(server, &core_item(other)).await),
+    }
+}
+
+/// A Table query as the tracks it finds; other items as they are.
+async fn resolve_query(server: &Arc<Server>, item: Item) -> Result<Item, CommandError> {
+    match item {
+        Item::Query { q, sort } => super::library::query_track_ids(server, q, sort)
+            .await
+            .map(|ids| Item::Tracks { ids })
+            .map_err(|e| match e {
+                super::library::LibraryError::Invalid(m) => CommandError::Invalid(m),
+                other => CommandError::Failed(format!("{other:?}")),
+            }),
+        other => Ok(other),
     }
 }
 
@@ -173,6 +188,8 @@ fn core_item(item: Item) -> core::Item {
         Item::Playlist { id } => core::Item::Playlist(id),
         Item::Folder { id } => core::Item::Folder(id),
         Item::Url { url } => core::Item::Url(url),
+        // resolved to its tracks first (resolve_query)
+        Item::Query { .. } => core::Item::Tracks(Vec::new()),
         Item::Favorite { id } => core::Item::Favorite(id),
         Item::Spotify { id } | Item::Radio { id } | Item::ListenBrainz { id } => {
             core::Item::Url(id)

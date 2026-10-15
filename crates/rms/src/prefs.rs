@@ -55,6 +55,8 @@ pub fn server_defaults() -> PrefMap {
         // players fetch internet radio from the station themselves (Lyrion's way) instead of
         // through the server, which then can't show its spectrum bars
         ("radioDirect", json!(0)),
+        // the web UI's saved Table views (api::model::TableView)
+        ("tableViews", json!([])),
         // watch the music folders (Lyrion's default is off)
         ("autorescan", json!(1)),
         ("disableStatistics", json!(0)),

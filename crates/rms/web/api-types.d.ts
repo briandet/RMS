@@ -108,6 +108,86 @@ curve: string, };
 
 export type SpectrumKind = "track" | "live" | "none";
 
+export type TableRequest = { 
+/**
+ * Words and `field:value` filters.
+ */
+q: string, 
+/**
+ * A groupable field: one row per album, artist, year, …; absent or `track`: one row per
+ * track.
+ */
+group?: string, 
+/**
+ * Field names; `count` is a grouped row's number of tracks.
+ */
+columns: Array<string>, sort: Array<TableSort>, offset: number, 
+/**
+ * Rows (default 200, at most 1000).
+ */
+limit?: number, };
+
+export type TableSort = { field: string, desc: boolean, };
+
+export type TablePage = { 
+/**
+ * Rows in all.
+ */
+total: number, offset: number, rows: Array<TableRow>, 
+/**
+ * Tracks the query finds, and their length in all (seconds).
+ */
+tracks: number, duration: number, };
+
+export type TableRow = { 
+/**
+ * The track, on rows of tracks.
+ */
+id?: number, 
+/**
+ * What a grouped row stands for (an album id, a year, a folder, …).
+ */
+key: string | number | boolean | null, 
+/**
+ * Its name (`null`: the tracks without one).
+ */
+label: string | number | boolean | null, 
+/**
+ * Query words that find a grouped row's tracks (`album_id:12`), to add to the query.
+ */
+drill?: string, 
+/**
+ * The grouping to show a grouped row's tracks in.
+ */
+next?: string, 
+/**
+ * One per column: a value, `null`, `{"varies": n}` (a grouped row's tracks differ) or
+ * `[min, max]`.
+ */
+cells: Array<string | number | boolean | null | { varies: number } | [number, number]>, };
+
+export type TableField = { name: string, label: string, 
+/**
+ * `text`, `int`, `real`, `duration` (seconds), `time` (Unix), `bool`, `size` (bytes),
+ * `bitrate` (bit/s).
+ */
+kind: string, 
+/**
+ * What a grouped row shows: `same` (the value its tracks share, else varies), `sum`,
+ * `avg`, `max`, `range`.
+ */
+agg: string, 
+/**
+ * Rows can be grouped by it; `next` is the grouping a row's tracks are shown in.
+ */
+next?: string, };
+
+export type TableView = { name: string, q: string, group?: string, columns: Array<string>, sort: Array<TableSort>, 
+/**
+ * Column widths in pixels, by field name.
+ */
+widths: Record<string, number>, };
+
 export type Track = { 
 /**
  * Library track id; absent for streams and services.
@@ -369,7 +449,7 @@ pending: number, };
 
 export type Queue = { version: number, length: number, index?: number, offset: number, items: Array<Track>, };
 
-export type Item = { "type": "track", id: number, } | { "type": "tracks", ids: Array<number>, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "listenbrainz", id: string, } | { "type": "radio", id: string, };
+export type Item = { "type": "track", id: number, } | { "type": "tracks", ids: Array<number>, } | { "type": "album", id: number, } | { "type": "artist", id: number, } | { "type": "genre", id: number, } | { "type": "year", year: number, } | { "type": "playlist", id: number, } | { "type": "folder", id: number, } | { "type": "url", url: string, } | { "type": "favorite", id: string, } | { "type": "spotify", id: string, } | { "type": "listenbrainz", id: string, } | { "type": "radio", id: string, } | { "type": "query", q: string, sort: Array<TableSort>, };
 
 export type EnqueueMode = "play" | "add" | "next";
 

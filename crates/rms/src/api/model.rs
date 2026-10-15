@@ -671,6 +671,12 @@ pub enum Item {
     Radio {
         id: String,
     },
+    /// The library tracks a [Table](TableRequest) query finds, in its order.
+    Query {
+        q: String,
+        #[serde(default)]
+        sort: Vec<TableSort>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -1213,6 +1219,110 @@ pub struct PlaylistOrder {
 pub struct PlaylistAdd {
     pub item: Item,
     pub position: Option<usize>,
+}
+
+/// `POST /api/v1/query` body: a page of the Table, rows of tracks or of groups of them.
+#[derive(Debug, Clone, PartialEq, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct TableRequest {
+    /// Words and `field:value` filters.
+    #[serde(default)]
+    pub q: String,
+    /// A groupable field: one row per album, artist, year, …; absent or `track`: one row per
+    /// track.
+    pub group: Option<String>,
+    /// Field names; `count` is a grouped row's number of tracks.
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub sort: Vec<TableSort>,
+    #[serde(default)]
+    pub offset: usize,
+    /// Rows (default 200, at most 1000).
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct TableSort {
+    pub field: String,
+    #[serde(default)]
+    pub desc: bool,
+}
+
+/// A page of the Table.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TablePage {
+    /// Rows in all.
+    pub total: usize,
+    pub offset: usize,
+    pub rows: Vec<TableRow>,
+    /// Tracks the query finds, and their length in all (seconds).
+    pub tracks: i64,
+    pub duration: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TableRow {
+    /// The track, on rows of tracks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    /// What a grouped row stands for (an album id, a year, a folder, …).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "string | number | boolean | null")]
+    pub key: Option<serde_json::Value>,
+    /// Its name (`null`: the tracks without one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "string | number | boolean | null")]
+    pub label: Option<serde_json::Value>,
+    /// Query words that find a grouped row's tracks (`album_id:12`), to add to the query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drill: Option<String>,
+    /// The grouping to show a grouped row's tracks in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    /// One per column: a value, `null`, `{"varies": n}` (a grouped row's tracks differ) or
+    /// `[min, max]`.
+    #[ts(type = "Array<string | number | boolean | null | { varies: number } | [number, number]>")]
+    pub cells: Vec<serde_json::Value>,
+}
+
+/// A field of the Table (`GET /api/v1/query/fields`).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct TableField {
+    pub name: String,
+    pub label: String,
+    /// `text`, `int`, `real`, `duration` (seconds), `time` (Unix), `bool`, `size` (bytes),
+    /// `bitrate` (bit/s).
+    pub kind: String,
+    /// What a grouped row shows: `same` (the value its tracks share, else varies), `sum`,
+    /// `avg`, `max`, `range`.
+    pub agg: String,
+    /// Rows can be grouped by it; `next` is the grouping a row's tracks are shown in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+}
+
+/// A saved view of the Table (`GET`, `PUT /api/v1/query/views`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(optional_fields)]
+pub struct TableView {
+    pub name: String,
+    #[serde(default)]
+    pub q: String,
+    pub group: Option<String>,
+    pub columns: Vec<String>,
+    #[serde(default)]
+    pub sort: Vec<TableSort>,
+    /// Column widths in pixels, by field name.
+    #[serde(default)]
+    #[ts(type = "Record<string, number>")]
+    pub widths: std::collections::BTreeMap<String, f64>,
 }
 
 /// `POST /api/v1/similar` body: songs similar to the seeds.

@@ -1072,3 +1072,130 @@ pub async fn analysis_progress(
         ),
     })
 }
+
+// ---------------------------------------------------------------- the Table
+
+/// Rows a Table page has when the client doesn't say.
+const TABLE_PAGE: usize = 200;
+
+fn table_query(
+    q: String,
+    group: Option<String>,
+    columns: Vec<String>,
+    sort: Vec<super::model::TableSort>,
+) -> rms_library::table::TableQuery {
+    rms_library::table::TableQuery {
+        q,
+        group,
+        columns,
+        sort: sort.into_iter().map(|s| (s.field, s.desc)).collect(),
+        offset: 0,
+        limit: TABLE_PAGE,
+    }
+}
+
+fn table_error(e: rms_library::table::TableError) -> LibraryError {
+    match e {
+        rms_library::table::TableError::Query(q) => LibraryError::Invalid(q.0),
+        other => LibraryError::Failed(other.to_string()),
+    }
+}
+
+/// `POST /api/v1/query`: a page of the Table.
+pub async fn table(
+    server: &Arc<Server>,
+    r: super::model::TableRequest,
+) -> Result<super::model::TablePage, LibraryError> {
+    use super::model::{TablePage, TableRow};
+    let mut tq = table_query(r.q, r.group, r.columns, r.sort);
+    tq.offset = r.offset;
+    tq.limit = r.limit.unwrap_or(TABLE_PAGE).clamp(1, 1000);
+    let lib = server.library.clone();
+    let now = crate::util::now_secs();
+    let page = crate::util::spawn_blocking(move || lib.table(&tq, now))
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
+        .map_err(table_error)?;
+    Ok(TablePage {
+        total: page.total,
+        offset: page.offset,
+        rows: page
+            .rows
+            .into_iter()
+            .map(|r| TableRow {
+                id: r.id,
+                key: r.key,
+                label: r.label,
+                drill: r.drill,
+                next: r.next.map(str::to_string),
+                cells: r.cells,
+            })
+            .collect(),
+        tracks: page.tracks,
+        duration: page.duration,
+    })
+}
+
+/// `GET /api/v1/query/fields`: the Table's columns (filter-only fields left out).
+pub fn table_fields() -> Vec<super::model::TableField> {
+    let name = |v: serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    rms_library::table::FIELDS
+        .iter()
+        .filter(|f| !f.hidden)
+        .map(|f| super::model::TableField {
+            name: f.name.into(),
+            label: f.label.into(),
+            kind: name(serde_json::to_value(f.kind).unwrap_or_default()),
+            agg: name(serde_json::to_value(f.agg).unwrap_or_default()),
+            next: f.next_group().map(str::to_string),
+        })
+        .collect()
+}
+
+/// Saved views of the Table.
+pub fn table_views(server: &Server) -> Vec<super::model::TableView> {
+    server
+        .prefs
+        .server
+        .get("tableViews")
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+/// Replace the saved views (names must be given and different).
+pub fn set_table_views(
+    server: &Server,
+    views: Vec<super::model::TableView>,
+) -> Result<Vec<super::model::TableView>, LibraryError> {
+    let mut seen = std::collections::HashSet::new();
+    for v in &views {
+        let name = v.name.trim();
+        if name.is_empty() {
+            return Err(LibraryError::Invalid("a view needs a name".into()));
+        }
+        if !seen.insert(name.to_lowercase()) {
+            return Err(LibraryError::Invalid(format!(
+                "two views are called {name:?}"
+            )));
+        }
+    }
+    let value = serde_json::to_value(&views).map_err(|e| LibraryError::Failed(e.to_string()))?;
+    server.prefs.server.set("tableViews", value);
+    Ok(views)
+}
+
+/// The tracks a Table query finds, to play: at most the queue's length.
+pub async fn query_track_ids(
+    server: &Arc<Server>,
+    q: String,
+    sort: Vec<super::model::TableSort>,
+) -> Result<Vec<i64>, LibraryError> {
+    let lib = server.library.clone();
+    let limit = server.prefs.server.get_i64("maxPlaylistLength").max(1) as usize;
+    let sort: Vec<(String, bool)> = sort.into_iter().map(|s| (s.field, s.desc)).collect();
+    let now = crate::util::now_secs();
+    crate::util::spawn_blocking(move || lib.table_track_ids(&q, &sort, limit, now))
+        .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
+        .map_err(table_error)
+}

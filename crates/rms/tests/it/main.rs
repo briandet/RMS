@@ -28,6 +28,7 @@ mod release_art;
 mod releases;
 mod scrobble;
 mod spectrum;
+mod table;
 mod tag_editing;
 mod upload;
 mod upnp_player;
