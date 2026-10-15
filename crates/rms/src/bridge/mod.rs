@@ -260,6 +260,11 @@ pub async fn run(
                         send(&mut sock, b"SETD", &name).await?;
                         continue;
                     }
+                    if &op == b"strm" {
+                        if let Some((h, _)) = StrmHeader::parse(&body) {
+                            debug!("{}: strm {:?}", identity.name, h.command);
+                        }
+                    }
                     let ev = on_frame(&server, &identity, &mut pb, &to_renderer, &op, &body).await;
                     let jiffies = local().wrapping_add(offset);
                     for e in ev {
@@ -277,6 +282,7 @@ pub async fn run(
                     let _ = sock.shutdown().await;
                     return Ok(());
                 };
+                debug!("{}: the device reports {msg:?}", identity.name);
                 // an accurate renderer's report is true at its clock's `jiffies`: keep ours
                 // in step, so the status message carries exactly that moment
                 if let FromRenderer::Clock { jiffies }
