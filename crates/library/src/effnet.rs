@@ -503,6 +503,22 @@ fn gcd(a: usize, b: usize) -> usize {
 
 // ---------------------------------------------------------------- storage
 
+/// The moods and qualities, as `track_effnet` has a column for each (and `Labels::moods`
+/// names them).
+pub const MOODS: [&str; 11] = [
+    "happy",
+    "sad",
+    "relaxed",
+    "aggressive",
+    "party",
+    "acoustic",
+    "electronic",
+    "danceable",
+    "voice",
+    "approachability",
+    "engagement",
+];
+
 /// Store an analysis (`None`: the audio could not be analysed, not to be tried again).
 pub(crate) fn store(
     c: &Connection,
@@ -516,11 +532,28 @@ pub(crate) fn store(
             .collect()
     });
     let labels = a.map(|a| serde_json::to_string(&a.labels).unwrap_or_default());
-    c.execute(
-        "INSERT OR REPLACE INTO track_effnet (fingerprint, version, embedding, labels)
-         VALUES (?, ?, ?, ?)",
-        params![fingerprint, VERSION, embedding, labels],
-    )?;
+    let first = |v: &[(String, f32)]| v.first().map(|(k, _)| k.clone());
+    let mut values: Vec<rusqlite::types::Value> = vec![
+        fingerprint.to_string().into(),
+        VERSION.into(),
+        embedding.into(),
+        labels.into(),
+        a.and_then(|a| first(&a.labels.styles)).into(),
+        a.and_then(|a| first(&a.labels.themes)).into(),
+        a.and_then(|a| first(&a.labels.instruments)).into(),
+    ];
+    values.extend(
+        MOODS
+            .iter()
+            .map(|m| a.and_then(|a| a.labels.mood(m)).map(f64::from).into()),
+    );
+    let sql = format!(
+        "INSERT OR REPLACE INTO track_effnet \
+           (fingerprint, version, embedding, labels, style, theme, instrument, {}) VALUES ({})",
+        MOODS.join(", "),
+        vec!["?"; values.len()].join(", ")
+    );
+    c.execute(&sql, rusqlite::params_from_iter(values))?;
     Ok(())
 }
 
@@ -773,6 +806,49 @@ impl StyleIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_analysis_is_stored_with_its_moods_as_columns() {
+        let mut c = Connection::open_in_memory().unwrap();
+        crate::db::init_connection(&mut c).unwrap();
+        crate::db::migrate(&mut c).unwrap();
+        let a = Analysis {
+            embedding: vec![0.0; DIM],
+            labels: Labels {
+                styles: vec![("Electronic---House".into(), 0.6)],
+                moods: MOODS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| (m.to_string(), i as f32 / 20.0))
+                    .collect(),
+                themes: vec![("summer".into(), 0.3)],
+                instruments: vec![],
+            },
+        };
+        store(&c, "fp", Some(&a)).unwrap();
+        store(&c, "none", None).unwrap();
+        let (style, theme, instrument, happy, engagement): (String, String, Option<String>, f64, f64) = c
+            .query_row(
+                "SELECT style, theme, instrument, happy, engagement FROM track_effnet WHERE fingerprint = 'fp'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            (style.as_str(), theme.as_str(), instrument),
+            ("Electronic---House", "summer", None)
+        );
+        assert_eq!(happy, 0.0);
+        assert!((engagement - 0.5).abs() < 1e-6, "{engagement}");
+        let empty: Option<f64> = c
+            .query_row(
+                "SELECT sad FROM track_effnet WHERE fingerprint = 'none'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(empty, None);
+    }
 
     #[test]
     fn frames_as_essentia_cuts_them() {

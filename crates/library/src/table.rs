@@ -37,6 +37,8 @@ pub enum Kind {
     Size,
     /// Bits a second; written in kbit/s (`320`, `320k`).
     Bitrate,
+    /// 0–1, written and shown as a percentage (`happy:>70`).
+    Percent,
 }
 
 /// What a grouped row shows of a field.
@@ -89,6 +91,8 @@ pub struct Field {
     pub agg: Agg,
     /// Not a column, only for filters (`album_id:12`).
     pub hidden: bool,
+    /// The field MusicBrainz's value of it is in, for `differs:` (`title` → `mb_title`).
+    pub mb: Option<&'static str>,
 }
 
 const fn field(name: &'static str, label: &'static str, kind: Kind, expr: &'static str) -> Field {
@@ -103,6 +107,7 @@ const fn field(name: &'static str, label: &'static str, kind: Kind, expr: &'stat
         group: None,
         agg: Agg::Same,
         hidden: false,
+        mb: None,
     }
 }
 
@@ -122,11 +127,45 @@ const BPM: &str = "COALESCE(r.bpm, NULLIF(t.bpm, 0))";
 const GENRES: &str = "(SELECT group_concat(g.name, '; ') FROM (SELECT g.name FROM track_genres tg \
      JOIN genres g ON g.id = tg.genre_id WHERE tg.track_id = t.id ORDER BY g.name_sort) g)";
 
+/// JSON path of the track in its matched release (`tr`: track_release, its medium and
+/// position).
+macro_rules! trk {
+    () => {
+        "'$.media[' || (tr.medium - 1) || '].tracks[' || (tr.position - 1) || ']'"
+    };
+}
+
+/// An artist credit of the matched release (`mr.body`) at a JSON path: names and join phrases.
+macro_rules! credit {
+    ($path:expr) => {
+        concat!(
+            "(SELECT group_concat(json_extract(c.value, '$.name') || COALESCE(json_extract(c.value, '$.joinphrase'), ''), '') \
+             FROM json_each(mr.body, ",
+            $path,
+            ") c)"
+        )
+    };
+}
+
+/// An EffNet mood or quality, 0–1 (a column of `track_effnet`).
+macro_rules! mood {
+    ($key:literal, $label:literal) => {
+        Field {
+            agg: Agg::Avg,
+            ..field($key, $label, Kind::Percent, concat!("e.", $key))
+        }
+    };
+}
+
+/// The likeliest Discogs style, `Genre / Style`.
+const STYLE: &str = "replace(e.style, '---', ' / ')";
+
 /// Every field, in the order the column chooser lists them.
 pub static FIELDS: &[Field] = &[
     Field {
         search: Some("t.title_search"),
         sort: Some("t.title_sort"),
+        mb: Some("mb_title"),
         ..field("title", "Title", Kind::Text, "t.title")
     },
     Field {
@@ -145,6 +184,7 @@ pub static FIELDS: &[Field] = &[
             drill: Some("artist_id:{}"),
             next: "album",
         }),
+        mb: Some("mb_artist"),
         ..field("artist", "Artist", Kind::Text, "ar.name")
     },
     Field {
@@ -158,6 +198,7 @@ pub static FIELDS: &[Field] = &[
             drill: Some("album_artist_id:{}"),
             next: "album",
         }),
+        mb: Some("mb_album_artist"),
         ..field("album_artist", "Album artist", Kind::Text, "aa.name")
     },
     Field {
@@ -171,6 +212,7 @@ pub static FIELDS: &[Field] = &[
             drill: Some("album_id:{}"),
             next: "track",
         }),
+        mb: Some("mb_album"),
         ..field("album", "Album", Kind::Text, "al.title")
     },
     Field {
@@ -197,6 +239,7 @@ pub static FIELDS: &[Field] = &[
     Field {
         group: by_value("album"),
         agg: Agg::Range,
+        mb: Some("mb_year"),
         ..field("year", "Year", Kind::Int, "NULLIF(t.year, 0)")
     },
     Field {
@@ -283,6 +326,133 @@ pub static FIELDS: &[Field] = &[
         ..field("folder", "Folder", Kind::Text, "rms_dir(t.url)")
     },
     field("path", "Path", Kind::Text, "rms_path(t.url)"),
+    // ---- MusicBrainz: the release the track's album was matched to (as the Tags page proposes
+    // its tags), and what identifying the recording found
+    Field {
+        search: None,
+        ..field("mb_title", "MB title", Kind::Text, concat!("json_extract(mr.body, ", trk!(), " || '.title')"))
+    },
+    field(
+        "mb_artist",
+        "MB artist",
+        Kind::Text,
+        concat!(
+            "COALESCE(NULLIF(",
+            credit!(concat!(trk!(), " || '.\"artist-credit\"'")),
+            ", ''), ",
+            credit!(concat!(trk!(), " || '.recording.\"artist-credit\"'")),
+            ")"
+        )
+    ),
+    field("mb_album", "MB album", Kind::Text, "json_extract(mr.body, '$.title')"),
+    Field {
+        group: by_value("album"),
+        ..field("mb_album_artist", "MB album artist", Kind::Text, credit!("'$.\"artist-credit\"'"))
+    },
+    field("mb_date", "MB date", Kind::Text, "json_extract(mr.body, '$.date')"),
+    field(
+        "mb_original_date",
+        "MB original date",
+        Kind::Text,
+        "json_extract(mr.body, '$.\"release-group\".\"first-release-date\"')"
+    ),
+    Field {
+        group: by_value("album"),
+        agg: Agg::Range,
+        ..field(
+            "mb_year",
+            "MB year",
+            Kind::Int,
+            "NULLIF(CAST(substr(json_extract(mr.body, '$.\"release-group\".\"first-release-date\"'), 1, 4) AS INTEGER), 0)"
+        )
+    },
+    Field {
+        group: by_value("album"),
+        ..field("label", "Label", Kind::Text, "json_extract(mr.body, '$.\"label-info\"[0].label.name')")
+    },
+    field(
+        "catalog_number",
+        "Catalogue number",
+        Kind::Text,
+        "json_extract(mr.body, '$.\"label-info\"[0].\"catalog-number\"')"
+    ),
+    field("barcode", "Barcode", Kind::Text, "NULLIF(json_extract(mr.body, '$.barcode'), '')"),
+    Field {
+        group: by_value("album"),
+        ..field("country", "Country", Kind::Text, "json_extract(mr.body, '$.country')")
+    },
+    Field {
+        group: by_value("album"),
+        ..field("release_status", "Release status", Kind::Text, "lower(json_extract(mr.body, '$.status'))")
+    },
+    Field {
+        group: by_value("album"),
+        ..field(
+            "medium",
+            "Medium",
+            Kind::Text,
+            "json_extract(mr.body, '$.media[' || (tr.medium - 1) || '].format')"
+        )
+    },
+    Field {
+        group: by_value("album"),
+        ..field("mb_match", "Album match", Kind::Text, "tr.how")
+    },
+    Field {
+        agg: Agg::Avg,
+        ..field("mb_score", "Match score", Kind::Percent, "tr.score")
+    },
+    Field {
+        group: by_value("track"),
+        ..field("mb_identified", "Identified by", Kind::Text, "m.how")
+    },
+    field("mb_genres", "MB genres", Kind::Text, "replace(m.genres, char(31), '; ')"),
+    field("release_mbid", "Release id", Kind::Text, "tr.release_mbid"),
+    field(
+        "release_group_mbid",
+        "Release group id",
+        Kind::Text,
+        "json_extract(mr.body, '$.\"release-group\".id')"
+    ),
+    field("artist_mbid", "Artist id", Kind::Text, "m.artist_mbid"),
+    // ---- EffNet: what kind of music it is (when that analysis is on)
+    Field {
+        group: by_value("album"),
+        ..field("style", "Style", Kind::Text, STYLE)
+    },
+    Field {
+        // any of its likeliest styles
+        multi: Some(
+            "t.fingerprint IN (SELECT e2.fingerprint FROM track_effnet e2, json_each(e2.labels, '$.styles') x \
+             WHERE lower(replace(json_extract(x.value, '$[0]'), '---', ' / ')) LIKE ?)",
+        ),
+        ..field(
+            "styles",
+            "Styles",
+            Kind::Text,
+            "(SELECT group_concat(replace(json_extract(x.value, '$[0]'), '---', ' / '), '; ') \
+             FROM json_each(e.labels, '$.styles') x)"
+        )
+    },
+    Field {
+        group: by_value("album"),
+        ..field("theme", "Theme", Kind::Text, "e.theme")
+    },
+    Field {
+        group: by_value("album"),
+        ..field("instrument", "Instrument", Kind::Text, "e.instrument")
+    },
+    mood!("happy", "Happy"),
+    mood!("sad", "Sad"),
+    mood!("relaxed", "Relaxed"),
+    mood!("aggressive", "Aggressive"),
+    mood!("party", "Party"),
+    mood!("danceable", "Danceable"),
+    mood!("acoustic", "Acoustic"),
+    mood!("electronic", "Electronic"),
+    mood!("voice", "Voice"),
+    mood!("approachability", "Approachable"),
+    mood!("engagement", "Engaging"),
     // filters only: what a grouped row's tracks are found by
     Field {
         hidden: true,
@@ -315,6 +485,25 @@ pub fn field_named(name: &str) -> Option<&'static Field> {
 }
 
 impl Field {
+    /// Where the column chooser lists it.
+    pub fn section(&self) -> &'static str {
+        match self.name {
+            n if n.starts_with("mb_") => "MusicBrainz",
+            "label" | "catalog_number" | "barcode" | "country" | "release_status" | "medium"
+            | "release_mbid" | "release_group_mbid" | "artist_mbid" | "mbid" | "isrc" => {
+                "MusicBrainz"
+            }
+            "style" | "styles" | "theme" | "instrument" => "Kind (EffNet)",
+            _ if self.kind == Kind::Percent => "Mood (EffNet)",
+            "duration" | "format" | "bitrate" | "sample_rate" | "bits" | "channels"
+            | "lossless" | "size" => "Audio",
+            "folder" | "path" => "File",
+            "bpm" | "key" | "loudness" | "replay_gain" | "analyzed" => "Analysis",
+            "rating" | "plays" | "skips" | "last_played" | "added" => "Listening",
+            _ => "Tags",
+        }
+    }
+
     pub fn groupable(&self) -> bool {
         self.group.is_some()
     }
@@ -374,6 +563,8 @@ enum Term {
     Field(&'static Field, Cond, bool),
     Missing(&'static Field, bool),
     Varies(&'static Field),
+    /// The field's tag differs from MusicBrainz's value (which there is).
+    Differs(&'static Field),
 }
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -502,6 +693,13 @@ fn number(kind: Kind, s: &str) -> Option<f64> {
             .parse::<f64>()
             .ok()
             .map(|k| k * 1000.0),
+        Kind::Percent => s
+            .strip_suffix('%')
+            .unwrap_or(&s)
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .map(|p| p / 100.0),
         Kind::Bool => match s.as_str() {
             "yes" | "true" | "1" | "y" => Some(1.0),
             "no" | "false" | "0" | "n" => Some(0.0),
@@ -607,6 +805,7 @@ fn unit(kind: Kind) -> &'static str {
         Kind::Size => "size (700mb, 1.5gb)",
         Kind::Bitrate => "bitrate in kbit/s (320)",
         Kind::Bool => "yes or no",
+        Kind::Percent => "percentage (70)",
         _ => "number",
     }
 }
@@ -646,6 +845,24 @@ pub fn parse(q: &str, now: i64) -> Result<Query, QueryError> {
             "missing" | "has" => {
                 let f = lookup(&value.to_ascii_lowercase())?;
                 terms.push(Term::Missing(f, (name == "has") != neg));
+            }
+            "differs" => {
+                if neg {
+                    return err("differs: can't be negated");
+                }
+                let f = lookup(&value.to_ascii_lowercase())?;
+                if f.mb.is_none() {
+                    let these: Vec<&str> = FIELDS
+                        .iter()
+                        .filter(|f| f.mb.is_some())
+                        .map(|f| f.name)
+                        .collect();
+                    return err(format!(
+                        "differs: compares {} with MusicBrainz",
+                        these.join(", ")
+                    ));
+                }
+                terms.push(Term::Differs(f));
             }
             "varies" => {
                 if neg {
@@ -694,12 +911,28 @@ const JOINS: &[(&str, &str)] = &[
         "a",
         "LEFT JOIN track_analysis a ON a.fingerprint = t.fingerprint",
     ),
+    (
+        "m",
+        "LEFT JOIN track_musicbrainz m ON m.fingerprint = t.fingerprint",
+    ),
+    (
+        "tr",
+        "LEFT JOIN track_release tr ON tr.fingerprint = t.fingerprint",
+    ),
+    (
+        "mr",
+        "LEFT JOIN mb_releases mr ON mr.mbid = tr.release_mbid",
+    ),
+    (
+        "e",
+        "LEFT JOIN track_effnet e ON e.fingerprint = t.fingerprint",
+    ),
 ];
 
 /// `FROM tracks t` and only the joins `sql` uses (each one costs a lookup per track).
 fn from(sql: &str) -> String {
     static ALIAS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?:^|[^A-Za-z0-9_.])(al|ar|aa|f|s|r|a)\.").expect("regex")
+        regex::Regex::new(r"(?:^|[^A-Za-z0-9_.])(al|ar|aa|f|s|r|a|m|tr|mr|e)\.").expect("regex")
     });
     let used: std::collections::HashSet<&str> = ALIAS
         .captures_iter(sql)
@@ -708,8 +941,10 @@ fn from(sql: &str) -> String {
         .collect();
     let mut out = String::from("FROM tracks t");
     for (alias, join) in JOINS {
-        // the album artist is reached through the album
-        let needed = used.contains(alias) || (*alias == "al" && used.contains("aa"));
+        // the album artist is reached through the album, the release through its match
+        let needed = used.contains(alias)
+            || (*alias == "al" && used.contains("aa"))
+            || (*alias == "tr" && used.contains("mr"));
         if needed {
             out.push(' ');
             out.push_str(join);
@@ -729,7 +964,7 @@ fn contains(s: &str) -> String {
 
 /// The search key of a text value for field `f` (its search column holds search keys).
 fn text_key(f: &Field, rules: &TextRules, v: &str) -> String {
-    if f.search.is_some() || f.multi.is_some() {
+    if f.search.is_some() || f.multi.is_some_and(|m| m.contains("_search")) {
         rules.search_key(v)
     } else {
         v.to_lowercase()
@@ -882,6 +1117,15 @@ fn to_sql(q: &Query, rules: &TextRules, grouped: bool) -> Result<Sql, QueryError
                 } else {
                     missing
                 });
+            }
+            Term::Differs(f) => {
+                let mb = field_named(f.mb.unwrap_or_default()).expect("an mb field");
+                // as text, ignoring case: 1999 and "1999" are the same
+                s.wheres.push(format!(
+                    "({m}) IS NOT NULL AND lower(COALESCE(CAST(({t}) AS TEXT), '')) <> lower(CAST(({m}) AS TEXT))",
+                    t = f.expr,
+                    m = mb.expr
+                ));
             }
             Term::Varies(f) => {
                 if !grouped {

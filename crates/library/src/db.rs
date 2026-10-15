@@ -37,6 +37,7 @@ pub const MIGRATIONS: &[&str] = &[
     SCHEMA_V10_TRACK_COVERS,
     SCHEMA_V11_EFFNET,
     SCHEMA_V12_SPECTRUM,
+    SCHEMA_V13_EFFNET_COLUMNS,
 ];
 
 const SCHEMA_V1: &str = r#"
@@ -520,6 +521,42 @@ CREATE TABLE track_spectrum (
 ) STRICT, WITHOUT ROWID;
 "#;
 
+/// EffNet's moods and likeliest labels as columns of `track_effnet` (also in `labels`), so
+/// the Table filters and sorts on them without reading JSON; filled in from `labels`.
+const SCHEMA_V13_EFFNET_COLUMNS: &str = r#"
+ALTER TABLE track_effnet ADD COLUMN style TEXT;       -- likeliest Discogs style, "Genre---Style"
+ALTER TABLE track_effnet ADD COLUMN theme TEXT;       -- likeliest MTG-Jamendo theme
+ALTER TABLE track_effnet ADD COLUMN instrument TEXT;  -- likeliest instrument
+-- moods and qualities, 0-1
+ALTER TABLE track_effnet ADD COLUMN happy REAL;
+ALTER TABLE track_effnet ADD COLUMN sad REAL;
+ALTER TABLE track_effnet ADD COLUMN relaxed REAL;
+ALTER TABLE track_effnet ADD COLUMN aggressive REAL;
+ALTER TABLE track_effnet ADD COLUMN party REAL;
+ALTER TABLE track_effnet ADD COLUMN acoustic REAL;
+ALTER TABLE track_effnet ADD COLUMN electronic REAL;
+ALTER TABLE track_effnet ADD COLUMN danceable REAL;
+ALTER TABLE track_effnet ADD COLUMN voice REAL;
+ALTER TABLE track_effnet ADD COLUMN approachability REAL;
+ALTER TABLE track_effnet ADD COLUMN engagement REAL;
+UPDATE track_effnet SET
+  style = json_extract(labels, '$.styles[0][0]'),
+  theme = json_extract(labels, '$.themes[0][0]'),
+  instrument = json_extract(labels, '$.instruments[0][0]'),
+  happy = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'happy'),
+  sad = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'sad'),
+  relaxed = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'relaxed'),
+  aggressive = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'aggressive'),
+  party = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'party'),
+  acoustic = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'acoustic'),
+  electronic = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'electronic'),
+  danceable = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'danceable'),
+  voice = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'voice'),
+  approachability = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'approachability'),
+  engagement = (SELECT json_extract(x.value, '$[1]') FROM json_each(labels, '$.moods') x WHERE json_extract(x.value, '$[0]') = 'engagement')
+WHERE labels IS NOT NULL;
+"#;
+
 const SCHEMA_V10_TRACK_COVERS: &str = r#"
 -- For the audio with that fingerprint: the release of its recording whose front cover it shows
 -- when it has no art of its own and isn't on a confidently matched album (the album its tags
@@ -689,4 +726,84 @@ pub fn set_meta(c: &Connection, key: &str, value: &str) -> rusqlite::Result<()> 
         [key, value],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// EffNet's moods and likeliest labels, stored before they had columns, are copied out of
+    /// their JSON.
+    #[test]
+    fn effnet_columns_are_filled_in_from_the_labels() {
+        let mut c = Connection::open_in_memory().unwrap();
+        init_connection(&mut c).unwrap();
+        let before = MIGRATIONS
+            .iter()
+            .position(|m| *m == SCHEMA_V13_EFFNET_COLUMNS)
+            .unwrap();
+        for m in &MIGRATIONS[..before] {
+            c.execute_batch(m).unwrap();
+        }
+        c.pragma_update(None, "user_version", before as i64)
+            .unwrap();
+        let labels = r#"{"styles": [["Jazz---Hard Bop", 0.7], ["Jazz---Bop", 0.2]],
+            "moods": [["happy", 0.25], ["sad", 0.5], ["engagement", 0.9]],
+            "themes": [["night", 0.3]], "instruments": []}"#;
+        c.execute(
+            "INSERT INTO track_effnet (fingerprint, version, labels) VALUES ('a', 1, ?)",
+            [labels],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO track_effnet (fingerprint, version, labels) VALUES ('b', 1, NULL)",
+            [],
+        )
+        .unwrap();
+        migrate(&mut c).unwrap();
+        let row = c
+            .query_row(
+                "SELECT style, theme, instrument, happy, sad, engagement, party FROM track_effnet WHERE fingerprint = 'a'",
+                [],
+                |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<f64>>(3)?,
+                        r.get::<_, Option<f64>>(4)?,
+                        r.get::<_, Option<f64>>(5)?,
+                        r.get::<_, Option<f64>>(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            row,
+            (
+                Some("Jazz---Hard Bop".into()),
+                Some("night".into()),
+                None,
+                Some(0.25),
+                Some(0.5),
+                Some(0.9),
+                None
+            )
+        );
+        let none: Option<f64> = c
+            .query_row(
+                "SELECT happy FROM track_effnet WHERE fingerprint = 'b'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(none, None);
+        // every mood has its column
+        for m in crate::effnet::MOODS {
+            c.query_row(&format!("SELECT {m} FROM track_effnet LIMIT 1"), [], |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+    }
 }

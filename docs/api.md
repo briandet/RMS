@@ -591,19 +591,35 @@ afresh.
 | `-format:mp3`, `-live` | not |
 | `missing:mbid`, `has:genre` | without / with a value |
 | `varies:album_artist` | grouped rows whose tracks differ in it |
+| `happy:>70`, `danceable:40..80` | EffNet's moods and qualities, in percent |
+| `differs:title` | the tag isn't what MusicBrainz says (`title`, `artist`, `album`, `album_artist`, `year`; tracks of a matched album) |
 
 A word with a colon in it is quoted: `"re:birth"`.  A mistake is a `400` whose `error` says
 what's wrong.
 
 `GET /api/v1/query/fields` lists the fields: `{"name": "year", "label": "Year", "kind": "int",
-"agg": "range", "next": "album"}`.  `kind` is `text`, `int`, `real`, `duration` (seconds),
-`time` (Unix), `bool`, `size` (bytes) or `bitrate` (bit/s); `agg` what a grouped row shows
-(`same`, `sum`, `avg`, `max`, `range`); a field with `next` can be grouped by.  The fields:
-`title`, `artist`, `album_artist`, `album`, `track`, `disc`, `genre`, `year`, `decade`,
-`duration`, `format`, `bitrate`, `sample_rate`, `bits`, `channels`, `lossless`, `bpm`, `key`,
-`rating`, `plays`, `skips`, `last_played`, `added`, `loudness`, `replay_gain`, `analyzed`,
-`release_type`, `compilation`, `mbid`, `isrc`, `size`, `folder`, `path`; and for filters only
-`id`, `album_id`, `artist_id`, `album_artist_id`, `genre_id`.
+"section": "Tags", "agg": "range", "next": "album"}`.  `kind` is `text`, `int`, `real`,
+`duration` (seconds), `time` (Unix), `bool`, `size` (bytes), `bitrate` (bit/s) or `percent`
+(0–1); `section` groups them for a column chooser; `agg` what a grouped row shows (`same`,
+`sum`, `avg`, `max`, `range`); a field with `next` can be grouped by.  The fields:
+
+* tags and audio: `title`, `artist`, `album_artist`, `album`, `track`, `disc`, `genre`, `year`,
+  `decade`, `duration`, `format`, `bitrate`, `sample_rate`, `bits`, `channels`, `lossless`,
+  `release_type`, `compilation`, `mbid`, `isrc`, `size`, `folder`, `path`;
+* listening and analysis: `rating`, `plays`, `skips`, `last_played`, `added`, `bpm`, `key`,
+  `loudness`, `replay_gain`, `analyzed`;
+* MusicBrainz, from the release the album was [matched](#album-release) to (what the Tags
+  page proposes) and the recording identified: `mb_title`, `mb_artist`, `mb_album`,
+  `mb_album_artist`, `mb_date`, `mb_original_date`, `mb_year`, `label`, `catalog_number`,
+  `barcode`, `country`, `release_status`, `medium` (`CD`, `Digital Media`, …), `mb_match`
+  (how the album was matched), `mb_score`, `mb_identified` (how the recording was found:
+  `tag`, `isrc`, `acoustid`, `search`, `none`), `mb_genres`, `release_mbid`,
+  `release_group_mbid`, `artist_mbid`;
+* EffNet (when that analysis is on): `style` (the likeliest Discogs style, `Genre / Style`),
+  `styles` (the likeliest few), `theme`, `instrument`, and the moods and qualities, 0–1:
+  `happy`, `sad`, `relaxed`, `aggressive`, `party`, `danceable`, `acoustic`, `electronic`,
+  `voice`, `approachability`, `engagement`;
+* for filters only: `id`, `album_id`, `artist_id`, `album_artist_id`, `genre_id`.
 
 `GET /api/v1/query/views` lists the saved views, and `PUT` replaces them (names must differ):
 `[{"name": "Unplayed jazz", "q": "genre:jazz plays:0", "group": "album", "columns": ["album",

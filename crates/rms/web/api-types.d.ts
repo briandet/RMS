@@ -169,9 +169,14 @@ cells: Array<string | number | boolean | null | { varies: number } | [number, nu
 export type TableField = { name: string, label: string, 
 /**
  * `text`, `int`, `real`, `duration` (seconds), `time` (Unix), `bool`, `size` (bytes),
- * `bitrate` (bit/s).
+ * `bitrate` (bit/s), `percent` (0–1).
  */
 kind: string, 
+/**
+ * Where it belongs: `Tags`, `Audio`, `Listening`, `Analysis`, `MusicBrainz`, `Kind (EffNet)`,
+ * `Mood (EffNet)`, `File`.
+ */
+section: string, 
 /**
  * What a grouped row shows: `same` (the value its tracks share, else varies), `sum`,
  * `avg`, `max`, `range`.

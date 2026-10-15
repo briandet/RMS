@@ -1146,6 +1146,7 @@ pub fn table_fields() -> Vec<super::model::TableField> {
             name: f.name.into(),
             label: f.label.into(),
             kind: name(serde_json::to_value(f.kind).unwrap_or_default()),
+            section: f.section().into(),
             agg: name(serde_json::to_value(f.agg).unwrap_or_default()),
             next: f.next_group().map(str::to_string),
         })

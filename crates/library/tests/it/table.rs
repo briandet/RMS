@@ -281,3 +281,186 @@ fn the_table() {
     let ids = lib.table_track_ids("album:hits", &[], 100, NOW).unwrap();
     assert_eq!(ids.len(), 3);
 }
+
+/// MusicBrainz's release for Album One, its recordings identified, and EffNet's labels, as the
+/// lookups and the analysis store them: the Table reads them as columns.
+#[test]
+fn musicbrainz_and_effnet_columns() {
+    if !common::ffmpeg_available() {
+        eprintln!("ffmpeg not available - skipping");
+        return;
+    }
+    let f = common::build();
+    f.lib.scan(ScanMode::Full).unwrap();
+    let lib = &f.lib;
+    let c = rusqlite::Connection::open(f.dir.path().join("library.db")).unwrap();
+    let print = |title: &str| -> String {
+        c.query_row(
+            "SELECT fingerprint FROM tracks WHERE title = ?",
+            [title],
+            |r| r.get(0),
+        )
+        .unwrap()
+    };
+    let release = json!({
+        "id": "rel-1", "title": "Album One (Deluxe)", "status": "Official", "date": "2003-02-01",
+        "country": "GB", "barcode": "5012345678900",
+        "artist-credit": [{"name": "Artist A", "joinphrase": " & "}, {"name": "Friends"}],
+        "release-group": {"id": "rg-1", "first-release-date": "2001-05-01"},
+        "label-info": [{"catalog-number": "CAT 001", "label": {"name": "Good Label"}}],
+        "media": [{"position": 1, "format": "CD", "tracks": [
+            {"title": "Song One", "artist-credit": [], "recording": {"artist-credit": [{"name": "Artist A"}]}},
+            {"title": "Song Two (Remix)", "artist-credit": [{"name": "Artist A", "joinphrase": " feat. "}, {"name": "B"}]}
+        ]}]
+    });
+    c.execute(
+        "INSERT INTO mb_releases (mbid, body, fetched_at) VALUES ('rel-1', ?, 0)",
+        [release.to_string()],
+    )
+    .unwrap();
+    for (pos, title) in [(1, "Song One"), (2, "Song Two")] {
+        c.execute(
+            "INSERT INTO track_release (fingerprint, release_mbid, medium, position, score, how, matched_at)
+             VALUES (?, 'rel-1', 1, ?, 0.93, 'auto', 0)",
+            rusqlite::params![print(title), pos],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO track_musicbrainz (fingerprint, mbid, artist_mbid, genres, how, looked_up_at)
+             VALUES (?, 'rec', 'art-1', 'rock' || char(31) || 'indie rock', 'acoustid', 0)",
+            [print(title)],
+        )
+        .unwrap();
+    }
+    for (title, happy, style) in [
+        ("Song One", 0.82, "Rock---Indie Rock"),
+        ("Song Two", 0.31, "Rock---Indie Rock"),
+        ("Hit 1", 0.6, "Electronic---House"),
+    ] {
+        let labels = json!({
+            "styles": [[style, 0.7], ["Pop---Synth-pop", 0.2]],
+            "moods": [["happy", happy], ["sad", 1.0 - happy], ["danceable", 0.5]],
+            "themes": [["summer", 0.4]], "instruments": [["guitar", 0.6]]
+        });
+        // as the analysis stores it: the labels, and the likeliest ones and the moods as columns
+        c.execute(
+            "INSERT INTO track_effnet (fingerprint, version, embedding, labels, style, theme, instrument, happy, sad, danceable)
+             VALUES (?, 1, NULL, ?, ?, 'summer', 'guitar', ?, ?, 0.5)",
+            rusqlite::params![print(title), labels.to_string(), style, happy, 1.0 - happy],
+        )
+        .unwrap();
+    }
+
+    let cols = [
+        "title",
+        "mb_title",
+        "mb_artist",
+        "mb_album",
+        "mb_album_artist",
+        "label",
+        "catalog_number",
+        "barcode",
+        "country",
+        "release_status",
+        "medium",
+        "mb_year",
+        "mb_match",
+        "mb_score",
+        "mb_genres",
+        "mb_identified",
+        "happy",
+        "style",
+        "theme",
+    ];
+    let p = run(lib, "album:\"album one\"", "track", &cols, &[]);
+    assert_eq!(
+        p.rows[0].cells,
+        [
+            json!("Song One"),
+            json!("Song One"),
+            json!("Artist A"),
+            json!("Album One (Deluxe)"),
+            json!("Artist A & Friends"),
+            json!("Good Label"),
+            json!("CAT 001"),
+            json!("5012345678900"),
+            json!("GB"),
+            json!("official"),
+            json!("CD"),
+            json!(2001),
+            json!("auto"),
+            json!(0.93),
+            json!("rock; indie rock"),
+            json!("acoustid"),
+            json!(0.82),
+            json!("Rock / Indie Rock"),
+            json!("summer"),
+        ]
+    );
+    // the track's own artist credit, with its join phrase
+    assert_eq!(p.rows[1].cells[2], "Artist A feat. B");
+
+    // filters, sorting and grouping on them
+    assert_eq!(
+        titles(&run(lib, "happy:>70", "track", &["title"], &[])),
+        ["Song One"]
+    );
+    assert_eq!(run(lib, "happy:30..90", "track", &["title"], &[]).total, 3);
+    assert_eq!(run(lib, "label:good", "track", &["title"], &[]).total, 2);
+    assert_eq!(run(lib, "missing:label", "track", &["title"], &[]).total, 8);
+    assert_eq!(
+        titles(&run(
+            lib,
+            "has:happy",
+            "track",
+            &["title"],
+            &[("happy", true)]
+        )),
+        ["Song One", "Hit 1", "Song Two"]
+    );
+    assert_eq!(run(lib, "styles:synth", "track", &["title"], &[]).total, 3);
+    assert_eq!(run(lib, "style:house", "track", &["title"], &[]).total, 1);
+    let styles = run(lib, "has:style", "style", &["style", "count", "happy"], &[]);
+    assert_eq!(
+        col(&styles, 0),
+        [json!("Electronic / House"), json!("Rock / Indie Rock")]
+    );
+    let rock = &styles.rows[1];
+    assert_eq!(rock.cells[1], 2);
+    assert!(
+        (rock.cells[2].as_f64().unwrap() - 0.565).abs() < 1e-9,
+        "{:?}",
+        rock.cells[2]
+    );
+    assert_eq!(
+        run(
+            lib,
+            rock.drill.as_deref().unwrap(),
+            "track",
+            &["title"],
+            &[]
+        )
+        .total,
+        2
+    );
+    let labels = run(lib, "", "label", &["label", "count"], &[]);
+    assert_eq!(col(&labels, 0), [json!("Good Label"), Value::Null]);
+
+    // tags that differ from MusicBrainz
+    assert_eq!(
+        titles(&run(lib, "differs:title", "track", &["title"], &[])),
+        ["Song Two"]
+    );
+    assert_eq!(run(lib, "differs:album", "track", &["title"], &[]).total, 2);
+    assert_eq!(run(lib, "differs:year", "track", &["title"], &[]).total, 0);
+    let e = lib
+        .table(
+            &TableQuery {
+                q: "differs:format".into(),
+                ..Default::default()
+            },
+            NOW,
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("compares title"), "{e}");
+}
