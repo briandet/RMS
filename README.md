@@ -403,7 +403,9 @@ nothing is streamed just to be analysed.  Similar Songs and Create Mix then pick
 Spotify tracks alongside your files while you're signed in.  A Spotify track the library has
 too (the same ISRC or audio fingerprint, or the same artist and title at the same length)
 plays from your file instead.  With *Normalise volume* on, the loudness Spotify applies
-affects one of the measures slightly.
+affects one of the measures slightly.  Library → Spotify → *learned for mixes* (or the count
+in Settings) lists the learned tracks in a table to sort and filter: tempo, key, loudness,
+style, genres and whether the library has them too.
 
 **Loudness**: the same pass measures each track's loudness (EBU R128, as ReplayGain 2.0
 does, at any length) and fills in the ReplayGain that your tags leave out — track gain and

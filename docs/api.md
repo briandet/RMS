@@ -79,7 +79,7 @@ own conventions:
 | `GET /api/v1/players/{id}/spotify-queue` | [what Spotify plays next](#spotify) on its Connect device |
 | `GET /api/v1/spotify/items?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/spotify/login`, `/logout` | [sign in and out](#spotify) |
-| `PATCH /api/v1/spotify`, `DELETE /api/v1/spotify/learned` | [learning for mixes](#spotify) |
+| `PATCH /api/v1/spotify`, `GET`, `DELETE /api/v1/spotify/learned` | [learning for mixes](#spotify) |
 | `GET`, `PATCH /api/v1/settings` | [server settings](#server-settings) |
 | `POST /api/v1/library/scan` | [scan the library](#server-settings) |
 | `GET /api/v1/library/analysis` | how far the [analyses](#analysis) have got |
@@ -803,7 +803,12 @@ signed in for playback and Spotify Connect, which only work with Spotify's own c
 through the playback sign-in.  `connect_error`: why a player isn't available as a Spotify
 Connect device (RMS tries again later and later, up to every 30 minutes).  `learn`: what Spotify tracks sound like is learned as they play, for
 mixes; `learned`: how many are.  `PATCH /api/v1/spotify` with `{"learn": false}` turns it
-off; `DELETE /api/v1/spotify/learned` forgets them.
+off; `DELETE /api/v1/spotify/learned` forgets them.  `GET /api/v1/spotify/learned` lists
+them, the latest learned first: `{"items": [LearnedTrack]}`, each `{"url":
+"spotify://track:…", "title", "artist", "album", "year", "duration", "artwork", "bpm", "key"
+(Camelot), "loudness" (LUFS), "genres" (MusicBrainz), "style" (the likeliest Discogs style by
+its sound), "in_library" (the library has a copy), "learned_at" (Unix seconds)}`; what isn't
+known is left out.
 
 Signing in: `POST /api/v1/spotify/login` with `{}` returns `{"url": …}`, the Spotify page to
 open: a sign-in with the own client id (`spotify_client_id`, for browsing) when one is set,

@@ -169,6 +169,8 @@ export const spotifyLogout = () => api('spotify/logout', { method: 'POST', body:
 /** @param {import('./api-types').SpotifyPatch} patch @returns {Promise<SpotifyStatus>} */
 export const patchSpotify = (patch) => api('spotify', { method: 'PATCH', body: patch });
 /** Forget the learned Spotify tracks. */
+/** @returns {Promise<import('./api-types').LearnedTracks>} */
+export const getSpotifyLearned = () => api('spotify/learned');
 export const forgetSpotifyLearned = () => api('spotify/learned', { method: 'DELETE' });
 
 /** @returns {Promise<ServerSettings>} */

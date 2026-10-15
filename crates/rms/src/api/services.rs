@@ -4,8 +4,9 @@
 use super::commands::{exec_for, CommandError};
 use super::library::{LIMIT, MAX_LIMIT};
 use super::model::{
-    BrowseItem, BrowseItemType, ListenBrainzAccount, ListenBrainzAccountPatch, NewFavorite,
-    NewListenBrainzAccount, Page, SpotifyLogin, SpotifyLoginResult, SpotifyPatch, SpotifyStatus,
+    BrowseItem, BrowseItemType, LearnedTrack, LearnedTracks, ListenBrainzAccount,
+    ListenBrainzAccountPatch, NewFavorite, NewListenBrainzAccount, Page, SpotifyLogin,
+    SpotifyLoginResult, SpotifyPatch, SpotifyStatus,
 };
 use super::state::{artwork_path, int, string};
 use crate::server::Server;
@@ -215,6 +216,34 @@ pub async fn spotify_patch(
             .set(crate::plugins::spotify::learn::PREF, serde_json::json!(on));
     }
     spotify_status(server).await
+}
+
+/// The learned Spotify tracks, the latest first.
+pub async fn spotify_learned(server: &Arc<Server>) -> Result<LearnedTracks, CommandError> {
+    let lib = server.library.clone();
+    let tracks = crate::util::spawn_blocking(move || lib.learned_remote("spotify"))
+        .await
+        .map_err(|e| CommandError::Failed(e.to_string()))?;
+    let items = tracks
+        .into_iter()
+        .map(|t| LearnedTrack {
+            url: t.url,
+            title: t.title,
+            artist: t.artists.join(", "),
+            album: t.album,
+            year: t.year,
+            duration: t.duration,
+            artwork: t.cover,
+            bpm: t.bpm,
+            key: t.camelot,
+            loudness: t.loudness,
+            genres: t.genres,
+            style: t.style,
+            in_library: t.in_library,
+            learned_at: t.learned_at,
+        })
+        .collect();
+    Ok(LearnedTracks { items })
 }
 
 /// Forget the learned Spotify tracks.

@@ -222,7 +222,7 @@ export function render(node, { ctx }) {
           h('label', { for: learnId }, 'Use what I play in mixes',
             h('span', { class: 'muted small block' },
               'Learns how each track you play to the end sounds (tempo, key, timbre — no audio is kept), so Create Mix and Don’t Stop The Music can pick Spotify tracks next to your own. ',
-              `${st.learned} track${st.learned === 1 ? '' : 's'} learned.`))),
+              st.learned ? h('a', { href: '#/library/spotify-learned' }, `${st.learned} track${st.learned === 1 ? '' : 's'} learned.`) : '0 tracks learned.'))),
         st.learned ? h('div', { class: 'button-row' }, h('button', { class: 'btn btn-small', type: 'button', onclick: async () => {
           if (!confirm('Forget every learned Spotify track?')) return;
           try { await forgetSpotifyLearned(); toast('Forgotten'); } catch (err) { toast(`Could not forget: ${err.message}`, 'error'); }

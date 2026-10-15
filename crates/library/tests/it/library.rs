@@ -1665,6 +1665,17 @@ fn a_streamed_track_is_learned_from_its_samples() {
         .unwrap();
     assert!(bpm.is_some_and(|b| (b - 120.0).abs() < 1.0), "{bpm:?}");
     assert_eq!(camelot.as_deref(), Some("8B"), "C major");
+    let learned = lib.learned_remote("spotify");
+    assert_eq!(learned.len(), 1);
+    let l = &learned[0];
+    assert_eq!(
+        (l.url.as_str(), l.title.as_str()),
+        ("spotify://track:x1", "Pulse")
+    );
+    assert_eq!(l.artists, vec!["Synth".to_string()]);
+    assert_eq!(l.camelot.as_deref(), Some("8B"));
+    assert!(l.id < 0 && !l.in_library);
+    assert!(lib.learned_remote("tidal").is_empty());
     // too short to learn
     assert!(lib.learn_remote(&t, &samples[..10 * sr]).is_err());
 }

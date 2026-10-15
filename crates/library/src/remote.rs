@@ -73,6 +73,35 @@ pub struct RemoteTotals {
     pub analyzed: i64,
 }
 
+/// A learned (analysed) track of a service, as [`Library::learned_remote`] lists it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LearnedTrack {
+    /// Its mix id (negative).
+    pub id: i64,
+    pub url: String,
+    pub title: String,
+    pub artists: Vec<String>,
+    pub album: Option<String>,
+    pub year: Option<i64>,
+    /// Seconds.
+    pub duration: Option<f64>,
+    /// Image URL.
+    pub cover: Option<String>,
+    pub bpm: Option<f64>,
+    /// Camelot key (`8B`).
+    pub camelot: Option<String>,
+    /// Integrated loudness, LUFS.
+    pub loudness: Option<f64>,
+    /// MusicBrainz genres.
+    pub genres: Vec<String>,
+    /// The most likely Discogs style (EffNet), without its genre.
+    pub style: Option<String>,
+    /// The library has a copy of it.
+    pub in_library: bool,
+    /// Unix seconds.
+    pub learned_at: i64,
+}
+
 impl Library {
     /// Remember a remote track and what it sounds like, from its decoded audio (mono f32
     /// at 22050 Hz, the whole track).  Runs the analysis on the calling thread (a second or
@@ -260,6 +289,70 @@ impl Library {
             },
         )
         .unwrap_or_default()
+    }
+
+    /// The analysed tracks of `source`, the latest learned first.
+    pub fn learned_remote(&self, source: &str) -> Vec<LearnedTrack> {
+        let Ok(c) = self.conn() else {
+            return Vec::new();
+        };
+        let Ok(mut st) = c.prepare(
+            "SELECT t.id, t.url, t.title, t.artists, t.album, t.year, t.duration, t.cover,
+                    r.bpm, r.camelot, a.loudness, m.genres, e.labels, a.analyzed_at
+             FROM remote_tracks t
+             JOIN track_analysis a ON a.fingerprint = t.fingerprint
+                                  AND a.version = ?1 AND a.features IS NOT NULL
+             LEFT JOIN track_rhythm r ON r.fingerprint = t.fingerprint
+             LEFT JOIN track_musicbrainz m ON m.fingerprint = t.fingerprint
+             LEFT JOIN track_effnet e ON e.fingerprint = t.fingerprint
+             WHERE t.source = ?2
+             ORDER BY a.analyzed_at DESC, t.id DESC",
+        ) else {
+            return Vec::new();
+        };
+        let split = |s: Option<String>| -> Vec<String> {
+            s.map(|s| {
+                s.split(SEP)
+                    .filter(|x| !x.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
+        let rows = st.query_map(params![sonic::version(), source], |r| {
+            let labels: Option<String> = r.get(12)?;
+            let style = labels
+                .and_then(|j| serde_json::from_str::<crate::effnet::Labels>(&j).ok())
+                .and_then(|l| l.styles.into_iter().next())
+                .map(|(s, _)| s.rsplit("---").next().unwrap_or(&s).to_string());
+            Ok(LearnedTrack {
+                id: remote_id(r.get(0)?),
+                url: r.get(1)?,
+                title: r.get(2)?,
+                artists: split(r.get(3)?),
+                album: r.get(4)?,
+                year: r.get(5)?,
+                duration: r.get(6)?,
+                cover: r.get(7)?,
+                bpm: r.get(8)?,
+                camelot: r.get(9)?,
+                loudness: r.get(10)?,
+                genres: split(r.get(11)?),
+                style,
+                in_library: false,
+                learned_at: r.get(13)?,
+            })
+        });
+        let mut out: Vec<LearnedTrack> = match rows {
+            Ok(rows) => rows.filter_map(Result::ok).collect(),
+            Err(_) => Vec::new(),
+        };
+        let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
+        let local = self.remote_with_local_copy(&ids);
+        for t in &mut out {
+            t.in_library = local.contains(&t.id);
+        }
+        out
     }
 
     /// Forget every track of `source` and its analysis.  Returns how many were forgotten.
