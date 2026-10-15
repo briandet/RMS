@@ -56,6 +56,9 @@ const API: &str = "https://api.spotify.com/v1";
 /// Scopes requested at sign-in (librespot's set, without the write scopes).
 const SCOPES: &[&str] = &[
     "streaming",
+    // the queue of a Connect device ([`Spotify::queue`])
+    "user-read-playback-state",
+    "user-read-currently-playing",
     "user-read-private",
     "user-read-email",
     "playlist-read-private",
@@ -666,6 +669,34 @@ impl Spotify {
         session_api::session_get(&session, path)
             .await
             .map_err(|e| format!("{e} ({web_err})"))
+    }
+
+    /// What Spotify plays next on the account's active device (a player's Connect device,
+    /// while it plays): `spotify://track:…` URLs and what they are.  Straight from the Web
+    /// API, without [`Self::api`]'s fallback, so a refusal (a sign-in from before the
+    /// queue's scopes) doesn't take browsing down with it.
+    pub async fn queue(&self) -> Result<Vec<(String, TrackMeta)>, String> {
+        let v = match self.web_api("/me/player/queue").await {
+            Ok(v) => v,
+            // no active device
+            Err(e) if e.starts_with("Spotify Web API 204") => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        Ok(v["queue"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| {
+                let id = t["id"].as_str()?;
+                let kind = t["type"].as_str().unwrap_or("track");
+                let mut m = meta_from_track(t);
+                if kind == "episode" {
+                    m.artist = t["show"]["name"].as_str().unwrap_or("").to_string();
+                    m.image = best_image(&t["images"]);
+                }
+                Some((url_for(kind, id), m))
+            })
+            .collect())
     }
 
     async fn web_api(&self, path: &str) -> Result<Value, String> {

@@ -76,6 +76,7 @@ own conventions:
 | `PATCH /api/v1/listenbrainz/accounts/{user}` | `{"default": bool}` |
 | `DELETE /api/v1/listenbrainz/accounts/{user}` | remove it (and its unsent listens) |
 | `GET /api/v1/spotify` | [Spotify status](#spotify) |
+| `GET /api/v1/players/{id}/spotify-queue` | [what Spotify plays next](#spotify) on its Connect device |
 | `GET /api/v1/spotify/items?id=` | page of [BrowseItem](#browseitem) |
 | `POST /api/v1/spotify/login`, `/logout` | [sign in and out](#spotify) |
 | `PATCH /api/v1/spotify`, `DELETE /api/v1/spotify/learned` | [learning for mixes](#spotify) |
@@ -811,6 +812,15 @@ sign-in whatever the setting.  Spotify then sends the browser to `http://127.0.0
 server's own computer RMS receives that by itself (watch `signed_in`); elsewhere, post the
 address the browser ended up on as `{"code": "<address>"}`, which returns `{"user": …}`.
 `POST /api/v1/spotify/logout` signs out.
+
+While a player plays its Spotify Connect device (its queue then holds one endless
+`spotify://connect:…` stream, named "Spotify Connect"), the tracks the Spotify app plays next
+are at `GET /api/v1/players/{id}/spotify-queue`: `{"connect": true, "items": [Track…],
+"error": "…"}`, the items `spotify://track:…` URLs with title, artist, album, duration and
+artwork.  `connect` is false (no items) when the player plays something else; `error` says
+why the queue can't be shown (a sign-in from before RMS asked for the queue's scopes: sign in
+again).  The app's queue changes without an event: ask again on a track change or now and
+then.
 
 ## Settings
 

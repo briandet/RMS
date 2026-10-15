@@ -1450,6 +1450,19 @@ pub struct SpotifyStatus {
     pub learned: u64,
 }
 
+/// `GET /api/v1/players/{id}/spotify-queue`: what Spotify plays next on the player's
+/// Spotify Connect device.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct SpotifyQueue {
+    /// The player plays its Spotify Connect device (else `items` is empty).
+    pub connect: bool,
+    pub items: Vec<Track>,
+    /// Why Spotify's queue can't be shown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// `PATCH /api/v1/spotify` body.
 #[derive(Debug, Clone, PartialEq, Deserialize, Default, TS)]
 #[ts(optional_fields)]

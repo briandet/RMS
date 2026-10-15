@@ -1,9 +1,10 @@
 // Play queue: highlight current, click to jump, remove, drag (or arrow keys) to reorder, clear,
-// save as a playlist; each track's menu (⋯, right-click, long-press).
+// save as a playlist; each track's menu (⋯, right-click, long-press).  While a player plays
+// its Spotify Connect stream, what Spotify plays next (the app's queue) shows below it.
 
 import { store, on, emit, currentPlayer, patchPlayer } from '../store.js';
 import { h, icon, fmtTime, fmtDuration, plural, scrollParent, toast } from '../util.js';
-import { sizedArtwork, createPlaylist, itemFor } from '../api.js';
+import { sizedArtwork, createPlaylist, itemFor, getSpotifyQueue } from '../api.js';
 import { withMenu, addToPlaylistDialog, askName } from './menu.js';
 import { sortable } from './sortable.js';
 
@@ -19,7 +20,12 @@ export function init(root, _ctx) {
   el.save = h('button', { class: 'btn btn-small btn-ghost', type: 'button', 'aria-label': 'Save the queue as a playlist', title: 'Save as playlist', onclick: saveQueue }, icon('save'), 'Save');
   el.list = h('ol', { class: 'queue-list', 'aria-label': 'Queued tracks' });
   el.empty = h('p', { class: 'empty small' }, 'The queue is empty. Use ', h('strong', {}, 'Play'), ' or ', h('strong', {}, 'Add'), ' in the library to queue music.');
-  root.append(h('div', { class: 'queue-head' }, h('h2', {}, 'Queue'), el.info, el.save, el.clear), el.list, el.empty);
+  el.spInfo = h('span', { class: 'queue-info muted' });
+  el.spList = h('ol', { class: 'queue-list', 'aria-label': 'Up next in Spotify' });
+  el.spNote = h('p', { class: 'empty small' });
+  el.spotify = h('section', { class: 'spotify-queue', hidden: true },
+    h('div', { class: 'queue-subhead' }, h('h3', {}, 'Up next in Spotify'), el.spInfo), el.spList, el.spNote);
+  root.append(h('div', { class: 'queue-head' }, h('h2', {}, 'Queue'), el.info, el.save, el.clear), el.list, el.empty, el.spotify);
 
   el.list.addEventListener('click', onClick);
   sortable(el.list, {
@@ -28,7 +34,9 @@ export function init(root, _ctx) {
   });
 
   on('queue', render);
-  on('status', updateCurrent);
+  on('status', () => { updateCurrent(); refreshLive(); refreshSpotify(); });
+  // the app's queue changes without anything here changing: look again now and then
+  setInterval(() => refreshSpotify(), 10000);
   render();
 }
 
@@ -53,20 +61,27 @@ function render() {
   q.forEach((t, i) => frag.append(item(t, i)));
   el.list.replaceChildren(frag);
   currentIndex = -1;
+  liveKey = '';
   updateCurrent();
+  refreshLive();
 }
 
-function item(t, idx) {
-  const title = t.title || t.url || 'Untitled';
-  const sub = [t.artist, t.album].filter(Boolean).join(' · ');
+function thumbFor(t, fallback) {
   const art = sizedArtwork(t.artwork, 100);
-  const thumb = h('span', { class: 'art thumb' }, icon(t.remote ? 'radio' : 'album', 'icon art-fallback'));
+  const thumb = h('span', { class: 'art thumb' }, icon(fallback, 'icon art-fallback'));
   if (art) {
     const img = h('img', { alt: '', loading: 'lazy', decoding: 'async', src: art, draggable: 'false' });
     img.addEventListener('load', () => thumb.classList.add('loaded'));
     img.addEventListener('error', () => img.remove());
     thumb.append(img);
   }
+  return thumb;
+}
+
+function item(t, idx) {
+  const title = t.title || t.url || 'Untitled';
+  const sub = [t.artist, t.album].filter(Boolean).join(' · ');
+  const thumb = thumbFor(t, t.remote ? 'radio' : 'album');
   const li = h('li', { class: 'q-item', dataset: { index: idx } },
     h('button', { class: 'icon-btn drag-handle', type: 'button', 'aria-label': `Move ${title}. Use up and down arrow keys to reorder.`, title: 'Drag to reorder' }, icon('drag')),
     h('button', { class: 'q-main', type: 'button', 'aria-label': `Play ${title}${t.artist ? ' by ' + t.artist : ''}` },
@@ -122,6 +137,76 @@ function updateCurrent() {
     const r = li.getBoundingClientRect(), pr = sp.getBoundingClientRect?.() || { top: 0, bottom: innerHeight };
     if (r.top < pr.top || r.bottom > pr.bottom) li.scrollIntoView({ block: 'nearest' });
   }
+}
+
+// A stream's title, artist and artwork change as it plays (radio, Spotify Connect) without
+// the queue changing: the playing row follows what the player says it plays.
+let liveKey = '';
+function refreshLive() {
+  const p = currentPlayer();
+  const idx = p?.queue.index ?? -1;
+  const t = store.queue[idx];
+  const np = p?.now_playing;
+  if (!t?.remote || !np || dragging) return;
+  const live = { ...t, title: np.title || t.title, artist: np.artist, album: np.album, artwork: np.artwork || t.artwork, duration: np.duration ?? t.duration };
+  const key = `${idx}|${live.title}|${live.artist}|${live.album}|${live.artwork}`;
+  if (key === liveKey) return;
+  liveKey = key;
+  const old = li(idx);
+  if (!old) return;
+  const fresh = item(live, idx);
+  fresh.classList.add('current');
+  fresh.setAttribute('aria-current', 'true');
+  old.replaceWith(fresh);
+}
+
+// ---------------------------------------------------------------- Spotify's queue
+
+/** How often Spotify's queue is asked for while it shows (ms); also on every track change. */
+const SPOTIFY_POLL = 30000;
+let spotifyKey = '';
+let spotifyAt = 0;
+let spotifyTimer = null;
+
+function playsConnect(p) {
+  const t = store.queue[p?.queue.index ?? -1];
+  return [t?.url, p?.now_playing?.url].some((u) => u?.startsWith('spotify://connect:'));
+}
+
+function refreshSpotify() {
+  const p = currentPlayer();
+  const shown = !!p && playsConnect(p);
+  el.spotify.hidden = !shown;
+  if (!shown) { spotifyKey = ''; return; }
+  const key = `${p.id}|${p.now_playing?.title}|${p.now_playing?.artist}`;
+  if (key === spotifyKey && Date.now() - spotifyAt < SPOTIFY_POLL) return;
+  const changed = key !== spotifyKey;
+  spotifyKey = key;
+  spotifyAt = Date.now();
+  clearTimeout(spotifyTimer);
+  // a moment after a track change, for Spotify to have moved its queue on
+  spotifyTimer = setTimeout(() => fetchSpotify(p.id), changed ? 1500 : 0);
+}
+
+async function fetchSpotify(pid) {
+  let q;
+  try { q = await getSpotifyQueue(pid); } catch (e) { q = { items: [], error: `Could not get Spotify’s queue: ${e.message}` }; }
+  if (currentPlayer()?.id !== pid) return;
+  const items = q.items || [];
+  el.spList.replaceChildren(...items.map(spotifyItem));
+  el.spInfo.textContent = items.length ? plural(items.length, 'track') : '';
+  el.spNote.textContent = q.error || (items.length ? '' : 'Nothing queued in Spotify.');
+  el.spNote.hidden = !el.spNote.textContent;
+}
+
+/** A track Spotify plays next: shown, but changed in the Spotify app. */
+function spotifyItem(t) {
+  const sub = [t.artist, t.album].filter(Boolean).join(' · ');
+  return h('li', { class: 'q-item q-readonly' },
+    h('span', { class: 'q-spacer', 'aria-hidden': 'true' }),
+    h('span', { class: 'q-main' }, thumbFor(t, 'album'),
+      h('span', { class: 'q-text' }, h('span', { class: 'q-title' }, t.title || 'Untitled'), sub && h('span', { class: 'q-sub' }, sub))),
+    h('span', { class: 'q-dur' }, t.duration ? fmtTime(t.duration) : ''));
 }
 
 // ---------------------------------------------------------------- actions

@@ -518,6 +518,11 @@ function route(method, parts, q, body) {
         const limit = q.has('limit') ? +q.get('limit') : Infinity;
         return { version: p.timestamp, length: p.queue.length, index: p.queue.length ? p.index : undefined, offset, items: p.queue.slice(offset, offset + limit).map(trackNative) };
       }
+      if (r2 === 'spotify-queue' && GET) {
+        const cur = p.queue[p.index];
+        if (!cur?.url?.startsWith('spotify://connect:')) return { connect: false, items: [] };
+        return { connect: true, items: spotifyTracks('9', ['Glass Harbor', 'Northern Lights', 'Paper Moon']).map((t, i) => ({ url: t.url, title: t.name, artist: 'Mock Artist', album: 'Mock Album', duration: 180 + i * 20, artwork: `imageproxy/sp${i}/image`, remote: true })) };
+      }
       if (r2 === 'command' && method === 'POST') {
         const r = nativeCommand(p, body || {});
         setTimeout(publishChanges, 20);

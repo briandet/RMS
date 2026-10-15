@@ -96,6 +96,7 @@ fn declarations() -> String {
         BrowseItem,
         NewFavorite,
         SpotifyStatus,
+        SpotifyQueue,
         SpotifyLogin,
         SpotifyLoginResult,
         SpotifyPatch,

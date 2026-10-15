@@ -36,6 +36,7 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/players/{id}", get(get_player))
         .route("/api/v1/players/{id}/queue", get(get_queue))
         .route("/api/v1/players/{id}/spectrum", get(get_spectrum))
+        .route("/api/v1/players/{id}/spotify-queue", get(get_spotify_queue))
         .route("/api/v1/players/{id}/command", post(post_command))
         .route(
             "/api/v1/players/{id}/announce",
@@ -191,6 +192,64 @@ async fn get_queue(
         Some(q) => Json(q).into_response(),
         None => unknown_player(&id),
     }
+}
+
+/// What Spotify plays next on the player's Connect device: its queue lives in the app, not
+/// in the player's playlist (which holds the one endless Connect stream).
+async fn get_spotify_queue(State(server): State<Arc<Server>>, Path(id): Path<String>) -> Response {
+    use model::{SpotifyQueue, Track};
+    let Some(p) = server.resolve_client(&id) else {
+        return unknown_player(&id);
+    };
+    let playing = p
+        .controller()
+        .lock()
+        .playing_song()
+        .map(|s| s.url().to_string());
+    let connect = playing.as_deref() == Some(crate::plugins::spotify::connect::url(&p.id).as_str());
+    let Some(sp) = crate::plugins::spotify::get().filter(|_| connect) else {
+        return Json(SpotifyQueue {
+            connect: false,
+            items: Vec::new(),
+            error: None,
+        })
+        .into_response();
+    };
+    let (items, error) = match sp.queue().await {
+        Ok(q) => (q, None),
+        Err(e) if e.contains(" 401") || e.contains(" 403") => (
+            Vec::new(),
+            Some("Sign in to Spotify again (Settings → Spotify) to see its queue here".into()),
+        ),
+        Err(e) => (Vec::new(), Some(e)),
+    };
+    let items = items
+        .into_iter()
+        .map(|(url, m)| Track {
+            id: None,
+            url,
+            title: m.title,
+            artist: Some(m.artist).filter(|a| !a.is_empty()),
+            artist_id: None,
+            album: Some(m.album).filter(|a| !a.is_empty()),
+            album_id: None,
+            duration: Some(m.secs).filter(|&d| d > 0.0),
+            track_number: None,
+            disc: None,
+            year: None,
+            artwork: m.image,
+            remote: true,
+            station: None,
+            format: None,
+            detail: None,
+        })
+        .collect();
+    Json(SpotifyQueue {
+        connect: true,
+        items,
+        error,
+    })
+    .into_response()
 }
 
 #[derive(Deserialize)]

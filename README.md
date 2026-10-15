@@ -441,7 +441,9 @@ players share one decode.
 Every player is also a **Spotify Connect** device of the signed-in account, named after the
 player: pick it in a Spotify app to play there.  Play, pause, seek and track changes in the
 app drive the player, and the player's volume follows the app's; stopping, pausing or
-playing something else on the player pauses the Connect device.  The devices are
+playing something else on the player pauses the Connect device.  The player's queue holds
+one "Spotify Connect" stream; the web UI's queue shows what the Spotify app plays next below
+it (changed in the app).  The devices are
 registered with the account rather than announced on the network, so they are visible only
 to the account RMS is signed in with.
 
