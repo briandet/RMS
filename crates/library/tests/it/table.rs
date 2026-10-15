@@ -342,9 +342,11 @@ fn musicbrainz_and_effnet_columns() {
             "moods": [["happy", happy], ["sad", 1.0 - happy], ["danceable", 0.5]],
             "themes": [["summer", 0.4]], "instruments": [["guitar", 0.6]]
         });
+        // as the analysis stores it: the labels, and the likeliest ones and the moods as columns
         c.execute(
-            "INSERT INTO track_effnet (fingerprint, version, embedding, labels) VALUES (?, 1, NULL, ?)",
-            rusqlite::params![print(title), labels.to_string()],
+            "INSERT INTO track_effnet (fingerprint, version, embedding, labels, style, theme, instrument, happy, sad, danceable)
+             VALUES (?, 1, NULL, ?, ?, 'summer', 'guitar', ?, ?, 0.5)",
+            rusqlite::params![print(title), labels.to_string(), style, happy, 1.0 - happy],
         )
         .unwrap();
     }

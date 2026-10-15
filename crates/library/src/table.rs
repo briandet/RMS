@@ -147,29 +147,18 @@ macro_rules! credit {
     };
 }
 
-/// An EffNet mood or quality, 0–1.  The analysis stores them in its heads' order
-/// (`effnet::HEADS`), so `$at` finds it at once; the search is for labels stored otherwise.
+/// An EffNet mood or quality, 0–1 (a column of `track_effnet`).
 macro_rules! mood {
-    ($key:literal, $label:literal, $at:literal) => {
+    ($key:literal, $label:literal) => {
         Field {
             agg: Agg::Avg,
-            ..field(
-                $key,
-                $label,
-                Kind::Percent,
-                concat!(
-                    "CASE WHEN json_extract(e.labels, '$.moods[", $at, "][0]') = '", $key, "' \
-                     THEN json_extract(e.labels, '$.moods[", $at, "][1]') \
-                     ELSE (SELECT json_extract(x.value, '$[1]') FROM json_each(e.labels, '$.moods') x \
-                     WHERE json_extract(x.value, '$[0]') = '", $key, "') END"
-                ),
-            )
+            ..field($key, $label, Kind::Percent, concat!("e.", $key))
         }
     };
 }
 
 /// The likeliest Discogs style, `Genre / Style`.
-const STYLE: &str = "replace(json_extract(e.labels, '$.styles[0][0]'), '---', ' / ')";
+const STYLE: &str = "replace(e.style, '---', ' / ')";
 
 /// Every field, in the order the column chooser lists them.
 pub static FIELDS: &[Field] = &[
@@ -447,23 +436,23 @@ pub static FIELDS: &[Field] = &[
     },
     Field {
         group: by_value("album"),
-        ..field("theme", "Theme", Kind::Text, "json_extract(e.labels, '$.themes[0][0]')")
+        ..field("theme", "Theme", Kind::Text, "e.theme")
     },
     Field {
         group: by_value("album"),
-        ..field("instrument", "Instrument", Kind::Text, "json_extract(e.labels, '$.instruments[0][0]')")
+        ..field("instrument", "Instrument", Kind::Text, "e.instrument")
     },
-    mood!("happy", "Happy", 0),
-    mood!("sad", "Sad", 1),
-    mood!("relaxed", "Relaxed", 2),
-    mood!("aggressive", "Aggressive", 3),
-    mood!("party", "Party", 4),
-    mood!("danceable", "Danceable", 7),
-    mood!("acoustic", "Acoustic", 5),
-    mood!("electronic", "Electronic", 6),
-    mood!("voice", "Voice", 8),
-    mood!("approachability", "Approachable", 9),
-    mood!("engagement", "Engaging", 10),
+    mood!("happy", "Happy"),
+    mood!("sad", "Sad"),
+    mood!("relaxed", "Relaxed"),
+    mood!("aggressive", "Aggressive"),
+    mood!("party", "Party"),
+    mood!("danceable", "Danceable"),
+    mood!("acoustic", "Acoustic"),
+    mood!("electronic", "Electronic"),
+    mood!("voice", "Voice"),
+    mood!("approachability", "Approachable"),
+    mood!("engagement", "Engaging"),
     // filters only: what a grouped row's tracks are found by
     Field {
         hidden: true,
