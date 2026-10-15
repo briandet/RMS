@@ -56,7 +56,11 @@ const LEAD: Duration = Duration::from_secs(5);
 const NATURAL_NEXT: Duration = Duration::from_secs(3);
 
 /// First wait before setting up a device that failed again; doubles up to `MAX_RETRY`.
+/// A device that lost its session counts as failed, so one that keeps losing it isn't
+/// set up again every second.
 const FIRST_RETRY: Duration = Duration::from_secs(10);
+/// A device that stays up this long is fine again: its next failure waits `FIRST_RETRY`.
+const STABLE: Duration = Duration::from_secs(120);
 const MAX_RETRY: Duration = Duration::from_secs(30 * 60);
 
 static DEVICES: OnceLock<DashMap<String, Arc<Device>>> = OnceLock::new();
@@ -83,6 +87,7 @@ fn failures() -> &'static DashMap<String, Failure> {
 pub fn error() -> Option<String> {
     failures()
         .iter()
+        .filter(|f| !devices().contains_key(f.key()))
         .map(|f| format!("Spotify Connect for {}: {}", f.player, f.error))
         .min()
 }
@@ -283,6 +288,8 @@ struct Device {
     last_end: Mutex<Option<Instant>>,
     /// The position changed while paused: flush the player's buffer on resume.
     flush_on_resume: AtomicBool,
+    /// When it was set up.
+    started: Instant,
 }
 
 impl Device {
@@ -366,29 +373,29 @@ async fn supervise(server: &Arc<Server>, sp: &Arc<Spotify>) {
                 {
                     continue;
                 }
-                match add_device(server, sp, &p).await {
-                    Ok(()) => {
-                        failures().remove(&k);
-                    }
-                    Err(e) => failed(&k, &p.name(), e),
+                // (a failure before stays until the device has been up a while)
+                if let Err(e) = add_device(server, sp, &p).await {
+                    failed(&k, &p.name(), e);
                 }
             }
             Some(dev) if !dev.alive.load(Ordering::Relaxed) => {
-                warn!(
-                    "Spotify Connect: device \"{}\" lost its session; restarting",
-                    dev.name
-                );
                 if dev.set_driving(false) {
                     run(server, dev.mac, &["stop"]).await;
                 }
                 devices().remove(&k);
+                failed(&k, &p.name(), "lost its Spotify session".into());
             }
             Some(dev) if dev.name != p.name() => {
                 // renamed: re-register under the new name
                 let _ = dev.spirc.shutdown();
                 devices().remove(&k);
             }
-            Some(dev) => follow_player(&dev, &p).await,
+            Some(dev) => {
+                if dev.started.elapsed() > STABLE {
+                    failures().remove(&k);
+                }
+                follow_player(&dev, &p).await
+            }
         }
     }
 }
@@ -433,10 +440,20 @@ async fn add_device(
     let k = key(&p.id);
     let cache = Cache::new(Some(sp.dir.join("connect").join(&k)), None, None, None).ok();
     // the device's own credentials, else a token of the main session (Spotify's own client
-    // id, as the AP wants), else one of the sign-in (the user's client id: may be refused)
-    let mut logins: Vec<(&str, Credentials)> = Vec::new();
+    // id, as the AP wants), else one of the sign-in (the user's client id: may be refused).
+    // Tokens only when needed: the main session's comes from keymaster, which Spotify
+    // refuses more and more (and librespot logs an error for every refusal).
+    let mut errors = Vec::new();
+    let mut tried = false;
     if let Some(c) = cache.as_ref().and_then(|c| c.credentials()) {
-        logins.push(("its stored credentials", c));
+        tried = true;
+        match start_device(server, p, &name, &k, c, cache.clone()).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                debug!("Spotify Connect for {name}: with its stored credentials: {e}");
+                errors.push(format!("with its stored credentials: {e}"));
+            }
+        }
     }
     match sp.session().await {
         Ok(session) => match session
@@ -444,29 +461,34 @@ async fn add_device(
             .get_token(&super::SCOPES.join(","))
             .await
         {
-            Ok(t) => logins.push((
-                "a token of the session",
-                Credentials::with_access_token(t.access_token),
-            )),
+            Ok(t) => {
+                tried = true;
+                let c = Credentials::with_access_token(t.access_token);
+                match start_device(server, p, &name, &k, c, cache.clone()).await {
+                    Ok(()) => return Ok(()),
+                    Err(e) => {
+                        debug!("Spotify Connect for {name}: with a token of the session: {e}");
+                        errors.push(format!("with a token of the session: {e}"));
+                    }
+                }
+            }
             Err(e) => debug!("Spotify Connect: no session token: {e}"),
         },
         Err(e) => debug!("Spotify Connect: no session: {e}"),
     }
     if let Ok(token) = sp.oauth_token().await {
-        logins.push(("the sign-in's token", Credentials::with_access_token(token)));
-    }
-    if logins.is_empty() {
-        return Err("not signed in".into());
-    }
-    let mut errors = Vec::new();
-    for (how, credentials) in logins {
-        match start_device(server, p, &name, &k, credentials, cache.clone()).await {
+        tried = true;
+        let c = Credentials::with_access_token(token);
+        match start_device(server, p, &name, &k, c, cache.clone()).await {
             Ok(()) => return Ok(()),
             Err(e) => {
-                debug!("Spotify Connect for {name}: with {how}: {e}");
-                errors.push(format!("with {how}: {e}"));
+                debug!("Spotify Connect for {name}: with the sign-in's token: {e}");
+                errors.push(format!("with the sign-in's token: {e}"));
             }
         }
+    }
+    if !tried {
+        return Err("not signed in".into());
     }
     Err(errors.join("; "))
 }
@@ -552,6 +574,7 @@ async fn start_device(
         grace_until: Mutex::new(None),
         last_end: Mutex::new(None),
         flush_on_resume: AtomicBool::new(false),
+        started: Instant::now(),
     });
     devices().insert(k, dev.clone());
     info!("Spotify Connect: device \"{name}\" ready");
