@@ -25,6 +25,11 @@ const DEFAULT_COLUMNS = {
   genre: ['genre', 'count', 'duration', 'plays'],
   format: ['format', 'count', 'duration', 'size', 'bitrate'],
   folder: ['folder', 'count', 'duration', 'size'],
+  label: ['label', 'count', 'country', 'mb_year', 'duration'],
+  country: ['country', 'count', 'mb_year', 'duration'],
+  style: ['style', 'count', 'happy', 'danceable', 'duration'],
+  theme: ['theme', 'count', 'happy', 'sad', 'duration'],
+  instrument: ['instrument', 'count', 'acoustic', 'electronic', 'duration'],
 };
 
 /** Ready-made views; saved ones follow. */
@@ -44,7 +49,16 @@ const BUILT_IN = [
     columns: ['album', 'album_artist', 'count', 'folder'] },
   { name: 'Missing years', q: 'missing:year', group: 'album', columns: ['album', 'album_artist', 'count', 'year', 'folder'] },
   { name: 'Lossy albums', q: 'lossless:no', group: 'album', columns: ['album', 'album_artist', 'count', 'format', 'bitrate'] },
+  { name: 'Labels', q: 'has:label', group: 'label', sort: [{ field: 'count', desc: true }] },
+  { name: 'Titles unlike MusicBrainz', q: 'differs:title', group: 'track',
+    columns: ['title', 'mb_title', 'artist', 'mb_artist', 'album', 'mb_match'] },
+  { name: 'Styles', q: 'has:style', group: 'style', sort: [{ field: 'count', desc: true }] },
+  { name: 'Happiest', q: 'has:happy', group: 'track', sort: [{ field: 'happy', desc: true }],
+    columns: ['title', 'artist', 'happy', 'sad', 'danceable', 'relaxed', 'style'] },
 ];
+
+/** The column chooser's sections, in order (`TableField.section`). */
+const SECTIONS = ['Tags', 'Audio', 'Listening', 'Analysis', 'MusicBrainz', 'Kind (EffNet)', 'Mood (EffNet)', 'File'];
 
 const HELP = [
   ['blue train', 'words, searched as everywhere'],
@@ -57,6 +71,8 @@ const HELP = [
   ['lossless:yes', 'yes or no'],
   ['-format:mp3  -live', 'not'],
   ['missing:mbid  has:genre', 'without, with a value'],
+  ['happy:>70  danceable:>60', 'moods and qualities (EffNet), in %'],
+  ['differs:title', 'the tag isn’t what MusicBrainz says (title, artist, album, album_artist, year)'],
   ['varies:album_artist', 'groups whose tracks differ'],
 ];
 
@@ -94,6 +110,7 @@ function show(f, v) {
     case 'bool': return v ? '✓' : '—';
     case 'size': return SIZE(v);
     case 'bitrate': return `${Math.round(v / 1000)}`;
+    case 'percent': return `${Math.round(v * 100)}%`;
     case 'real': return f.name === 'bpm' ? String(Math.round(v)) : (+v).toFixed(1);
     case 'int':
       if (f.name === 'rating') return STARS(v);
@@ -116,17 +133,27 @@ function cellNode(f, v) {
     const [a, b] = v.map((x) => show(f, x));
     return f.kind === 'int' && (f.name === 'year' || f.name === 'decade') ? `${a}–${b}` : `${a} – ${b}`;
   }
+  // a score: a bar under the number
+  if (f.kind === 'percent' && v != null) {
+    const pct = Math.max(0, Math.min(100, Math.round(v * 100)));
+    const el = h('span', { class: 'tbl-pct' }, `${pct}%`);
+    el.style.setProperty('--pct', `${pct}%`);
+    return el;
+  }
   return show(f, v);
 }
 
-const numeric = (f) => f && ['int', 'real', 'duration', 'size', 'bitrate'].includes(f.kind) && f.name !== 'year' && f.name !== 'decade';
+const numeric = (f) => f && ['int', 'real', 'duration', 'size', 'bitrate', 'percent'].includes(f.kind) && f.name !== 'year' && f.name !== 'decade';
 
 function defaultWidth(f, grouped) {
   if (!f) return 76;
   // a grouped row may show a range (1974–2018)
   if (grouped && f.agg === 'range') return f.kind === 'real' ? 120 : 104;
   if (['title', 'album', 'path', 'folder'].includes(f.name)) return f.name === 'path' || f.name === 'folder' ? 340 : 240;
-  if (['artist', 'album_artist', 'genre'].includes(f.name)) return 180;
+  if (['artist', 'album_artist', 'genre', 'mb_artist', 'mb_album_artist', 'mb_genres', 'style', 'styles'].includes(f.name)) return f.name === 'styles' ? 280 : 180;
+  if (['mb_title', 'mb_album'].includes(f.name)) return 220;
+  if (f.name.endsWith('_mbid') || f.name === 'mbid') return 290;
+  if (f.kind === 'percent') return 92;
   if (f.name === 'track' || f.name === 'disc' || f.name === 'channels' || f.name === 'bits') return 52;
   if (f.name === 'rating') return 90;
   if (f.kind === 'time') return 104;
@@ -482,9 +509,17 @@ export function render(v) {
     const chosen = [...cols];
     const list = h('ul', { class: 'tbl-colpick' });
     const renderList = () => {
-      const order = [...chosen, ...(st.group !== 'track' && !chosen.includes('count') ? ['count'] : []),
+      // shown first, in order; the rest under their sections
+      const rest = [...(st.group !== 'track' && !chosen.includes('count') ? ['count'] : []),
         ...all.map((f) => f.name).filter((n) => !chosen.includes(n))];
+      const section = (n) => (n === 'count' ? 'Tags' : F[n]?.section || 'Tags');
+      const order = [{ heading: 'Shown' }, ...chosen];
+      for (const s of SECTIONS) {
+        const these = rest.filter((n) => section(n) === s);
+        if (these.length) order.push({ heading: s }, ...these);
+      }
       list.replaceChildren(...order.map((name) => {
+        if (typeof name === 'object') return h('li', { class: 'tbl-colhead', role: 'presentation' }, name.heading);
         const on = chosen.includes(name);
         const i = chosen.indexOf(name);
         const id = `col-${name}`;
@@ -566,8 +601,13 @@ export function render(v) {
     F = Object.fromEntries(list.map((f) => [f.name, f]));
     const groups = list.filter((f) => f.next);
     const plural_ = (f) => ({ album: 'Albums', artist: 'Artists', album_artist: 'Album artists', genre: 'Genres', year: 'Years',
-      decade: 'Decades', format: 'Formats', folder: 'Folders', key: 'Keys', rating: 'Ratings', release_type: 'Release types' }[f.name] || f.label);
-    groupSel.replaceChildren(h('option', { value: 'track' }, 'Tracks'), ...groups.map((f) => h('option', { value: f.name }, plural_(f))));
+      decade: 'Decades', format: 'Formats', folder: 'Folders', key: 'Keys', rating: 'Ratings', release_type: 'Release types',
+      mb_album_artist: 'Album artists', mb_year: 'Original years', label: 'Labels', country: 'Countries',
+      release_status: 'Release statuses', medium: 'Media', mb_match: 'Album matches', mb_identified: 'Identified by',
+      style: 'Styles', theme: 'Themes', instrument: 'Instruments' }[f.name] || f.label);
+    groupSel.replaceChildren(h('option', { value: 'track' }, 'Tracks'),
+      ...SECTIONS.map((s) => [s, groups.filter((f) => f.section === s)]).filter(([, fs]) => fs.length)
+        .map(([s, fs]) => h('optgroup', { label: s }, fs.map((f) => h('option', { value: f.name }, plural_(f))))));
     groupSel.value = F[st.group]?.next ? st.group : 'track';
     st.group = groupSel.value;
     // a view's widths come with it

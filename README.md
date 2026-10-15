@@ -181,7 +181,9 @@ The script builds a release binary (the web UI is built in), installs it as
   one row per track, or per album, artist, genre, year, format, folder, … with how many
   tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A
   `field:value` query narrows it down (`genre:jazz year:1955..1965 -format:mp3`,
-  `added:<30d`, `missing:year`, `varies:album_artist`); columns are chosen, ordered, sorted
+  `added:<30d`, `missing:year`, `varies:album_artist`, `happy:>70`, `differs:title`); besides
+  the tags, columns show what MusicBrainz says (the matched release's titles, label, catalogue
+  number, country, medium, original year, …) and EffNet's style and mood scores; they are chosen, ordered, sorted
   and resized; double-click opens a row (artist → albums → tracks) or plays a track; views
   can be saved.  Rows load as they scroll into view, so a big library scrolls freely.  The
   same queries are in the API ([docs/api.md](docs/api.md#the-table)) and can be queued.

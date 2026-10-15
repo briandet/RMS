@@ -108,7 +108,7 @@ fn the_table_over_the_api() {
         .unwrap();
     assert_eq!(
         year,
-        &json!({"name": "year", "label": "Year", "kind": "int", "agg": "range", "next": "album"})
+        &json!({"name": "year", "label": "Year", "kind": "int", "section": "Tags", "agg": "range", "next": "album"})
     );
     assert!(!fields
         .as_array()

@@ -1297,8 +1297,11 @@ pub struct TableField {
     pub name: String,
     pub label: String,
     /// `text`, `int`, `real`, `duration` (seconds), `time` (Unix), `bool`, `size` (bytes),
-    /// `bitrate` (bit/s).
+    /// `bitrate` (bit/s), `percent` (0–1).
     pub kind: String,
+    /// Where it belongs: `Tags`, `Audio`, `Listening`, `Analysis`, `MusicBrainz`, `Kind (EffNet)`,
+    /// `Mood (EffNet)`, `File`.
+    pub section: String,
     /// What a grouped row shows: `same` (the value its tracks share, else varies), `sum`,
     /// `avg`, `max`, `range`.
     pub agg: String,
