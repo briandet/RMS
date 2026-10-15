@@ -147,6 +147,11 @@ export const getSpotify = () => api('spotify');
 export const getSpotifyItems = (id, p) => api(withQuery('spotify/items', { ...p, id }));
 /** Internet radio: the providers, then their menus (`id` from a BrowseItem). @returns {Promise<Page<BrowseItem>>} */
 export const getRadio = (id, p) => api(withQuery('radio', { ...p, id }));
+/** The Table (docs/api.md "The Table"). */
+export const queryTable = (body) => api('query', { method: 'POST', body, timeout: 60000 });
+export const getQueryFields = () => api('query/fields');
+export const getQueryViews = () => api('query/views');
+export const putQueryViews = (views) => api('query/views', { method: 'PUT', body: views });
 /** The ListenBrainz menu: recommendations and the playlists made for each account. */
 export const getListenBrainz = (id, p) => api(withQuery('listenbrainz', { ...p, id }));
 /** Add the ListenBrainz account a user token belongs to. @returns {Promise<import('./api-types').ListenBrainzAccount>} */
@@ -242,6 +247,8 @@ export function itemFor(key, value) {
   if (key === 'spotify_id') return { type: 'spotify', id: String(value) };
   if (key === 'radio_id') return { type: 'radio', id: String(value) };
   if (key === 'listenbrainz_id') return { type: 'listenbrainz', id: String(value) };
+  // what a Table query finds: value is {q, sort}
+  if (key === 'query') return { type: 'query', q: String(value?.q ?? ''), sort: value?.sort || [] };
   const type = ITEM_TYPES[key];
   return type ? { type, id: +value } : null;
 }

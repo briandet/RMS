@@ -177,6 +177,14 @@ The script builds a release binary (the web UI is built in), installs it as
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.
+* **The Table** (Library → Table, not in Lyrion): the library as a dense, sortable table,
+  one row per track, or per album, artist, genre, year, format, folder, … with how many
+  tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A
+  `field:value` query narrows it down (`genre:jazz year:1955..1965 -format:mp3`,
+  `added:<30d`, `missing:year`, `varies:album_artist`); columns are chosen, ordered, sorted
+  and resized; double-click opens a row (artist → albums → tracks) or plays a track; views
+  can be saved.  Rows load as they scroll into view, so a big library scrolls freely.  The
+  same queries are in the API ([docs/api.md](docs/api.md#the-table)) and can be queued.
 * **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
   treble, moving with the music, in the web UI's player menu and now playing.  They are
   played back from the player's position, so no audio goes to the browser: a library

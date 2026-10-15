@@ -19,6 +19,7 @@
 
 import { tagsPage, releaseLabel } from './tags.js';
 import { trackPage } from './track.js';
+import { render as tablePage } from './table.js';
 import {
   getAlbumRelease, getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
   getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
@@ -35,7 +36,7 @@ import {
 
 const TABS = [
   ['artists', 'Artists'], ['albums', 'Albums'], ['genres', 'Genres'], ['years', 'Years'],
-  ['folders', 'Folders'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['radio', 'Radio'],
+  ['folders', 'Folders'], ['table', 'Table'], ['playlists', 'Playlists'], ['favorites', 'Favorites'], ['radio', 'Radio'],
   ['spotify', 'Spotify'], ['listenbrainz', 'ListenBrainz'],
 ];
 /** How an artist's albums are grouped on their page, in order. */
@@ -247,6 +248,10 @@ const ROUTES = {
 
   track(v, id) {
     return trackPage(v, id);
+  },
+
+  table(v) {
+    return tablePage(v);
   },
 
   // ------------------------------------------------------------ genres

@@ -4,4 +4,5 @@ mod common;
 
 mod formats;
 mod library;
+mod table;
 mod tagwrite;

@@ -54,6 +54,9 @@ own conventions:
 | `GET /api/v1/tracks/{id}/similar?limit=&detail=` | [Track](#track)s: [similar songs](#similar-songs) |
 | `POST /api/v1/similar` | [Track](#track)s: [similar songs](#similar-songs) to several seeds |
 | `GET /api/v1/tracks/{id}/analysis` | what the [analyses](#analysis) made of a library track |
+| `POST /api/v1/query` | a page of the [Table](#the-table): tracks, or albums, artists, years, … with their columns |
+| `GET /api/v1/query/fields` | the Table's [fields](#the-table) |
+| `GET`, `PUT /api/v1/query/views` | its [saved views](#the-table) |
 | `GET /api/v1/playlists?q=` | page of `{id, name, editable}` (saved playlists) |
 | `GET /api/v1/playlists/{id}` | `{id, name, editable}` |
 | `GET /api/v1/playlists/{id}/tracks` | page of [Track](#track) |
@@ -292,7 +295,11 @@ An `Item` is one of:
 {"type": "favorite", "id": "0.1"}
 {"type": "radio", "id": "radiobrowser.1.0"}
 {"type": "spotify", "id": "1.0.3"}
+{"type": "query", "q": "genre:jazz year:1950..1959", "sort": [{"field": "year"}]}
 ```
+
+A `query` is the library tracks a [Table](#the-table) query finds, in its order (at most
+`maxPlaylistLength`).
 
 ```sh
 curl -X POST http://localhost:9000/api/v1/players/00:04:20:12:34:56/command \
@@ -541,6 +548,66 @@ tracks by what the library knows about them; every one given must hold:
 # upbeat, rated, not heard for a month, in keys that mix with A minor
 curl 'http://localhost:9000/api/v1/tracks?bpm_min=118&bpm_max=130&rating_min=60&not_played_since=1789000000&compatible_with=8A&sort=random&limit=30&detail=true'
 ```
+
+### The Table
+
+The library as a table: one row per track, or per album, artist, genre, year, … (`group`),
+with the columns asked for.  `POST /api/v1/query`:
+
+```json
+{"q": "genre:jazz year:1950..1969 -format:mp3", "group": "album",
+ "columns": ["album", "album_artist", "count", "year", "duration", "format"],
+ "sort": [{"field": "count", "desc": true}], "offset": 0, "limit": 200}
+```
+
+→
+
+```json
+{"total": 37, "offset": 0, "tracks": 412, "duration": 151023.5,
+ "rows": [{"key": 812, "label": "Kind of Blue", "drill": "album_id:812", "next": "track",
+           "cells": ["Kind of Blue", "Miles Davis", 6, 1959, 2754.1, "flc"]}, "…"]}
+```
+
+`total` counts rows; `tracks` and `duration` are the tracks the query finds.  A row of
+tracks has the track's `id`; a grouped row has what it stands for (`key`, `label`), and
+`drill`, query words that find its tracks (add them to `q`), to show in the grouping `next`.
+A grouped row's cell is the value its tracks share, `{"varies": n}` when they differ, a
+total (lengths, plays, sizes), an average (rating, loudness), the latest (added, last played)
+or `[min, max]` (years, tempo); `count` is its number of tracks.  Pages after the first come
+from the first's result, so scrolling is quick; asking from `offset` 0 again works it out
+afresh.
+
+`q` is words, searched as everywhere, and `field:value` filters, all of which must hold:
+
+| | |
+|---|---|
+| `artist:radiohead` | text contains, ignoring case (and accents in titles and names; `artist`: any of the track's artists) |
+| `album:="ok computer"` | exactly (quotes around values with spaces) |
+| `genre:jazz,soul` | any of them |
+| `year:1990..1999`, `year:>=2000`, `bpm:<100`, `rating:80` | numbers: ranges, comparisons, equality |
+| `duration:>5:00`, `size:>1gb`, `bitrate:>=320` | in their units (`90s`, `5m`; `700mb`; kbit/s) |
+| `added:<30d`, `last_played:>1y`, `added:2024`, `added:2023-06..2024` | times: less or more than an age ago (`h`, `d`, `w`, `mo`, `y`), or dates |
+| `lossless:yes`, `analyzed:no` | yes / no |
+| `-format:mp3`, `-live` | not |
+| `missing:mbid`, `has:genre` | without / with a value |
+| `varies:album_artist` | grouped rows whose tracks differ in it |
+
+A word with a colon in it is quoted: `"re:birth"`.  A mistake is a `400` whose `error` says
+what's wrong.
+
+`GET /api/v1/query/fields` lists the fields: `{"name": "year", "label": "Year", "kind": "int",
+"agg": "range", "next": "album"}`.  `kind` is `text`, `int`, `real`, `duration` (seconds),
+`time` (Unix), `bool`, `size` (bytes) or `bitrate` (bit/s); `agg` what a grouped row shows
+(`same`, `sum`, `avg`, `max`, `range`); a field with `next` can be grouped by.  The fields:
+`title`, `artist`, `album_artist`, `album`, `track`, `disc`, `genre`, `year`, `decade`,
+`duration`, `format`, `bitrate`, `sample_rate`, `bits`, `channels`, `lossless`, `bpm`, `key`,
+`rating`, `plays`, `skips`, `last_played`, `added`, `loudness`, `replay_gain`, `analyzed`,
+`release_type`, `compilation`, `mbid`, `isrc`, `size`, `folder`, `path`; and for filters only
+`id`, `album_id`, `artist_id`, `album_artist_id`, `genre_id`.
+
+`GET /api/v1/query/views` lists the saved views, and `PUT` replaces them (names must differ):
+`[{"name": "Unplayed jazz", "q": "genre:jazz plays:0", "group": "album", "columns": ["album",
+"count"], "sort": [{"field": "added", "desc": true}], "widths": {"album": 280}}]`.
 
 ### Uploading music
 

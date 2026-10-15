@@ -47,6 +47,7 @@ pub mod scrobble;
 pub mod songdata;
 pub mod sonic;
 pub mod spectrum;
+pub mod table;
 pub mod tags;
 pub mod tagwrite;
 pub mod text;
@@ -235,6 +236,8 @@ pub(crate) struct Inner {
     /// embedding (like `sound`).
     pub effnet: RwLock<Option<Arc<effnet::Models>>>,
     pub style: RwLock<Option<Arc<effnet::StyleIndex>>>,
+    /// The Table's latest results, for their next pages ([`table`]).
+    pub table: Mutex<table::Cache>,
 }
 
 #[derive(Clone)]
@@ -259,6 +262,7 @@ impl Library {
                 sound: RwLock::new(None),
                 effnet: RwLock::new(None),
                 style: RwLock::new(None),
+                table: Mutex::new(Default::default()),
             }),
         };
         {
