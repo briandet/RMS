@@ -193,6 +193,8 @@ pub async fn spotify_status(server: &Arc<Server>) -> Result<SpotifyStatus, Comma
     let r = run(server, vec!["spotify".into(), "status".into()]).await?;
     Ok(SpotifyStatus {
         signed_in: int(r.get("signed_in")).unwrap_or(0) != 0,
+        playback: int(r.get("playback")).unwrap_or(0) != 0,
+        browsing_own_app: int(r.get("browsing_own_app")).unwrap_or(0) != 0,
         user: string(r.get("user")),
         product: string(r.get("product")),
         error: string(r.get("error")),
@@ -237,6 +239,8 @@ pub async fn spotify_login(
         .filter(|c| !c.is_empty())
     {
         words.push(format!("code:{}", code));
+    } else if body.playback == Some(true) {
+        words.push("playback:1".into());
     }
     let r = run(server, words).await?;
     if let Some(e) = string(r.get("error")) {

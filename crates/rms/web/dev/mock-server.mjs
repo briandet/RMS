@@ -670,7 +670,7 @@ function route(method, parts, q, body) {
     }
     case 'spotify': {
       if (!SPOTIFY) throw new HttpError(404, 'Spotify is not available');
-      if (!id && GET) return spotify.signedIn ? { signed_in: true, user: spotify.user, product: 'premium' } : { signed_in: false };
+      if (!id && GET) return spotify.signedIn ? { signed_in: true, playback: true, browsing_own_app: false, user: spotify.user, product: 'premium' } : { signed_in: false, playback: false, browsing_own_app: false };
       if (id === 'items' && GET) {
         if (!spotify.signedIn) throw new HttpError(422, 'not signed in to Spotify');
         const list = spotifyMenu(q.get('id') || '');

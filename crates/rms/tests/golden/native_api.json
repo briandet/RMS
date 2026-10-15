@@ -1738,6 +1738,8 @@
     "status": 200,
     "body": {
       "signed_in": false,
+      "playback": false,
+      "browsing_own_app": false,
       "learn": true,
       "learned": 0
     }

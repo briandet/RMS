@@ -359,7 +359,9 @@ async fn items_query(server: Arc<Server>, mut r: Request) -> Request {
     r
 }
 
-/// `spotify login` → `url` to open; `spotify login code:<redirected address>` → `user`.
+/// `spotify login [playback:1]` → `url` to open; `spotify login code:<redirected address>` →
+/// `user`.  The sign-in is with the own client id (`spotifyClientId`) for browsing, or with
+/// Spotify's own (`playback:1`, or without an own client id) for playback and browsing.
 async fn login(server: Arc<Server>, mut r: Request) -> Request {
     let Some(sp) = super::get() else {
         r.bad_dispatch();
@@ -367,7 +369,11 @@ async fn login(server: Arc<Server>, mut r: Request) -> Request {
     };
     match r.param("code").map(str::to_string) {
         None => {
-            let id = super::client_id_or_default(&server.prefs.server.get_str("spotifyClientId"));
+            let id = if r.param("playback") == Some("1") {
+                super::DEFAULT_CLIENT_ID.to_string()
+            } else {
+                super::client_id_or_default(&server.prefs.server.get_str("spotifyClientId"))
+            };
             let url = sp.start_login(&id);
             r.add_result("url", url);
             r.add_result("redirect_uri", super::redirect_uri());
@@ -397,6 +403,8 @@ async fn status(_server: Arc<Server>, mut r: Request) -> Request {
     };
     let signed_in = sp.signed_in();
     r.add_result("signed_in", signed_in as i32);
+    r.add_result("playback", sp.playback_signed_in() as i32);
+    r.add_result("browsing_own_app", sp.browsing_own_app() as i32);
     if let Some(e) = super::connect::error() {
         r.add_result("connect_error", e);
     }
