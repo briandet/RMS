@@ -33,12 +33,16 @@ pub const VERSION: &str = "9.2.0";
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = config::Config::parse();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_new(&config.log)
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    {
+        use tracing_subscriber::prelude::*;
+        let filter = tracing_subscriber::EnvFilter::try_new(&config.log)
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer().with_filter(filter))
+            // Spotify's refused keys, whatever is logged
+            .with(crate::plugins::spotify::stream::key_refusals())
+            .init();
+    }
     info!(
         "Rusty Music Server {} (LMS protocol {})",
         env!("CARGO_PKG_VERSION"),
