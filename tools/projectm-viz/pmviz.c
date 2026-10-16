@@ -328,6 +328,17 @@ static void video_open(void) {
         *o = 0;
         snprintf(dest, sizeof dest, "'%s'", q);
     }
+    // H.264 High at the level the size and rate need (4.2 for 1080p60, else 4.1), declared:
+    // players refuse a level beyond what they decode, and the encoder's own guess may be
+    // higher
+    double mbps = (double)((opt.width + 15) / 16) * ((opt.height + 15) / 16) * opt.fps;
+    const char *level = mbps > 245760 ? "4.2" : "4.1";
+    char quality[160];
+    snprintf(quality, sizeof quality, "%s -profile:v high -level %s",
+             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
+             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
+             : "-global_quality 22",
+             level);
     char cmd[8192];
     snprintf(cmd, sizeof cmd,
              "ffmpeg -nostdin -hide_banner -loglevel warning -y %s "
@@ -336,9 +347,7 @@ static void video_open(void) {
              "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv %s %s",
              enc, opt.gpu_yuv ? "nv12" : "rgba", opt.gpu_yuv ? opt.width : opt.rw,
              opt.gpu_yuv ? opt.height : opt.rh, opt.fps, ain, vf, opt.encoder,
-             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
-             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
-             : "-global_quality 22",
+             quality,
              streaming() ? opt.fps : opt.fps * 2, amap, dest);
     fprintf(stderr, "pmviz: %s\n", cmd);
     video = popen(cmd, "w");

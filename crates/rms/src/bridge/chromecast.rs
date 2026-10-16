@@ -715,7 +715,15 @@ impl Cast {
             url: format!("{}/viz/{}.mp4?r={token}", self.io.base_url, session.id),
             format: "mp4v".into(),
             autoplay,
-            metadata: streaming(&self.server, &self.mac, &self.io.base_url).map(|(m, _)| m),
+            // generic metadata, no cover: with a music track's the receiver may show its
+            // music screen (the cover) instead of the video
+            metadata: streaming(&self.server, &self.mac, &self.io.base_url).map(|(m, _)| {
+                let mut g = json!({"metadataType": 0, "title": m["title"]});
+                if let Some(a) = m["artist"].as_str() {
+                    g["subtitle"] = json!(a);
+                }
+                g
+            }),
             duration: None,
         };
         self.viz = Some(Viz {
