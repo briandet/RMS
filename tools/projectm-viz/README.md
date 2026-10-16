@@ -101,6 +101,7 @@ The second run, with those changes:
 | 1920x1080, paced to a song, h264_vaapi | 7 of 1,800 frames repeated (0.4%); about 17 ms of each 33 ms frame used, 13 of them copying the frame out and piping it to ffmpeg |
 | 1920x1080 at 60 fps, drawing and h264_vaapi | 1.0x real time (RGBA); 1.4x with `--gpu-yuv` |
 | 1920x1080 at 60 fps, paced to a song, `--gpu-yuv` | 63 of 3,600 frames repeated (1.8%), 19% of frames over the 16.7 ms budget, mostly once the shader-heavy presets came on |
+| drawing up to 150 ms ahead, drawn at 1920x1080 / 1280x720 | **0.7% / 0.2% repeated** (51 and 16 of 7,200), 12.5% / 3.2% of frames over budget: the margin absorbs switches and spikes; only `beta106S` (17.7 ms a frame) stays over |
 | with the readback ring and writer thread, drawn at 1920x1080 / 1280x720 | 3.2% / 2.2% repeated, 9.8% / 4.3% of frames over budget: what is left is mostly preset switches, the first frame and single slow frames |
 | the same over 2 minutes and 12 presets, drawn at 1920x1080 / 1600x900 / 1280x720 | 6.2% / 3.2% / 2.3% of frames repeated: drawing fewer pixels barely helps, so most of a frame is a fixed cost (projectM's per-frame and mesh work on the CPU, and pmviz's readback and pipe, then all on one thread) |
 

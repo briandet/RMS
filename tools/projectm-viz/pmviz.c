@@ -719,13 +719,6 @@ int main(int argc, char **argv) {
         projectm_set_texture_search_paths(pm, paths, 1);
     }
     load_next(pm, false);
-    // the first preset's shaders compile on its first frame: before the clock starts
-    if (!opt.bars) {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, opt.rw, opt.rh);
-        projectm_opengl_render_frame(pm);
-        glFinish();
-    }
 
     audio_open();
     video_open();
@@ -736,6 +729,17 @@ int main(int argc, char **argv) {
     const size_t frame_bytes = opt.gpu_yuv ? (size_t)opt.width * opt.height * 3 / 2
                                            : (size_t)opt.rw * opt.rh * 4;
     if (opt.gpu_yuv) yuv_setup();
+
+    // shaders compile when first used (the first preset's, the NV12 pass's): a few warm-up
+    // frames before the clock starts
+    for (int i = 0; i < 3; i++) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, opt.rw, opt.rh);
+        if (opt.bars) draw_bars();
+        else projectm_opengl_render_frame(pm);
+        if (opt.gpu_yuv) yuv_convert();
+        glFinish();
+    }
 
     // a ring of pixel buffers: frame N is read into one while frame N-2 is copied out of
     // another, so the GPU has had two frames' time to finish it.  (--readback direct:
