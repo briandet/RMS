@@ -10,6 +10,12 @@
 //!   volume follows the app's volume while Connect drives the player.
 //! * Player → app: stopping, pausing or playing something else on the player (remote, web
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
+//! * Next and previous on the player (remote, web UI, other controllers) move through the
+//!   app's queue: the player's own queue holds only the stream.
+//! * Cast and UPnP players show a track's title and artwork from when its stream loads, so
+//!   for them the stream starts afresh for each track (after the last one's buffered audio
+//!   has played out), not gaplessly, and the bridges take what plays from the device
+//!   ([`audible`]).
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
 //!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
 //!   device id, and only with the client id they were issued for: each device keeps its own
@@ -55,6 +61,9 @@ const LEAD: Duration = Duration::from_secs(5);
 /// A track that loads this soon after the previous one ended is the next track playing on
 /// (gapless), not one picked in the app.
 const NATURAL_NEXT: Duration = Duration::from_secs(3);
+/// How long a new track waits for its own stream on a player that reloads the stream per
+/// track: the last track's buffered audio (up to the lead) plus the device opening it.
+const RELOAD_WAIT: Duration = Duration::from_secs(20);
 
 /// First wait before setting up a device that failed again; doubles up to `MAX_RETRY`.
 /// A device that lost its session counts as failed, so one that keeps losing it isn't
@@ -150,9 +159,33 @@ struct PipeSink {
     /// The stream being written: its generation, when it started, frames written to it.
     stream: Option<(u64, Instant, u64)>,
     learner: super::learn::Learner,
+    /// The player reloads the stream for each track (see [`Device::reload`]).
+    reload: bool,
+    /// The device's player events, to tell a new track from a resume when the sink starts.
+    events: super::learn::EventSlot,
 }
 
 impl PipeSink {
+    fn generation(&self) -> Option<u64> {
+        self.pipe.tx.lock().as_ref().map(|(g, _)| *g)
+    }
+
+    /// Whether a track loaded since this was last asked.
+    fn new_track(&mut self) -> bool {
+        let mut slot = self.events.lock();
+        let Some(ch) = slot.as_mut() else {
+            return false;
+        };
+        let mut changed = false;
+        while let Ok(ev) = ch.try_recv() {
+            changed |= matches!(
+                ev,
+                PlayerEvent::Loading { .. } | PlayerEvent::TrackChanged { .. }
+            );
+        }
+        changed
+    }
+
     /// Seconds of the current stream the player has played.  Never more than the time since
     /// the stream started: right after a restart the player still reports the old stream.
     fn played(&self, started: Instant) -> f64 {
@@ -166,8 +199,31 @@ impl PipeSink {
 }
 
 impl Sink for PipeSink {
+    fn start(&mut self) -> SinkResult<()> {
+        // A new track on a player that reloads the stream per track (librespot isn't gapless
+        // for it, so it stops and starts the sink between tracks): hold it until the stream
+        // restarts, so the track begins at the beginning of its own stream.  A resume after
+        // a pause goes on in the same stream.
+        if self.reload && self.new_track() {
+            let before = self.generation();
+            let deadline = Instant::now() + RELOAD_WAIT;
+            while Instant::now() < deadline {
+                let now = self.generation();
+                if now.is_some() && now != before {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+        Ok(())
+    }
+
     fn stop(&mut self) -> SinkResult<()> {
         self.learner.stopped();
+        if self.reload {
+            // (the events up to here belong to the track that ended)
+            self.new_track();
+        }
         Ok(())
     }
 
@@ -296,6 +352,62 @@ struct Device {
     flush_on_resume: AtomicBool,
     /// When it was set up.
     started: Instant,
+    /// The player shows a track's title and artwork from when its stream loads (Cast,
+    /// UPnP): the stream restarts for each track, with what plays then.
+    reload: bool,
+    /// (reload) The track loading follows the last one by itself.
+    natural: AtomicBool,
+    /// (reload) Connect started driving the player with the track loading.
+    starting: AtomicBool,
+    /// What the player plays now.
+    audible: Mutex<Option<Audible>>,
+}
+
+/// A track of the app's queue, as the player shows it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Audible {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// Image URL.
+    pub cover: Option<String>,
+}
+
+/// What the Connect stream `url` (`spotify://connect:<key>`) plays now, when known.
+pub fn audible(url: &str) -> Option<Audible> {
+    let k = url.strip_prefix("spotify://connect:")?;
+    devices().get(k)?.audible.lock().clone()
+}
+
+/// Next (`by` > 0) or previous (the start of the track, or the one before) on a player
+/// that plays its Connect stream: the app's queue moves.  False when it doesn't play one.
+pub fn skip(p: &crate::player::Player, by: i64) -> bool {
+    let playing = {
+        let c = p.controller();
+        let c = c.lock();
+        c.playing_song().map(|s| s.url().to_string())
+    };
+    let Some(k) = playing
+        .as_deref()
+        .and_then(|u| u.strip_prefix("spotify://connect:"))
+    else {
+        return false;
+    };
+    let Some(dev) = devices().get(k).map(|d| d.clone()) else {
+        return false;
+    };
+    if !dev.driving.load(Ordering::Relaxed) {
+        return false;
+    }
+    let r = if by > 0 {
+        dev.spirc.next()
+    } else {
+        dev.spirc.prev()
+    };
+    if let Err(e) = &r {
+        debug!("Spotify Connect: {}: skip: {e}", dev.name);
+    }
+    r.is_ok()
 }
 
 impl Device {
@@ -498,9 +610,11 @@ async fn start_device(
     );
     let bitrate = server.prefs.server.get_i64("spotifyBitrate").max(96) as u32;
     let normalise = server.prefs.server.get_bool("spotifyNormalisation");
+    let reload = matches!(p.state.lock().caps.model.as_str(), "chromecast" | "upnp");
     let config = PlayerConfig {
-        // one endless stream: librespot does the gapless part
-        gapless: true,
+        // one endless stream: librespot does the gapless part (except where the stream
+        // restarts for each track: the sink stops between tracks then)
+        gapless: !reload,
         ..super::stream::player_config(bitrate, normalise)
     };
     let pipe = Arc::new(Pipe::default());
@@ -508,15 +622,20 @@ async fn start_device(
     let sink_player = Arc::downgrade(p);
     let learn_events = super::learn::EventSlot::default();
     let learner = super::learn::Learner::new(Arc::downgrade(server), learn_events.clone());
+    let sink_events = super::learn::EventSlot::default();
+    let sink_events_slot = sink_events.clone();
     let player = Player::new(config, session.clone(), Box::new(NoOpVolume), move || {
         Box::new(PipeSink {
             pipe: sink_pipe,
             player: sink_player,
             stream: None,
             learner,
+            reload,
+            events: sink_events_slot,
         })
     });
     *learn_events.lock() = Some(player.get_player_event_channel());
+    *sink_events.lock() = Some(player.get_player_event_channel());
     let initial = ((p.volume().clamp(0, 100) as u32 * 65535) / 100) as u16;
     let mixer = Arc::new(PlayerMixer {
         server: Arc::downgrade(server),
@@ -559,6 +678,10 @@ async fn start_device(
         last_end: Mutex::new(None),
         flush_on_resume: AtomicBool::new(false),
         started: Instant::now(),
+        reload,
+        natural: AtomicBool::new(false),
+        starting: AtomicBool::new(false),
+        audible: Mutex::new(None),
     });
     devices().insert(k, dev.clone());
     info!("Spotify Connect: device \"{name}\" ready");
@@ -598,6 +721,19 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
                 .lock()
                 .take()
                 .is_some_and(|t| t.elapsed() < NATURAL_NEXT);
+            if dev.reload {
+                // the stream (re)starts once the track is known (`TrackChanged`), to load
+                // with its title
+                if !dev.driving.load(Ordering::Relaxed) {
+                    info!("Spotify Connect: \"{}\" starts playing", dev.name);
+                    *dev.grace_until.lock() = Some(Instant::now() + RESTART_GRACE);
+                    dev.set_driving(true);
+                    dev.starting.store(true, Ordering::Relaxed);
+                } else {
+                    dev.natural.store(natural, Ordering::Relaxed);
+                }
+                return;
+            }
             if !dev.driving.load(Ordering::Relaxed) {
                 info!("Spotify Connect: \"{}\" starts playing", dev.name);
                 dev.set_driving(true);
@@ -679,14 +815,23 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
                 .iter()
                 .max_by_key(|c| c.width)
                 .map(|c| c.url.clone());
+            let track = Audible {
+                title: audio_item.name.clone(),
+                artist,
+                album,
+                cover,
+            };
+            if dev.reload && dev.driving.load(Ordering::Relaxed) {
+                return reload_for(server, dev, track).await;
+            }
             // show it when it is heard: decoding runs ahead of the player by the lead
             let lead = dev.pipe.lead();
             let server = Arc::downgrade(server);
-            let title = audio_item.name.clone();
+            let dev = dev.clone();
             crate::util::spawn(async move {
                 tokio::time::sleep(lead).await;
                 if let Some(server) = server.upgrade() {
-                    now_playing(&server, mac, &title, &artist, &album, cover);
+                    now_playing(&server, &dev, &track);
                 }
             });
         }
@@ -694,30 +839,65 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
     }
 }
 
+/// A new track on a player that reloads the stream per track: restart the stream with it,
+/// right away when it was picked in the app, or once the last track's buffered audio has
+/// played out when it follows by itself.  (The new track waits for its stream: see
+/// [`PipeSink::start`].)
+async fn reload_for(server: &Arc<Server>, dev: &Arc<Device>, track: Audible) {
+    let natural = dev.natural.swap(false, Ordering::Relaxed);
+    let starting = dev.starting.swap(false, Ordering::Relaxed);
+    if natural {
+        let lead = dev.pipe.lead();
+        let server = Arc::downgrade(server);
+        let dev = dev.clone();
+        crate::util::spawn(async move {
+            tokio::time::sleep(lead).await;
+            let Some(server) = server.upgrade() else {
+                return;
+            };
+            if !dev.driving.load(Ordering::Relaxed) {
+                return;
+            }
+            now_playing(&server, &dev, &track);
+            if dev.playing.load(Ordering::Relaxed) {
+                restart(&server, &dev).await;
+                now_playing(&server, &dev, &track);
+            } else {
+                dev.flush_on_resume.store(true, Ordering::Relaxed);
+            }
+        });
+    } else if starting || dev.playing.load(Ordering::Relaxed) {
+        now_playing(server, dev, &track);
+        restart(server, dev).await;
+        // (the new stream is a new queue entry)
+        now_playing(server, dev, &track);
+    } else {
+        // picked while paused: the stream restarts on resume
+        now_playing(server, dev, &track);
+        dev.flush_on_resume.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Show the Connect track on the player (like a radio stream's title).
-fn now_playing(
-    server: &Arc<Server>,
-    mac: MacAddress,
-    title: &str,
-    artist: &str,
-    album: &str,
-    cover: Option<String>,
-) {
-    let Some(p) = server.player(&mac) else { return };
+fn now_playing(server: &Arc<Server>, dev: &Device, track: &Audible) {
+    *dev.audible.lock() = Some(track.clone());
+    let Some(p) = server.player(&dev.mac) else {
+        return;
+    };
     let c = p.controller();
     let mut c = c.lock();
     let master = c.master_id;
-    let ours = url(&mac);
+    let ours = url(&dev.mac);
     let Some(song) = c.queue.iter_mut().find(|s| s.url() == ours) else {
         return;
     };
-    song.remote_meta.title = Some(title.to_string());
-    song.remote_meta.artist = Some(artist.to_string()).filter(|a| !a.is_empty());
-    song.remote_meta.album = Some(album.to_string()).filter(|a| !a.is_empty());
-    song.remote_meta.cover = cover;
+    song.remote_meta.title = Some(track.title.clone());
+    song.remote_meta.artist = Some(track.artist.clone()).filter(|a| !a.is_empty());
+    song.remote_meta.album = Some(track.album.clone()).filter(|a| !a.is_empty());
+    song.remote_meta.cover = track.cover.clone();
     server.notifier.notify_owned(
         Some(master),
-        vec!["playlist".into(), "newsong".into(), title.to_string()],
+        vec!["playlist".into(), "newsong".into(), track.title.clone()],
     );
 }
 
@@ -748,6 +928,8 @@ mod tests {
             player: Weak::new(),
             stream: None,
             learner: crate::plugins::spotify::learn::Learner::new(Weak::new(), Default::default()),
+            reload: false,
+            events: Default::default(),
         };
         let mut conv = Converter::new(None);
         let t = Instant::now();
@@ -783,11 +965,68 @@ mod tests {
             player: Weak::new(),
             stream: None,
             learner: crate::plugins::spotify::learn::Learner::new(Weak::new(), Default::default()),
+            reload: false,
+            events: Default::default(),
         };
         let t = Instant::now();
         sink.write(second(), &mut Converter::new(None)).unwrap();
         assert!(t.elapsed() < Duration::from_secs(1));
         assert!(pipe.tx.lock().is_none(), "the closed stream is forgotten");
+    }
+
+    fn reload_sink(
+        pipe: &Arc<Pipe>,
+    ) -> (PipeSink, tokio::sync::mpsc::UnboundedSender<PlayerEvent>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let events = crate::plugins::spotify::learn::EventSlot::default();
+        *events.lock() = Some(rx);
+        let sink = PipeSink {
+            pipe: pipe.clone(),
+            player: Weak::new(),
+            stream: None,
+            learner: crate::plugins::spotify::learn::Learner::new(Weak::new(), Default::default()),
+            reload: true,
+            events,
+        };
+        (sink, tx)
+    }
+
+    #[test]
+    fn a_new_track_waits_for_its_own_stream_where_streams_reload_per_track() {
+        let pipe = Arc::new(Pipe::default());
+        let (old_tx, _old_rx) = sync_channel::<Vec<i16>>(4);
+        *pipe.tx.lock() = Some((3, old_tx));
+        let (mut sink, events) = reload_sink(&pipe);
+        // a resume (no new track) goes on in the same stream at once
+        let t = Instant::now();
+        sink.start().unwrap();
+        assert!(t.elapsed() < Duration::from_millis(100));
+        // a new track: held until the stream restarts
+        sink.stop().unwrap();
+        events
+            .send(PlayerEvent::Loading {
+                play_request_id: 2,
+                track_id: librespot_core::SpotifyUri::from_uri(
+                    "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
+                )
+                .unwrap(),
+                position_ms: 0,
+            })
+            .unwrap();
+        let p = pipe.clone();
+        let opener = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            let (tx, rx) = sync_channel::<Vec<i16>>(4);
+            *p.tx.lock() = Some((4, tx));
+            rx
+        });
+        let t = Instant::now();
+        sink.start().unwrap();
+        let waited = t.elapsed();
+        let _rx = opener.join().unwrap();
+        assert!(waited >= Duration::from_millis(250), "{waited:?}");
+        assert!(waited < Duration::from_secs(5), "{waited:?}");
+        assert_eq!(sink.generation(), Some(4));
     }
 
     #[test]

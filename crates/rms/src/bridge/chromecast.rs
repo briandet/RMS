@@ -930,15 +930,7 @@ impl Cast {
 /// The Cast metadata (a music track) of what the server is about to stream to the
 /// player, and its length from where the stream starts.
 fn streaming(server: &Server, mac: &MacAddress, base_url: &str) -> Option<(Value, Option<f64>)> {
-    let p = server.player(mac)?;
-    let (_, spec) = p.pending_stream()?;
-    let (entry, song) = {
-        let c = p.controller();
-        let c = c.lock();
-        let song = c.queue.iter().find(|s| s.id == spec.song_id)?.clone();
-        (c.playlist.song(song.index)?.clone(), song)
-    };
-    let t = crate::api::state::track(server, &entry, Some(&song));
+    let t = super::now_streaming(server, mac, base_url)?;
     let mut meta = json!({"metadataType": 3, "title": t.title});
     if let Some(a) = &t.artist {
         meta["artist"] = json!(a);
@@ -950,13 +942,9 @@ fn streaming(server: &Server, mac: &MacAddress, base_url: &str) -> Option<(Value
         meta["trackNumber"] = json!(n);
     }
     if let Some(art) = &t.artwork {
-        meta["images"] = json!([{"url": format!("{base_url}/{art}_500x500_o")}]);
+        meta["images"] = json!([{ "url": art }]);
     }
-    let duration = t
-        .duration
-        .map(|d| d - song.start_offset)
-        .filter(|d| *d > 0.0);
-    Some((meta, duration))
+    Some((meta, t.duration))
 }
 
 /// The MIME type a Cast receiver expects for an LMS format code.

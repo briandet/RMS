@@ -165,6 +165,8 @@ async fn add(
         accurate: false,
     };
     let http = server.http.clone();
+    let srv = server.clone();
+    let mac = identity.mac;
     let ip = url::Url::parse(location)
         .ok()
         .and_then(|u| u.host_str().map(|h| h.trim_matches(['[', ']']).to_string()))
@@ -172,7 +174,7 @@ async fn add(
     devices::found(
         server,
         Device { key, identity, ip },
-        Box::new(move |io| Box::pin(drive(http, renderer, io))),
+        Box::new(move |io| Box::pin(drive(http, renderer, srv, mac, io))),
     );
 }
 
@@ -432,16 +434,53 @@ fn parse_time(t: &str) -> Option<f64> {
 }
 
 /// DIDL-Lite metadata for a track: renderers want to know what kind of item and stream
-/// they are given before they fetch it.
-fn didl(uri: &str, mime: &str) -> String {
+/// they are given before they fetch it, and show its title, artist and artwork.
+fn didl(uri: &str, mime: &str, meta: Option<&super::NowStreaming>) -> String {
+    let mut item = String::new();
+    let title = meta
+        .map(|m| m.title.as_str())
+        .filter(|t| !t.is_empty())
+        .unwrap_or("Rusty Music Server");
+    item.push_str(&format!("<dc:title>{}</dc:title>", escape(title)));
+    let mut duration = String::new();
+    if let Some(m) = meta {
+        if let Some(a) = &m.artist {
+            item.push_str(&format!(
+                "<dc:creator>{0}</dc:creator><upnp:artist>{0}</upnp:artist>",
+                escape(a.as_str())
+            ));
+        }
+        if let Some(a) = &m.album {
+            item.push_str(&format!("<upnp:album>{}</upnp:album>", escape(a.as_str())));
+        }
+        if let Some(n) = m.track_number {
+            item.push_str(&format!(
+                "<upnp:originalTrackNumber>{n}</upnp:originalTrackNumber>"
+            ));
+        }
+        if let Some(art) = &m.artwork {
+            item.push_str(&format!(
+                "<upnp:albumArtURI>{}</upnp:albumArtURI>",
+                escape(art.as_str())
+            ));
+        }
+        if let Some(d) = m.duration {
+            let s = d.round() as u64;
+            duration = format!(
+                " duration=\"{}:{:02}:{:02}.000\"",
+                s / 3600,
+                s / 60 % 60,
+                s % 60
+            );
+        }
+    }
     format!(
         "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\" \
          xmlns:dc=\"http://purl.org/dc/elements/1.1/\" \
          xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\">\
-         <item id=\"1\" parentID=\"0\" restricted=\"1\">\
-         <dc:title>Rusty Music Server</dc:title>\
+         <item id=\"1\" parentID=\"0\" restricted=\"1\">{item}\
          <upnp:class>object.item.audioItem.musicTrack</upnp:class>\
-         <res protocolInfo=\"http-get:*:{}:*\">{}</res></item></DIDL-Lite>",
+         <res protocolInfo=\"http-get:*:{}:*\"{duration}>{}</res></item></DIDL-Lite>",
         escape(mime),
         escape(uri)
     )
@@ -452,6 +491,8 @@ fn didl(uri: &str, mime: &str) -> String {
 struct Track {
     uri: String,
     mime: String,
+    /// What it plays (title, artist, artwork), from when it was given.
+    meta: Option<super::NowStreaming>,
 }
 
 /// Where the driver is with the current track.
@@ -483,6 +524,8 @@ struct Status {
 
 struct Driver {
     http: reqwest::Client,
+    server: Arc<Server>,
+    mac: slimproto::MacAddress,
     renderer: Renderer,
     base_url: String,
     reports: tokio::sync::mpsc::Sender<FromRenderer>,
@@ -509,7 +552,13 @@ struct Driver {
 
 /// Play what the bridge asks for on the renderer until the bridge ends or the renderer
 /// stops answering.
-async fn drive(http: reqwest::Client, renderer: Renderer, io: DriverIo) {
+async fn drive(
+    http: reqwest::Client,
+    renderer: Renderer,
+    server: Arc<Server>,
+    mac: slimproto::MacAddress,
+    io: DriverIo,
+) {
     let DriverIo {
         mut commands,
         reports,
@@ -518,6 +567,8 @@ async fn drive(http: reqwest::Client, renderer: Renderer, io: DriverIo) {
     let name = renderer.name.clone();
     let mut d = Driver {
         http,
+        server,
+        mac,
         renderer,
         base_url,
         reports,
@@ -610,11 +661,12 @@ impl Driver {
             let separator = if url.contains('?') { '&' } else { '?' };
             format!("{}{url}{separator}load={}", self.base_url, self.loads)
         };
-        Track { uri, mime }
+        let meta = super::now_streaming(&self.server, &self.mac, &self.base_url);
+        Track { uri, mime, meta }
     }
 
     async fn set_uri(&mut self, track: &Track) -> Result<(), SoapError> {
-        let metadata = didl(&track.uri, &track.mime);
+        let metadata = didl(&track.uri, &track.mime, track.meta.as_ref());
         let args = [
             ("CurrentURI", track.uri.as_str()),
             ("CurrentURIMetaData", metadata.as_str()),
@@ -679,7 +731,7 @@ impl Driver {
             }
             ToRenderer::Preload { url, format, .. } => {
                 let track = self.track(&url, &format);
-                let metadata = didl(&track.uri, &track.mime);
+                let metadata = didl(&track.uri, &track.mime, track.meta.as_ref());
                 let args = [
                     ("NextURI", track.uri.as_str()),
                     ("NextURIMetaData", metadata.as_str()),
@@ -956,8 +1008,42 @@ mod tests {
     }
 
     #[test]
+    fn metadata_names_the_track() {
+        let meta = crate::bridge::NowStreaming {
+            title: "Rock & Roll".into(),
+            artist: Some("Led <Zeppelin>".into()),
+            album: Some("IV".into()),
+            track_number: Some(4),
+            artwork: Some("https://i.scdn.co/image/ab?x=1&y=2".into()),
+            duration: Some(3725.4),
+        };
+        let d = didl("http://h/s", "audio/flac", Some(&meta));
+        assert!(d.contains("<dc:title>Rock &amp; Roll</dc:title>"), "{d}");
+        assert!(
+            d.contains("<upnp:artist>Led &lt;Zeppelin&gt;</upnp:artist>"),
+            "{d}"
+        );
+        assert!(
+            d.contains("<dc:creator>Led &lt;Zeppelin&gt;</dc:creator>"),
+            "{d}"
+        );
+        assert!(d.contains("<upnp:album>IV</upnp:album>"), "{d}");
+        assert!(d.contains("<upnp:originalTrackNumber>4</upnp:originalTrackNumber>"));
+        assert!(
+            d.contains(
+                "<upnp:albumArtURI>https://i.scdn.co/image/ab?x=1&amp;y=2</upnp:albumArtURI>"
+            ),
+            "{d}"
+        );
+        assert!(d.contains("duration=\"1:02:05.000\""), "{d}");
+        // without: a title all the same
+        assert!(didl("http://h/s", "audio/flac", None)
+            .contains("<dc:title>Rusty Music Server</dc:title>"));
+    }
+
+    #[test]
     fn soap_requests_escape_their_arguments() {
-        let metadata = didl("http://h/s?a=1&b=2", "audio/flac");
+        let metadata = didl("http://h/s?a=1&b=2", "audio/flac", None);
         assert!(metadata.contains(
             "<res protocolInfo=\"http-get:*:audio/flac:*\">http://h/s?a=1&amp;b=2</res>"
         ));
