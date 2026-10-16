@@ -866,6 +866,50 @@ learn: boolean,
  */
 learned: number, };
 
+export type LearnedTracks = { items: Array<LearnedTrack>, };
+
+export type LearnedTrack = { 
+/**
+ * What plays it (`spotify://track:<id>`).
+ */
+url: string, title: string, 
+/**
+ * The artists' names, joined.
+ */
+artist: string, album?: string, year?: number, 
+/**
+ * Seconds.
+ */
+duration?: number, 
+/**
+ * Image URL.
+ */
+artwork?: string, bpm?: number, 
+/**
+ * Camelot key (`8B`).
+ */
+key?: string, 
+/**
+ * Integrated loudness, LUFS.
+ */
+loudness?: number, 
+/**
+ * MusicBrainz genres.
+ */
+genres: Array<string>, 
+/**
+ * The most likely Discogs style, by its sound.
+ */
+style?: string, 
+/**
+ * The library has a copy of it.
+ */
+in_library: boolean, 
+/**
+ * When it was learned, Unix seconds.
+ */
+learned_at: number, };
+
 export type SpotifyQueue = { 
 /**
  * The player plays its Spotify Connect device (else `items` is empty).

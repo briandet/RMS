@@ -69,6 +69,62 @@ pub fn mac_for(id: &str) -> MacAddress {
     MacAddress([0x02, d[0], d[1], d[2], d[3], d[4]])
 }
 
+/// What the server is about to stream to a bridged player, for renderers that show it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NowStreaming {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<i64>,
+    /// Absolute image URL.
+    pub artwork: Option<String>,
+    /// Its length from where the stream starts, when known.
+    pub duration: Option<f64>,
+}
+
+/// What the player `mac` is about to be streamed (its pending stream).  A Spotify Connect
+/// stream is the track its device plays.
+pub fn now_streaming(server: &Server, mac: &MacAddress, base_url: &str) -> Option<NowStreaming> {
+    let p = server.player(mac)?;
+    let (_, spec) = p.pending_stream()?;
+    let (entry, song) = {
+        let c = p.controller();
+        let c = c.lock();
+        let song = c.queue.iter().find(|s| s.id == spec.song_id)?.clone();
+        (c.playlist.song(song.index)?.clone(), song)
+    };
+    if let Some(a) = crate::plugins::spotify::connect::audible(&entry.url) {
+        let some = |s: String| Some(s).filter(|s| !s.is_empty());
+        return Some(NowStreaming {
+            title: a.title,
+            artist: some(a.artist),
+            album: some(a.album),
+            track_number: None,
+            artwork: a.cover,
+            duration: None,
+        });
+    }
+    let t = crate::api::state::track(server, &entry, Some(&song));
+    let artwork = t.artwork.map(|art| {
+        if art.starts_with("http://") || art.starts_with("https://") {
+            art
+        } else {
+            format!("{base_url}/{art}_500x500_o")
+        }
+    });
+    Some(NowStreaming {
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        track_number: t.track_number,
+        artwork,
+        duration: t
+            .duration
+            .map(|d| d - song.start_offset)
+            .filter(|d| *d > 0.0),
+    })
+}
+
 /// What the bridge asks of the renderer.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]

@@ -125,7 +125,7 @@ pub fn router() -> Router<Arc<Server>> {
         .route("/api/v1/spotify", get(get_spotify).patch(patch_spotify))
         .route(
             "/api/v1/spotify/learned",
-            axum::routing::delete(delete_spotify_learned),
+            get(get_spotify_learned).delete(delete_spotify_learned),
         )
         .route("/api/v1/spotify/items", get(get_spotify_items))
         .route("/api/v1/spotify/login", post(post_spotify_login))
@@ -1001,6 +1001,10 @@ async fn patch_spotify(State(s): State<Arc<Server>>, Json(b): Json<SpotifyPatch>
         return no_spotify();
     }
     reply(services::spotify_patch(&s, b).await)
+}
+
+async fn get_spotify_learned(State(s): State<Arc<Server>>) -> Response {
+    reply(services::spotify_learned(&s).await)
 }
 
 async fn delete_spotify_learned(State(s): State<Arc<Server>>) -> Response {

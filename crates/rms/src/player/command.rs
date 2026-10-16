@@ -562,6 +562,12 @@ fn jump(
     noplay: bool,
     seek: Option<f64>,
 ) -> Outcome {
+    // the queue holds only a Spotify Connect stream: the app's queue moves instead
+    if let Position::By(n) = to {
+        if crate::plugins::spotify::connect::skip(p, n) {
+            return Outcome::done();
+        }
+    }
     let c = ctrl(p);
     let count = c.lock().playlist.len();
     if count == 0 {

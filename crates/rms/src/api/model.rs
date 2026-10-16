@@ -1450,6 +1450,50 @@ pub struct SpotifyStatus {
     pub learned: u64,
 }
 
+/// The tracks learned from Spotify (`GET /api/v1/spotify/learned`), the latest first.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+pub struct LearnedTracks {
+    pub items: Vec<LearnedTrack>,
+}
+
+/// A track played from a streaming service whose sound was analysed, for mixes.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(optional_fields)]
+pub struct LearnedTrack {
+    /// What plays it (`spotify://track:<id>`).
+    pub url: String,
+    pub title: String,
+    /// The artists' names, joined.
+    pub artist: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub year: Option<i64>,
+    /// Seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f64>,
+    /// Image URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artwork: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
+    /// Camelot key (`8B`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Integrated loudness, LUFS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loudness: Option<f64>,
+    /// MusicBrainz genres.
+    pub genres: Vec<String>,
+    /// The most likely Discogs style, by its sound.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    /// The library has a copy of it.
+    pub in_library: bool,
+    /// When it was learned, Unix seconds.
+    pub learned_at: i64,
+}
+
 /// `GET /api/v1/players/{id}/spotify-queue`: what Spotify plays next on the player's
 /// Spotify Connect device.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]

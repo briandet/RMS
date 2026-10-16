@@ -15,11 +15,13 @@
 //   #/library/favorites/<id>?name=  favorites sub-folder
 //   #/library/radio/<id>?name=      radio provider / menu level (`radiobrowser.0_<term>` for a search)
 //   #/library/spotify/<id>?name=    Spotify menu level (item id; `<n>_<term>` for a search)
+//   #/library/spotify-learned       the Spotify tracks learned for mixes, as a table
 //   #/library/listenbrainz/<id>?name=  recommendations / a playlist made for you
 
 import { tagsPage, releaseLabel } from './tags.js';
 import { trackPage } from './track.js';
 import { render as tablePage } from './table.js';
+import { learnedPage } from './learned.js';
 import {
   getAlbumRelease, getArtists, getArtist, getAlbums, getAlbum, getGenres, getYears, getFolder, getPlaylists,
   getPlaylist, getPlaylistTracks, getFavorites, getRadio, getSpotify, getSpotifyItems, sizedArtwork,
@@ -53,7 +55,7 @@ function releaseGroup(al, artistId) {
   return 'other';
 }
 
-const TAB_OF = { artist: 'artists', album: 'albums', tags: 'albums', track: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
+const TAB_OF = { 'spotify-learned': 'spotify', artist: 'artists', album: 'albums', tags: 'albums', track: 'albums', genre: 'genres', year: 'years', playlist: 'playlists' };
 
 const NO_MUSIC = () => h('div', {}, h('p', {}, 'Your library is empty.'),
   h('p', { class: 'muted' }, 'Add a music folder in ', h('a', { href: '#/settings' }, 'Settings'), ' and run a rescan.'));
@@ -473,6 +475,11 @@ const ROUTES = {
   },
 
   // ------------------------------------------------------------ spotify
+  'spotify-learned'(v) {
+    v.crumbs([crumbRoot('spotify'), { label: 'Learned tracks' }]);
+    return learnedPage(v);
+  },
+
   async spotify(v, id) {
     const trail = id ? trails.spotify.get(String(id)) || [{ id, name: v.query.get('name') || 'Spotify' }] : [];
     v.crumbs([crumbRoot('spotify'), ...trail.map((t) => ({ label: t.name, href: `#/library/spotify/${enc(t.id)}?name=${enc(t.name)}` }))]);
@@ -492,6 +499,10 @@ const ROUTES = {
           h('p', {}, 'Not signed in to Spotify.'),
           h('p', { class: 'muted' }, 'Sign in under ', h('a', { href: '#/settings' }, 'Settings → Spotify'), ' (Spotify Premium is required).'))));
         return;
+      }
+      if (st.learned) {
+        v.body.append(h('p', { class: 'lt-link' }, h('a', { href: '#/library/spotify-learned' },
+          icon('columns'), `${plural(st.learned, 'track')} learned for mixes`)));
       }
     }
     serviceMenu(v, id, {

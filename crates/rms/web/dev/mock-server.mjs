@@ -115,6 +115,16 @@ const spotifyTop = [
   { id: '1', name: 'My Playlists', type: 'folder', playable: false },
   { id: '2', name: 'Spotify Connect works with the official apps', type: 'text', playable: false },
 ];
+const spotifyLearned = [
+  ['Signal Fire', 'Aurora Lane', 'Coastlines', 2019, 214, 122.1, '8B', -8.4, ['synth-pop'], 'Synth-pop', false],
+  ['Paper Moon', 'The Velvet Hours, June Park', 'Paper Moon', 2021, 187, 96.0, '5A', -10.2, ['indie pop', 'dream pop'], 'Dream Pop', true],
+  ['Northern Lights', 'Kestrel', 'Polar', 2016, 341, 174.0, '11A', -6.9, ['drum and bass'], 'Drum n Bass', false],
+  ['Glass Harbor', 'Mira Sol', 'Tidewater', 2023, 256, 84.5, '3B', -12.8, [], 'Downtempo', false],
+  ['Copper Sky', 'Low Orbit', 'Copper Sky', 2012, 402, 128.0, '9A', -7.5, ['techno', 'minimal techno'], 'Minimal', true],
+].map(([title, artist, album, year, duration, bpm, key, loudness, genres, style, in_library], i) => ({
+  url: `spotify://track:learned${i}`, title, artist, album, year, duration, bpm, key, loudness, genres, style, in_library,
+  artwork: `imageproxy/sp${i % 3}/image`, learned_at: Math.floor(Date.now() / 1000) - i * 86400 * 3,
+}));
 const spotifyPlaylists = ['Discover Weekly', 'Release Radar', 'Liked Songs'].map((name, i) => ({ id: `1.${i}`, name, type: 'folder', playable: true, artwork: `imageproxy/sp${i}/image` }));
 function spotifyTracks(prefix, names) {
   return names.map((name, i) => ({ id: `${prefix}.${i}`, name, type: 'audio', playable: true, url: `spotify://track:mock${prefix}${i}` }));
@@ -675,7 +685,9 @@ function route(method, parts, q, body) {
     }
     case 'spotify': {
       if (!SPOTIFY) throw new HttpError(404, 'Spotify is not available');
-      if (!id && GET) return spotify.signedIn ? { signed_in: true, playback: true, browsing_own_app: false, user: spotify.user, product: 'premium' } : { signed_in: false, playback: false, browsing_own_app: false };
+      if (!id && GET) return spotify.signedIn ? { signed_in: true, playback: true, browsing_own_app: false, user: spotify.user, product: 'premium', learn: true, learned: spotifyLearned.length } : { signed_in: false, playback: false, browsing_own_app: false, learn: true, learned: spotifyLearned.length };
+      if (id === 'learned' && GET) return { items: spotifyLearned };
+      if (id === 'learned' && method === 'DELETE') { spotifyLearned.length = 0; return {}; }
       if (id === 'items' && GET) {
         if (!spotify.signedIn) throw new HttpError(422, 'not signed in to Spotify');
         const list = spotifyMenu(q.get('id') || '');

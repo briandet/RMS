@@ -3,13 +3,14 @@
 use crate::control::request::Source;
 use crate::server::Server;
 use axum::body::Bytes;
-use axum::extract::{Query, State};
+use axum::extract::{ConnectInfo, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, info};
 
 /// Command array elements arrive as JSON values; LMS stringifies them (numbers via Perl).
 pub fn value_to_token(v: &Value) -> String {
@@ -31,15 +32,72 @@ pub fn value_to_token(v: &Value) -> String {
     }
 }
 
+/// A request that got no answer, logged once per sender and request: a device that asks
+/// for something RMS doesn't do (a controller app, a player's own app) shows up in the log.
+pub fn unanswered(via: &str, peer: Option<SocketAddr>, what: &str) {
+    let from = sender(peer);
+    let what: String = what.chars().take(300).collect();
+    once(
+        format!("{via} {from} {what}"),
+        format!("{via} request from {from} not answered: {what}"),
+    );
+}
+
+/// The first request of a sender (to see which devices use which interface).
+pub fn first_contact(via: &str, peer: Option<SocketAddr>, what: &str) {
+    let from = sender(peer);
+    let what: String = what.chars().take(300).collect();
+    once(
+        format!("{via} {from}"),
+        format!("{via}: first request from {from}: {what}"),
+    );
+}
+
+fn sender(peer: Option<SocketAddr>) -> String {
+    peer.map(|p| p.ip().to_string())
+        .unwrap_or_else(|| "?".into())
+}
+
+/// Log `line` at info level the first time `key` comes up (up to a limit).
+fn once(key: String, line: String) {
+    use std::sync::{Mutex, OnceLock};
+    static SEEN: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    let mut seen = SEEN
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if seen.len() < 1000 && seen.insert(key) {
+        info!("{line}");
+    }
+}
+
 /// Execute one JSON-RPC body; `None` means "close without response" in LMS.
-pub async fn execute_body(server: &Arc<Server>, body: &[u8]) -> Option<Value> {
-    let req: Value = serde_json::from_slice(body).ok()?;
+pub async fn execute_body(
+    server: &Arc<Server>,
+    body: &[u8],
+    peer: Option<SocketAddr>,
+) -> Option<Value> {
+    let unanswered = |why: &str| {
+        let text = String::from_utf8_lossy(body);
+        unanswered("JSON-RPC", peer, &format!("{why}: {text}"));
+    };
+    let Ok(req) = serde_json::from_slice::<Value>(body) else {
+        unanswered("not JSON");
+        return None;
+    };
     if req.get("method").and_then(|m| m.as_str()) != Some("slim.request") {
+        unanswered("not slim.request");
         return None;
     }
-    let params = req.get("params")?.as_array()?;
+    let Some(params) = req.get("params").and_then(|p| p.as_array()) else {
+        unanswered("no params");
+        return None;
+    };
     let player = params.first().map(value_to_token).unwrap_or_default();
-    let cmd = params.get(1)?.as_array()?;
+    let Some(cmd) = params.get(1).and_then(|c| c.as_array()) else {
+        unanswered("no command");
+        return None;
+    };
     let tokens: Vec<String> = cmd.iter().map(value_to_token).collect();
     let p = if player.is_empty() {
         None
@@ -56,15 +114,28 @@ pub async fn execute_body(server: &Arc<Server>, body: &[u8]) -> Option<Value> {
         .dispatch
         .parse(p.as_ref().map(|p| p.id), raw, connected, &tokens);
     r.source = Source::JsonRpc;
+    let masked = crate::control::request::mask_secrets(&tokens);
     debug!(
-        "jsonrpc {} {:?}",
+        "jsonrpc from {} {} {:?}",
+        peer.map(|p| p.ip().to_string()).unwrap_or_default(),
         player,
-        crate::control::request::mask_secrets(&tokens)
+        masked
     );
+    first_contact("JSON-RPC", peer, &format!("{player} {masked:?}"));
     let r = crate::control::dispatch::execute(server, r).await;
     if r.status != crate::control::request::Status::Done
         && r.status != crate::control::request::Status::Dispatchable
     {
+        let who = if p.is_none() && !player.is_empty() {
+            " (unknown player)"
+        } else {
+            ""
+        };
+        crate::web::jsonrpc::unanswered(
+            "JSON-RPC",
+            peer,
+            &format!("{:?}{who} {player} {masked:?}", r.status),
+        );
         return None;
     }
     let mut out = serde_json::Map::new();
@@ -94,20 +165,27 @@ fn respond(v: Option<Value>) -> Response {
     }
 }
 
+/// Who sent the request (absent in tests that call the router directly).
+pub fn peer(ext: &axum::http::Extensions) -> Option<SocketAddr> {
+    ext.get::<ConnectInfo<SocketAddr>>().map(|c| c.0)
+}
+
 pub async fn handle_post(
     State(server): State<Arc<Server>>,
+    ext: axum::http::Extensions,
     _headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    respond(execute_body(&server, &body).await)
+    respond(execute_body(&server, &body, peer(&ext)).await)
 }
 
 pub async fn handle_get(
     State(server): State<Arc<Server>>,
+    ext: axum::http::Extensions,
     Query(q): Query<HashMap<String, String>>,
 ) -> Response {
     match q.get("request") {
-        Some(r) => respond(execute_body(&server, r.as_bytes()).await),
+        Some(r) => respond(execute_body(&server, r.as_bytes(), peer(&ext)).await),
         None => (StatusCode::BAD_REQUEST, "").into_response(),
     }
 }

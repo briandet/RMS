@@ -804,6 +804,37 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .tbl-varies { color: var(--muted); font-style: italic; }
 .tbl-loading { color: var(--muted); }
 .tbl-empty { padding: 24px; text-align: center; }
+/* the Spotify tracks learned for mixes (views/learned.js) */
+.lt-link { margin: 0 0 8px; }
+.lt-link a { display: inline-flex; align-items: center; gap: 6px; }
+.lt-link .icon { width: 18px; height: 18px; }
+.lt-scroll {
+  overflow: auto; max-height: calc(100vh - 220px); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface);
+}
+.lt-table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+.lt-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: .78rem; color: var(--muted); text-align: left; padding: 7px 10px;
+  white-space: nowrap; cursor: pointer; user-select: none;
+}
+.lt-table th:hover { color: var(--text); }
+.lt-table th:focus-visible, .lt-table tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lt-table td {
+  padding: 3px 10px; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+}
+.lt-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lt-table tbody tr { cursor: pointer; }
+.lt-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.lt-table tbody tr:hover { background: var(--surface-2); }
+.lt-table .lt-art { width: 32px; padding: 3px 4px 3px 8px; cursor: default; }
+.lt-cover { width: 28px; height: 28px; border-radius: 3px; }
+.lt-table .lt-yes { color: var(--accent); text-align: center; }
+.lt-table .lt-end { width: 36px; padding: 0 4px; cursor: default; }
+.lt-table .more-btn { width: 28px; height: 28px; opacity: 0; }
+.lt-table tr:hover .more-btn, .lt-table tr:focus-within .more-btn, .lt-table .more-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .lt-table .more-btn { opacity: 1; } }
+
 .tbl-dialog { width: min(440px, calc(100vw - 32px)); }
 .tbl-colpick { list-style: none; margin: 0 0 8px; padding: 0; max-height: min(60vh, 520px); overflow: auto; }
 .tbl-colpick li { display: flex; align-items: center; gap: 8px; padding: 3px 0; }

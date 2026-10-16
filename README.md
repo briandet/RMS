@@ -403,7 +403,9 @@ nothing is streamed just to be analysed.  Similar Songs and Create Mix then pick
 Spotify tracks alongside your files while you're signed in.  A Spotify track the library has
 too (the same ISRC or audio fingerprint, or the same artist and title at the same length)
 plays from your file instead.  With *Normalise volume* on, the loudness Spotify applies
-affects one of the measures slightly.
+affects one of the measures slightly.  Library → Spotify → *learned for mixes* (or the count
+in Settings) lists the learned tracks in a table to sort and filter: tempo, key, loudness,
+style, genres and whether the library has them too.
 
 **Loudness**: the same pass measures each track's loudness (EBU R128, as ReplayGain 2.0
 does, at any length) and fills in the ReplayGain that your tags leave out — track gain and
@@ -441,7 +443,11 @@ players share one decode.
 Every player is also a **Spotify Connect** device of the signed-in account, named after the
 player: pick it in a Spotify app to play there.  Play, pause, seek and track changes in the
 app drive the player, and the player's volume follows the app's; stopping, pausing or
-playing something else on the player pauses the Connect device.  The player's queue holds
+playing something else on the player pauses the Connect device, and next and previous on
+the player (a remote, the web UI, Squeezer) move through the Spotify queue.  Cast and
+UPnP players (a WiiM, a Chromecast) show each track's title, artist and cover: for them the
+stream starts afresh for every track, so tracks change with a short gap instead of
+gaplessly.  The player's queue holds
 one "Spotify Connect" stream; the web UI's queue shows what the Spotify app plays next below
 it (changed in the app).  The devices are
 registered with the account rather than announced on the network, so they are visible only
