@@ -29,6 +29,15 @@ const PRECISE = 'rms.browserPrecise';
 const QUALITY = 'rms.browserQuality';
 const ID = 'rms.browserId';
 const NAME = 'rms.browserName';
+/** In this tab's session storage: this page is the one playing (so a reload keeps it). */
+const HERE = 'rms.browserPlayer.here';
+/** How often a page waiting for the player (another page has it) looks whether it's free. */
+const ELSEWHERE_RETRY = 10000;
+
+const session = {
+  get: () => { try { return sessionStorage.getItem(HERE) === '1'; } catch { return false; } },
+  set: (on) => { try { if (on) sessionStorage.setItem(HERE, '1'); else sessionStorage.removeItem(HERE); } catch { /* private mode */ } },
+};
 
 /** The formats this browser's <audio> plays, best first (LMS codes). */
 export function playableFormats() {
@@ -79,6 +88,8 @@ export const browserPlayer = {
   decodes: [],
   name: () => storage.get(NAME) || defaultName(),
   connected: () => !!socket && socket.readyState === WebSocket.OPEN && !!browserPlayer.playerId,
+  /** Another tab or window of this browser is the player (this one waits). */
+  elsewhere: false,
   /** Make it the selected player once it is connected (it was just turned on). */
   selectWhenConnected: false,
 };
@@ -541,7 +552,12 @@ const webAudio = (() => {
 
 // ------------------------------------------------------------------ the connection
 
-async function connect() {
+/**
+ * Connect as this browser's player.  `takeover`: take it from another page playing it (the
+ * user asked, or this page was the player before a reload); otherwise, while another page
+ * plays, this one waits (`elsewhere`) and looks again every little while.
+ */
+async function connect({ takeover = session.get() } = {}) {
   clearTimeout(retryTimer);
   if (!browserPlayer.enabled() || socket) return;
   engine = browserPlayer.precise() ? webAudio : htmlAudio;
@@ -557,15 +573,24 @@ async function connect() {
   base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
   const query = await engine.query();
   if (socket || !browserPlayer.enabled()) return;
-  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), ...query });
+  const q = new URLSearchParams({ id: browserId(), name: browserPlayer.name(), ...query, ...(takeover ? { takeover: '1' } : {}) });
   const ws = new WebSocket(`${base.href}api/v1/browser-player?${q}`);
   const own = engine;
   socket = ws;
   ws.addEventListener('message', (e) => {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type === 'busy' || msg.type === 'replaced') {
+      // another page of this browser plays: wait, don't take it back
+      if (msg.type === 'replaced') toast('This browser now plays in another tab or window');
+      browserPlayer.elsewhere = true;
+      session.set(false);
+      return;
+    }
     if (msg.type === 'welcome') {
       browserPlayer.playerId = msg.player;
+      browserPlayer.elsewhere = false;
+      session.set(true);
       retry = 0;
       // the clock the play points are on (before anything else)
       if (own === webAudio) report({ type: 'clock', jiffies: Math.round(performance.now()) >>> 0 });
@@ -580,11 +605,24 @@ async function connect() {
     browserPlayer.playerId = null;
     own.stop();
     emit('browser-player', browserPlayer);
-    if (browserPlayer.enabled()) {
-      retry = Math.min(retry + 1, 6);
-      retryTimer = setTimeout(connect, 500 * 2 ** retry);
+    if (!browserPlayer.enabled()) return;
+    if (browserPlayer.elsewhere) {
+      // look now and then whether the other page has gone (without taking over)
+      retryTimer = setTimeout(() => connect({ takeover: false }), ELSEWHERE_RETRY);
+      return;
     }
+    retry = Math.min(retry + 1, 6);
+    retryTimer = setTimeout(connect, 500 * 2 ** retry);
   });
+}
+
+/** Play in this page rather than the other tab or window of this browser that plays. */
+export function playHere() {
+  if (!browserPlayer.enabled()) return;
+  clearTimeout(retryTimer);
+  (browserPlayer.precise() ? webAudio : htmlAudio).unlock();
+  browserPlayer.selectWhenConnected = true;
+  connect({ takeover: true });
 }
 
 function disconnect() {
@@ -592,6 +630,8 @@ function disconnect() {
   const ws = socket;
   socket = null;
   browserPlayer.playerId = null;
+  browserPlayer.elsewhere = false;
+  session.set(false);
   ws?.close();
   engine?.stop();
   emit('browser-player', browserPlayer);
@@ -613,7 +653,8 @@ export function setBrowserPlayer(on, name, precise, quality) {
   if (on) {
     browserPlayer.selectWhenConnected = true;
     (browserPlayer.precise() ? webAudio : htmlAudio).unlock();
-    connect();
+    // turned on (or changed) here: play here
+    connect({ takeover: true });
   }
 }
 

@@ -367,3 +367,97 @@ async fn a_clocked_browser_keeps_in_sync() {
     let ms = skip["ms"].as_u64().unwrap();
     assert!((300..=500).contains(&ms), "skipped {ms} ms");
 }
+
+/// What a page gets until its connection closes: the messages' types, and the close code.
+async fn until_closed(b: &mut Browser) -> (Vec<String>, Option<u16>) {
+    let mut types = Vec::new();
+    loop {
+        let msg = tokio::time::timeout(Duration::from_secs(10), b.ws.next())
+            .await
+            .expect("the page is closed");
+        match msg {
+            Some(Ok(Message::Text(t))) => {
+                let v: Value = serde_json::from_str(&t).unwrap();
+                types.push(v["type"].as_str().unwrap_or_default().to_string());
+            }
+            Some(Ok(Message::Close(frame))) => return (types, frame.map(|f| f.code.into())),
+            Some(Ok(_)) => {}
+            Some(Err(_)) | None => return (types, None),
+        }
+    }
+}
+
+/// One page of a browser plays: another page connecting is told it's busy, unless it takes
+/// over, and then the first is told it was replaced.  Neither page is left to take it back.
+#[tokio::test(flavor = "multi_thread")]
+async fn one_page_of_a_browser_plays() {
+    let music = tempfile::tempdir().unwrap();
+    let server = start_server(music.path());
+    let http = server.http;
+    let open = |takeover: bool| {
+        let url = format!(
+            "ws://127.0.0.1:{http}/api/v1/browser-player?id=two-tabs&name=Tabs&formats=mp3{}",
+            if takeover { "&takeover=1" } else { "" }
+        );
+        async move {
+            let (ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+            Browser {
+                ws,
+                skipped: Vec::new(),
+            }
+        }
+    };
+
+    // the first page plays
+    let mut first = open(false).await;
+    let welcome = recv(&mut first, "welcome").await;
+    let id = welcome["player"].as_str().unwrap().to_string();
+    wait_player(http, &id, "the first page plays", |p| {
+        p["connected"] == true
+    })
+    .await;
+
+    // a second page, just opened: busy, and closed
+    let mut second = open(false).await;
+    let (types, code) = until_closed(&mut second).await;
+    assert_eq!(types, ["busy"]);
+    assert_eq!(code, Some(4000));
+    // the first plays on, undisturbed
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    send(&mut first, json!({"type": "ready"})).await;
+    wait_player(http, &id, "the first page still plays", |p| {
+        p["connected"] == true
+    })
+    .await;
+
+    // "Play here" on a third page: it takes over, the first is told it was replaced
+    let mut third = open(true).await;
+    recv(&mut third, "welcome").await;
+    let (types, code) = until_closed(&mut first).await;
+    assert!(types.ends_with(&["replaced".to_string()]), "{types:?}");
+    assert_eq!(code, Some(4000));
+    wait_player(http, &id, "the third page plays", |p| {
+        p["connected"] == true
+    })
+    .await;
+
+    // the third page goes: a page that looks again gets the player without taking over
+    drop(third);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let mut again = open(false).await;
+        let first_msg = tokio::time::timeout(Duration::from_secs(5), again.ws.next())
+            .await
+            .unwrap();
+        if let Some(Ok(Message::Text(t))) = first_msg {
+            if serde_json::from_str::<Value>(&t).unwrap()["type"] == "welcome" {
+                break;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the player never came free"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}

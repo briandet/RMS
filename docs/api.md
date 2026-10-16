@@ -930,6 +930,13 @@ one ends; `pause`, `resume`, `stop`; `volume` (0–100, `muted`).  The browser r
 (`elapsed` and `duration` seconds, about once a second), `paused`, `resumed`, `ended` (with
 nothing preloaded), `error`; and with Web Audio `clock` and `fetched`.
 
+One page of a browser plays at a time (its tabs and windows share its `id`).  While one
+plays, another that connects gets `{"type": "busy"}` and is closed (code 4000); with
+`takeover=1` (the user's *Play here*) it plays instead, and the page that played gets
+`{"type": "replaced"}` and is closed (code 4000).  A page told either shouldn't take the
+player back by itself: the web UI looks again every 10 seconds without `takeover`, so it
+plays once the other page has gone.
+
 ## LMS interfaces
 
 JSON-RPC (`/jsonrpc.js`), Cometd (`/cometd`) and the CLI (port 9090) stay for Squeezebox

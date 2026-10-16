@@ -9,7 +9,7 @@ import {
 import { store, on, currentPlayer } from '../store.js';
 import { h, icon, toast, plural } from '../util.js';
 import { connectHelp } from './common.js';
-import { browserPlayer, setBrowserPlayer, playableFormats, webAudioSupported } from '../browser-player.js';
+import { browserPlayer, setBrowserPlayer, playHere, playableFormats, webAudioSupported } from '../browser-player.js';
 
 export const cacheable = false;
 
@@ -654,9 +654,11 @@ export function render(node, { ctx }) {
     const preciseId = fieldId();
     const nameId = fieldId();
     const nameInput = h('input', { id: nameId, type: 'text', value: browserPlayer.name(), maxlength: 64 });
-    const state = browserPlayer.enabled()
-      ? (browserPlayer.connected() ? 'Playing here as a player of the server.' : 'Connecting…')
-      : 'Off.';
+    const state = !browserPlayer.enabled() ? 'Off.'
+      : browserPlayer.connected() ? 'Playing here as a player of the server.'
+        : browserPlayer.elsewhere ? h('span', {}, 'Playing in another tab or window of this browser. ',
+          h('button', { class: 'btn btn-small', type: 'button', onclick: (e) => { e.preventDefault(); playHere(); } }, 'Play here'))
+          : 'Connecting…';
     browserSection.replaceChildren(head,
       h('p', { class: 'muted small' }, 'Play music on this computer or phone: it becomes a player like the others, with the queue, sync and every remote control. Keep this page open while it plays.'),
       h('div', { class: 'field check' },
