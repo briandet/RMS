@@ -64,7 +64,8 @@ What was measured in the development container, which has no GPU and uses Mesa's
 | run | result |
 | --- | --- |
 | 640x360, drawing only | 56 fps (1.9x real time) |
-| 1280x720, drawing only, Cream of the Crop presets | 19 fps (0.6x real time) |
+| 1280x720, drawing only, Cream of the Crop presets | 14–19 fps (0.5–0.6x real time), depending on the presets |
+| 1280x720, paced to the music, with libx264 | 57% of frames repeated |
 | 640x360, paced to the music, with libx264 | 20% of frames repeated; preset switches 0.5–0.9 s |
 
 So software rendering isn't an option, and the decision rests on the server's GPU.
