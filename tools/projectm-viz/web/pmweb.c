@@ -1,6 +1,7 @@
 // projectM in the browser: a thin WebAssembly wrapper the demo page drives from JavaScript.
 // The page feeds it the playing audio (from Web Audio) and calls pm_render() once a frame;
-// projectM draws into the page's <canvas id="canvas"> through WebGL 2.
+// projectM draws into the page's canvas (pm_init's `target`, a CSS selector) through
+// WebGL 2.
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -27,7 +28,7 @@ static void switch_failed(const char *file, const char *msg, void *user) {
 }
 
 // 0 on success, < 0 when WebGL 2 or projectM couldn't start.
-EMSCRIPTEN_KEEPALIVE int pm_init(int width, int height, int mesh_w, int mesh_h) {
+EMSCRIPTEN_KEEPALIVE int pm_init(const char *target, int width, int height, int mesh_w, int mesh_h) {
     EmscriptenWebGLContextAttributes a;
     emscripten_webgl_init_context_attributes(&a);
     a.majorVersion = 2;
@@ -37,7 +38,7 @@ EMSCRIPTEN_KEEPALIVE int pm_init(int width, int height, int mesh_w, int mesh_h) 
     a.stencil = false;
     a.antialias = false;
     a.powerPreference = EM_WEBGL_POWER_PREFERENCE_HIGH_PERFORMANCE;
-    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context("#canvas", &a);
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = emscripten_webgl_create_context(target, &a);
     if (ctx <= 0)
         return -1;
     emscripten_webgl_make_context_current(ctx);

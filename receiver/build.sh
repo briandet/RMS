@@ -22,6 +22,8 @@ cp -r "$web" "$site/demo"
 cp -r "$web/pmweb.js" "$web/pmweb.wasm" "$web/manifest.json" "$web/presets" "$web/textures" \
     "$site/receiver/"
 cp "$here/index.html" "$here/receiver.js" "$site/receiver/"
+# the drawing and the track info, shared with the web UI
+cp "$here/../crates/rms/web/viz.js" "$site/receiver/"
 cat > "$site/index.html" <<'HTML'
 <!doctype html><meta charset="utf-8"><title>RMS</title>
 <meta http-equiv="refresh" content="0; url=demo/">

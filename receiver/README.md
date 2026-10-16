@@ -32,6 +32,10 @@ console.
 
 ## How it works
 
+The drawing (`Visualiser`) and the track info (`TrackOverlay`) live in
+`crates/rms/web/viz.js`, shared with the web UI's visualiser. `build.sh` copies it in
+next to `receiver.js`.
+
 - CAF (the Cast receiver framework) plays into the page's own `<audio crossorigin>`
   element.
 - Once Web Audio is running, the element is routed through two analyser nodes. Each frame,

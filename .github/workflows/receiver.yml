@@ -9,11 +9,13 @@ on:
     branches: [main]
     paths:
       - receiver/**
+      - crates/rms/web/viz.js
       - tools/projectm-viz/web/**
       - .github/workflows/receiver.yml
   pull_request:
     paths:
       - receiver/**
+      - crates/rms/web/viz.js
       - tools/projectm-viz/web/**
       - .github/workflows/receiver.yml
   workflow_dispatch:

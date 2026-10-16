@@ -246,6 +246,8 @@ const webAudio = (() => {
   let post = () => {};
   /** @type {GainNode|null} */
   let gain = null;
+  /** The output node (worklet or script processor), before the volume. */
+  let out = null;
   let loading = null;
   let sr = 44100;
   let volume = 1;
@@ -281,19 +283,21 @@ const webAudio = (() => {
       loading = ctx.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url)).then(() => {
         const node = new AudioWorkletNode(ctx, 'rms-pcm', { numberOfInputs: 0, outputChannelCount: [2] });
         node.connect(gain);
+        out = node;
         node.port.onmessage = (e) => fromOutput(e.data);
         post = (m, transfer) => node.port.postMessage(m, transfer || []);
       });
     } else {
       // no AudioWorklet (not https): the same output on the page's own thread
-      const out = new PcmOutput(fromOutput, 1);
+      const pcm = new PcmOutput(fromOutput, 1);
       const node = ctx.createScriptProcessor(2048, 1, 2);
       node.onaudioprocess = (e) => {
         const b = e.outputBuffer;
-        out.render(b.getChannelData(0), b.getChannelData(1), Math.round(e.playbackTime * sr));
+        pcm.render(b.getChannelData(0), b.getChannelData(1), Math.round(e.playbackTime * sr));
       };
       node.connect(gain);
-      post = (m) => out.message(m);
+      out = node;
+      post = (m) => pcm.message(m);
       loading = Promise.resolve();
     }
     return loading;
@@ -513,6 +517,8 @@ const webAudio = (() => {
   }
 
   return {
+    /** The audio as it plays, before the volume (for the visualiser). */
+    tap: () => (ctx && out ? { ctx, node: out } : null),
     async query() {
       browserPlayer.decodes = await decodableFormats();
       const has = (f) => browserPlayer.decodes.includes(f);
@@ -533,12 +539,21 @@ const webAudio = (() => {
       stop();
       ctx?.close().catch(() => {});
       ctx = null;
+      out = null;
       loading = null;
       post = () => {};
     },
     prepare: setup,
   };
 })();
+
+/**
+ * This browser's audio as it plays, for the visualiser: `{ctx, node}` while it plays
+ * through Web Audio (keeping in sync), else null.
+ */
+export function browserAudioTap() {
+  return engine === webAudio && browserPlayer.connected() ? webAudio.tap() : null;
+}
 
 // ------------------------------------------------------------------ the connection
 

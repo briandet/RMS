@@ -222,6 +222,16 @@ The script builds a release binary (the web UI is built in), installs it as
   A device that won't start the app (one not added in step 3) plays plain audio instead,
   and the log says why.  The log also gets the TV's frame rate every 15 seconds
   (`the TV draws at … fps`), to see whether its GPU keeps up.
+* **Visualiser in the browser** (not in Lyrion): with "Play in this browser" on and in sync
+  (Settings → This browser), Now Playing has a Visualiser button (✦) while this browser is
+  the selected player or in its sync group.  It draws the same MilkDrop presets with
+  projectM in the browser, from the audio the browser plays, over the whole window, with the
+  track in the corner as on the TV.  Keys: N next preset, F full screen, Esc close; Half
+  detail draws at half the resolution for slower GPUs.  projectM and the presets come from
+  the receiver's GitHub Pages site (see above), so the browser needs the internet for it; a
+  URL ending in `/` in the browser's local storage as `rms.vizAssets` points it at another
+  copy (e.g. a local `receiver/build.sh` build served with CORS).  The drawing and the track
+  info are one module, `web/viz.js`, shared with the TV receiver.
 * **The Table** (Library → Table, not in Lyrion): the library as a dense, sortable table,
   one row per track, or per album, artist, genre, year, format, folder, … with how many
   tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A

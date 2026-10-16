@@ -388,7 +388,9 @@
     }));
 
     size();
-    const rc = pm._pm_init(canvas.width, canvas.height, 48, 32);
+    const target = pm.stringToNewUTF8('#canvas');
+    const rc = pm._pm_init(target, canvas.width, canvas.height, 48, 32);
+    pm._free(target);
     if (rc !== 0) {
       setStatus(rc === -1 ? 'This browser has no WebGL 2, which projectM needs.' : 'projectM didn’t start.', true);
       return;
