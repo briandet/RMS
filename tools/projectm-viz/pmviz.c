@@ -11,6 +11,7 @@
 #include <projectM-4/projectM.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <ftw.h>
@@ -40,6 +41,7 @@ static struct {
     double seconds;         // stop after this long (0: when the audio ends)
     double preset_secs;     // switch presets this often
     double ahead;           // paced: how far (seconds) drawing may run ahead of the clock
+    int quality;            // -q: QP (VAAPI), CRF (x264), global_quality (QSV); 0: default
     int mesh_w, mesh_h;
     bool bench;             // no output, as fast as it goes
     bool unpaced;           // with -o: don't pace to real time (animation speed will be wrong)
@@ -249,11 +251,47 @@ static bool audio_read(float *buf, int frames, long frame_no) {
 // ------------------------------------------------------------------------------- video out
 
 static FILE *video;
+/// With PCM on stdin: the pipe the same samples go to the encoder through, to be muxed.
+static int audio_out = -1;
+
+static bool streaming(void) { return opt.output && strcmp(opt.output, "-") == 0; }
+
+/// Pass `n` stereo frames read from stdin on to the encoder.
+static void audio_mux(const float *buf, int n) {
+    if (audio_out < 0) return;
+    const char *p = (const char *)buf;
+    size_t left = (size_t)n * 2 * sizeof(float);
+    while (left > 0) {
+        ssize_t w = write(audio_out, p, left);
+        if (w < 0 && errno == EINTR) continue;
+        if (w <= 0) {
+            fprintf(stderr, "pmviz: the encoder stopped taking audio\n");
+            stop = 1;
+            return;
+        }
+        p += w;
+        left -= (size_t)w;
+    }
+}
 
 static void video_open(void) {
     if (!opt.output) return;
     char vf[256], enc[512], ain[3200] = "", amap[64] = "";
-    if (opt.input && strcmp(opt.input, "-") != 0) {
+    int audio_in = -1;
+    if (opt.input && strcmp(opt.input, "-") == 0) {
+        // the PCM read from stdin goes on to the encoder through a pipe of its own
+        // (`pipe:N`), large, so the encoder's input threads never wait on each other
+        int fds[2];
+        if (pipe(fds) != 0) die("pipe: %s", strerror(errno));
+        fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+#ifdef F_SETPIPE_SZ
+        fcntl(fds[1], F_SETPIPE_SZ, 1 << 20);
+#endif
+        audio_in = fds[0];
+        audio_out = fds[1];
+        snprintf(ain, sizeof ain, "-thread_queue_size 4096 -probesize 32 -analyzeduration 0 -f f32le -ar %d -ac 2 -i pipe:%d", RATE, audio_in);
+        snprintf(amap, sizeof amap, "-map 1:a -c:a aac -b:a 192k");
+    } else if (opt.input) {
         char q[3000], *o = q;
         for (const char *s = opt.input; *s && o < q + sizeof q - 5; s++) {
             if (*s == '\'') { memcpy(o, "'\\''", 4); o += 4; } else *o++ = *s;
@@ -279,21 +317,46 @@ static void video_open(void) {
         snprintf(vf, sizeof vf, "%s,format=%s", conv, opt.gpu_yuv ? "nv12" : "yuv420p");
         snprintf(enc, sizeof enc, " ");
     }
+    // `-o -`: fragmented MP4 on stdout, a fragment a second, to stream as it comes
+    char dest[3200];
+    if (streaming()) {
+        snprintf(dest, sizeof dest, "-f mp4 -movflags +frag_keyframe+empty_moov+default_base_moof pipe:1");
+    } else {
+        char q[3000], *o = q;
+        for (const char *s = opt.output; *s && o < q + sizeof q - 5; s++) {
+            if (*s == '\'') { memcpy(o, "'\\''", 4); o += 4; } else *o++ = *s;
+        }
+        *o = 0;
+        snprintf(dest, sizeof dest, "'%s'", q);
+    }
+    // H.264 High at the level the size and rate need (4.2 for 1080p60, else 4.1), declared:
+    // players refuse a level beyond what they decode, and the encoder's own guess may be
+    // higher
+    double mbps = (double)((opt.width + 15) / 16) * ((opt.height + 15) / 16) * opt.fps;
+    const char *level = mbps > 245760 ? "4.2" : "4.1";
+    char quality[160];
+    // constant quality (the GPU encoder may offer nothing else); higher is smaller.  A live
+    // stream goes over Wi-Fi: MilkDrop's fine moving detail costs a lot at 22
+    int q = opt.quality > 0 ? opt.quality : streaming() ? 30 : 22;
+    snprintf(quality, sizeof quality, "%s %d -profile:v high -level %s",
+             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf"
+             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp"
+             : "-global_quality",
+             q, level);
     char cmd[8192];
     snprintf(cmd, sizeof cmd,
              "ffmpeg -nostdin -hide_banner -loglevel warning -y %s "
-             "-f rawvideo -pix_fmt %s -s %dx%d -r %d -i - %s "
+             "-f rawvideo -pix_fmt %s -s %dx%d -r %d -thread_queue_size 64 -probesize 32 -analyzeduration 0 -i - %s "
              "-map 0:v -vf '%s' -c:v %s %s -g %d "
-             "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv %s '%s'",
+             "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv %s %s",
              enc, opt.gpu_yuv ? "nv12" : "rgba", opt.gpu_yuv ? opt.width : opt.rw,
              opt.gpu_yuv ? opt.height : opt.rh, opt.fps, ain, vf, opt.encoder,
-             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
-             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
-             : "-global_quality 22",
-             opt.fps * 2, amap, opt.output);
+             quality,
+             streaming() ? opt.fps : opt.fps * 2, amap, dest);
     fprintf(stderr, "pmviz: %s\n", cmd);
     video = popen(cmd, "w");
     if (!video) die("cannot run ffmpeg");
+    if (audio_in >= 0) close(audio_in);
 }
 
 // ------------------------------------------------------------------------------- GPU NV12
@@ -621,6 +684,8 @@ static void usage(void) {
         "  -e ENCODER   libx264 (default), h264_vaapi or h264_qsv\n"
         "  -s WxH       size (default 1280x720)\n"
         "  --render-size WxH  draw at this size and scale to -s (default: the same)\n"
+        "  -q N         encoder quality: QP (VAAPI), CRF (x264); higher is smaller (default 22,\n"
+        "               30 with -o -)\n"
         "  --ahead MS   paced: draw up to this far ahead of the clock (default 150), so a slow\n"
         "               frame or a preset switch uses up the margin instead of repeating frames\n"
         "  -r FPS       frames a second (default 30)\n"
@@ -651,11 +716,11 @@ int main(int argc, char **argv) {
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
         { "readback", required_argument, 0, 'R' }, { "gpu-yuv", no_argument, 0, 'Y' },
         { "bars", no_argument, 0, 'A' }, { "render-size", required_argument, 0, 'Q' },
-        { "ahead", required_argument, 0, 'H' }, { "help", no_argument, 0, 'h' }, { 0 },
+        { "ahead", required_argument, 0, 'H' }, { "quality", required_argument, 0, 'q' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
-    while ((c = getopt_long(argc, argv, "i:p:t:o:e:s:r:T:d:m:h", longs, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "i:p:t:o:e:s:r:T:d:m:q:h", longs, NULL)) != -1) {
         switch (c) {
         case 'i': opt.input = optarg; break;
         case 'p': opt.presets = optarg; break;
@@ -677,6 +742,7 @@ int main(int argc, char **argv) {
         case 'A': opt.bars = true; break;
         case 'Q': parse_size(optarg, &opt.rw, &opt.rh); break;
         case 'H': opt.ahead = atof(optarg) / 1000.0; break;
+        case 'q': opt.quality = atoi(optarg); break;
         case 'R':
             if (strcmp(optarg, "direct") == 0) opt.direct = true;
             else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");
@@ -774,7 +840,12 @@ int main(int argc, char **argv) {
         bool ended = false;
         static long fed = 0;
         while (fed < due_audio) {
+            double ta = now();
             if (!audio_read(pcm, spf, fed)) { ended = true; break; }
+            // the input stalled (the next track not there yet): the stream waits for it
+            // rather than repeating frames for the gap
+            if (paced && frames > 0 && now() - ta > 0.25) start += now() - ta;
+            audio_mux(pcm, spf);
             projectm_pcm_add_float(pm, pcm, (unsigned)spf, PROJECTM_STEREO);
             fed++;
         }
@@ -827,6 +898,9 @@ int main(int argc, char **argv) {
                 uint8_t *dst = video ? queue_free() : scratch;
                 double t2 = now();
                 t_write += t2 - tw;
+                // the stream's reader paused (a paused TV): carry on from here when it
+                // reads again, rather than making up for the time with repeated frames
+                if (paced && t2 - tw > 0.25) start += t2 - tw;
                 int ready = 0;
                 if (opt.direct) {
                     read_frame(dst);
@@ -875,6 +949,8 @@ int main(int argc, char **argv) {
         }
     }
     preset_report();
+    if (audio_out >= 0) close(audio_out);
+    audio_out = -1;
     // the last frames still in their pixel buffers, then whatever the writer has left
     if (video && !opt.direct) {
         for (long k = frames - (RING - 1) < 0 ? 0 : frames - (RING - 1); k < frames; k++) {
@@ -889,24 +965,24 @@ int main(int argc, char **argv) {
     if (frames == 0) die("no frames drawn");
     long normal = frames - switches;
     double per = (t_render + t_read + t_write) / frames;
-    printf("\n%ld frames drawn, %dx%d, mesh %dx%d, %s\n", frames, opt.width, opt.height, opt.mesh_w,
+    fprintf(stderr, "\n%ld frames drawn, %dx%d, mesh %dx%d, %s\n", frames, opt.width, opt.height, opt.mesh_w,
            opt.mesh_h, glGetString(GL_RENDERER));
-    printf("  render    %6.2f ms a frame\n", 1e3 * t_render / frames);
-    printf("  readback  %6.2f ms a frame (%s%s)\n", 1e3 * t_read / frames,
+    fprintf(stderr, "  render    %6.2f ms a frame\n", 1e3 * t_render / frames);
+    fprintf(stderr, "  readback  %6.2f ms a frame (%s%s)\n", 1e3 * t_read / frames,
            opt.direct ? "direct" : "pixel buffers, streaming copy", opt.gpu_yuv ? ", NV12 from the GPU" : ", RGBA");
-    if (video) printf("  to ffmpeg %6.2f ms a frame (waiting for the encoder when it's slower)\n", 1e3 * t_write / frames);
+    if (video) fprintf(stderr, "  to ffmpeg %6.2f ms a frame (waiting for the encoder when it's slower)\n", 1e3 * t_write / frames);
     if (normal > 0)
-        printf("  slowest   %6.2f ms; %ld of %ld frames over the %.1f ms budget (%.1f%%)\n", 1e3 * worst, late,
+        fprintf(stderr, "  slowest   %6.2f ms; %ld of %ld frames over the %.1f ms budget (%.1f%%)\n", 1e3 * worst, late,
                normal, 1e3 / opt.fps, 100.0 * late / normal);
     if (switches)
-        printf("  preset switches: %ld, %.0f ms on average, slowest %.0f ms (compiling the shaders)\n", switches,
+        fprintf(stderr, "  preset switches: %ld, %.0f ms on average, slowest %.0f ms (compiling the shaders)\n", switches,
                1e3 * sum_switch / switches, 1e3 * worst_switch);
     if (paced)
-        printf("  video     %ld frames, %ld of them repeats of a late one (%.1f%%)\n", out, repeated,
+        fprintf(stderr, "  video     %ld frames, %ld of them repeats of a late one (%.1f%%)\n", out, repeated,
                100.0 * repeated / out);
-    printf("  overall   %.1f fps drawn over %.1f s", frames / el, el);
-    if (!paced) printf(" = %.1fx real time at %d fps", (1.0 / opt.fps) / per, opt.fps);
-    printf("\n");
+    fprintf(stderr, "  overall   %.1f fps drawn over %.1f s", frames / el, el);
+    if (!paced) fprintf(stderr, " = %.1fx real time at %d fps", (1.0 / opt.fps) / per, opt.fps);
+    fprintf(stderr, "\n");
 
     projectm_destroy(pm);
     if (audio && audio != stdin) pclose(audio);

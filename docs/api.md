@@ -844,7 +844,12 @@ then.
  "discovered": 0, "discovered_played": 0, "discovered_rejected": 0,
  "listenbrainz_accounts": [{"user": "alice", "default": true}], "scrobble_spotify": false,
  "scrobble_pending": 0, "scrobble_error": "…", "effnet": false, "effnet_status": "ready",
- "effnet_error": "…", "effnet_analyzed": 0, "effnet_pending": 0}
+ "effnet_error": "…", "effnet_analyzed": 0, "effnet_pending": 0,
+ "visualizer_available": true, "visualizer_error": "…", "visualizer_encoder": "h264_vaapi",
+ "visualizer_size": Choice, "visualizer_render_size": Choice, "visualizer_fps": Choice,
+ "visualizer_quality": {"value": 30, "min": 18, "max": 45},
+ "visualizer_preset_seconds": {"value": 30, "min": 5, "max": 600},
+ "visualizer_receiver_app": ""}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
@@ -854,7 +859,16 @@ themselves, as in Lyrion, rather than through the server (then radio has no
 [spectrum](#spectrum)).  `albums_matched`, `albums_uncertain` and `albums_pending` count
 albums by [release match](#album-release).  `effnet` turns on the EffNet analysis
 (downloading its models first); `effnet_status` is `off`, `downloading`, `ready` or `failed`
-(with `effnet_error`), and `effnet_analyzed` / `effnet_pending` count the songs done and to do.  Changed music folders take effect with the next scan:
+(with `effnet_error`), and `effnet_analyzed` / `effnet_pending` count the songs done and to do.
+The `visualizer_*` fields set up the TV visualiser (see the README): `visualizer_available`
+says whether `pmviz` was found (else `visualizer_error` says why), `visualizer_encoder` is
+read only, the choices (`visualizer_size`, `visualizer_render_size`, `visualizer_fps`) are
+set to one of their options' `value`s and the ranges (`visualizer_quality`, the encoder's
+QP / CRF; `visualizer_preset_seconds`) to a number within them.
+`visualizer_receiver_app` is the Cast app id of RMS's receiver app (8 hex digits, or empty
+when it isn't set up), for Chromecasts that draw the visualiser themselves; the frame
+rate, drawing size and preset time apply to them too.  Changes apply from the next
+track.  Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and
 removed files), `{"mode": "playlists"}` or `{"mode": "full"}` (clear the library and scan
@@ -891,6 +905,10 @@ events.
   `value`s.
 * `display` is there for players with a screen (Squeezebox 2/3, Transporter, Boom); the
   automatic brightness ranges only for a Boom.
+* `visualizer` (a choice of `auto`, `1` the video from the server, `tv` drawn on the TV by
+  RMS's receiver app, and `0` off) is there for Chromecasts.  `auto` is the video for a
+  Chromecast with a screen.  `tv` plays plain audio until `visualizer_receiver_app` is
+  set in the server settings.
 
 `PATCH /api/v1/players/{id}/settings` with some of these fields (a choice as its value)
 changes them and returns all of them.  Nothing is changed when one of them is invalid.

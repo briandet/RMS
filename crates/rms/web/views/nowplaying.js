@@ -5,6 +5,7 @@ import { h, icon, setIcon, fmtTime, throttle, toast, isSpotify, spotifyBadge } f
 import { sizedArtwork, currentArtUrl, addFavorite as addFavoriteApi } from '../api.js';
 import { connectHelp, enc } from './common.js';
 import { spectrumBars } from '../spectrum.js';
+import { openVisualiser, visualiserFor } from './visualiser.js';
 
 const SHUFFLE = { off: 'off', songs: 'by song', albums: 'by album' };
 const SHUFFLE_NEXT = { off: 'songs', songs: 'albums', albums: 'off' };
@@ -24,6 +25,7 @@ export function init(root, miniRoot, _ctx) {
   on('status', render);
   on('players', render);
   on('player', render);
+  on('browser-player', render);
   on('server', () => { if (!store.players.length) render(); });
   render();
   setInterval(tick, 250);
@@ -49,6 +51,9 @@ function buildPanel(root) {
   el.source = spotifyBadge('np-source');
   el.source.hidden = true;
   el.fav = btn('heart', 'Add to favorites', addFavorite, 'np-fav');
+  // while this browser plays along (see visualiser.js)
+  el.viz = btn('viz', 'Visualiser', openVisualiser, 'np-viz');
+  el.viz.hidden = true;
 
   el.elapsed = h('span', { class: 'time' }, '0:00');
   el.duration = h('span', { class: 'time' }, '0:00');
@@ -94,6 +99,7 @@ function buildPanel(root) {
     h('div', { class: 'np-meta' },
       h('div', { class: 'np-text' }, el.title, el.artist, el.album, el.source),
       spectrumBars(() => store.playerId, 'np-bars'),
+      el.viz,
       el.fav),
     h('div', { class: 'np-seek' }, el.elapsed, el.seek, el.duration),
     h('div', { class: 'np-controls' }, el.shuffle, el.prev, el.play, el.next, el.repeat),
@@ -151,6 +157,7 @@ function render() {
   const tr = currentTrack();
   const hasTrack = !!tr;
   const d = describe(tr);
+  el.viz.hidden = !(hasTrack && visualiserFor(st));
 
   // Notices: player off / disconnected
   let notice = null;

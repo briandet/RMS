@@ -107,6 +107,10 @@ The script builds a release binary (the web UI is built in), installs it as
   segment; elsewhere give them its address.
 * Spotify sign-in on a headless server: paste the address Spotify sends you to into the
   settings card, or sign in while running `ssh -L 5588:127.0.0.1:5588 <server>`.
+* The TV visualiser: the script also builds `pmviz` and installs it with the MilkDrop
+  presets when its build dependencies are there (`sudo apt install cmake ninja-build
+  libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri mesa-va-drivers`), and lets the
+  service use the GPU (the `render` and `video` groups, `DeviceAllow=char-drm`).
 
 ## What is implemented
 
@@ -177,6 +181,57 @@ The script builds a release binary (the web UI is built in), installs it as
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.
+* **TV visualiser** (Chromecasts, not in Lyrion): with `pmviz` installed (see below), a
+  Chromecast plays MilkDrop visuals drawn to the music by projectM, as video with the music
+  in it, instead of audio alone.  A sync group's Chromecasts share one stream, drawn and
+  encoded once on the server's GPU (1080p30 by default; an Intel Iris Xe keeps up with 60), and the
+  tracks follow one another in it without gaps.  On, while `pmviz` is installed, for
+  Chromecasts with a screen (as their discovery says; Cast speakers keep playing audio); a
+  player's pref `visualizer` turns it off (0) or on (1, e.g. for a device given by
+  address), in Settings → Player → TV visualiser.  Settings → TV visualiser sets the video
+  size, frame rate, drawing size, compression and preset time.  Server prefs:
+  `visualizerSize` (`1920x1080`), `visualizerFps` (30; some TVs can't decode 1080p60), `visualizerRenderSize` (draw smaller
+  and scale up, e.g. `1280x720`), `visualizerPresetSeconds` (30), `visualizerEncoder`
+  (`h264_vaapi` where there is a GPU, else `libx264`), `visualizerQuality` (the encoder's
+  QP / CRF, 30 by default: each +6 halves the stream, for Wi-Fi), and `visualizerCommand`,
+  `visualizerPresets`, `visualizerTextures` for where things are (by default
+  `/usr/local/lib/rms/pmviz` and `/usr/local/share/rms/projectm`).  The visuals start a
+  second or two after the music would, and a TV shows the first track's title only (the
+  Default Media Receiver takes no updates).
+* **Visualiser drawn on the TV** (Chromecasts, not in Lyrion): instead of the video, a
+  Chromecast can draw the visuals itself with RMS's own Cast receiver app
+  ([`receiver/`](receiver/README.md)), which runs projectM in the browser.  The TV fetches
+  the audio only, the server's GPU isn't used, and the TV shows each track's cover, title,
+  artist and album: large when a track starts or pauses, then small in a corner.  It
+  depends on the TV's GPU: a Chromecast's is a phone's, so it draws at 1280×720 unless
+  Settings → TV visualiser → Draw at says smaller.  The frame rate and preset time settings
+  apply too.  To set it up:
+  1. Publish the receiver: GitHub Pages builds and serves it from this repository
+     (Settings → Pages → Source: GitHub Actions; the *Receiver site* workflow runs on
+     pushes to `main`), at `https://<owner>.github.io/<repo>/receiver/`.  One receiver
+     serves any number of RMS servers.
+  2. Register it in the [Google Cast developer console](https://cast.google.com/publish)
+     (a one-time US$5): Add new application → Custom Receiver, with that URL.  Leave
+     Guest Mode and Google Cast for Audio off.
+  3. While it's unpublished, add each Chromecast's serial number there (Devices), and
+     restart the Chromecast.  Publishing it removes that step.
+  4. Enter its application ID in Settings → TV visualiser → Receiver app ID
+     (`visualizerReceiverApp`), and set the Chromecast to *Drawn on the TV* under
+     Settings → Player (`visualizer` = `tv`).
+
+  A device that won't start the app (one not added in step 3) plays plain audio instead,
+  and the log says why.  The log also gets the TV's frame rate every 15 seconds
+  (`the TV draws at … fps`), to see whether its GPU keeps up.
+* **Visualiser in the browser** (not in Lyrion): with "Play in this browser" on and in sync
+  (Settings → This browser), Now Playing has a Visualiser button (✦) while this browser is
+  the selected player or in its sync group.  It draws the same MilkDrop presets with
+  projectM in the browser, from the audio the browser plays, over the whole window, with the
+  track in the corner as on the TV.  Keys: N next preset, F full screen, Esc close; Half
+  detail draws at half the resolution for slower GPUs.  projectM and the presets come from
+  the receiver's GitHub Pages site (see above), so the browser needs the internet for it; a
+  URL ending in `/` in the browser's local storage as `rms.vizAssets` points it at another
+  copy (e.g. a local `receiver/build.sh` build served with CORS).  The drawing and the track
+  info are one module, `web/viz.js`, shared with the TV receiver.
 * **The Table** (Library → Table, not in Lyrion): the library as a dense, sortable table,
   one row per track, or per album, artist, genre, year, format, folder, … with how many
   tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A

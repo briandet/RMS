@@ -118,14 +118,21 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
       [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
 ```
 
-- `-i -` reads 32-bit float stereo samples at 44.1 kHz from stdin, which is how RMS would feed
+- `-i -` reads 32-bit float stereo samples at 44.1 kHz from stdin, which is how RMS feeds
   it the playing audio. With no `-i`, it uses a built-in test signal.
+- `-o -` writes fragmented MP4 (a fragment a second) to stdout, to stream as it comes: RMS's
+  TV visualiser runs `pmviz -i - -o - --gpu-yuv …`. With `-i -` the same samples are muxed
+  in as AAC, so the video carries the music. When the reader pauses (a paused TV) or the
+  input stalls, the clock waits instead of repeating frames.
 - The mesh (`-m`) is MilkDrop's per-pixel grid. Larger meshes look smoother and cost more.
 - `--gpu-yuv` converts each frame to NV12 on the GPU (see below): 1.5 bytes a pixel to copy
   and pipe instead of 4, and nothing left for ffmpeg to convert.
 - `--render-size` has projectM draw smaller than the video (`-s`), scaled up on the GPU by
   the `--gpu-yuv` pass (or by ffmpeg without it). Heavy presets cost about as much as the
   pixels they draw, and MilkDrop's soft visuals scale up well.
+- `-q N` sets the encoder's constant quality (QP for VAAPI, CRF for x264): higher is a
+  smaller stream. 22 by default, 30 when streaming (`-o -`), since MilkDrop's fine moving
+  detail costs a lot of bitrate and a TV is often on Wi-Fi.
 - `--ahead` (default 150 ms): paced drawing may run this far ahead of the clock, so a slow
   frame or a preset switch uses up the margin instead of repeating frames. Each frame gets
   the music of its own time slot, and the video's timestamps are fixed, so the sync with
@@ -177,3 +184,26 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 - **Switch stalls.** A smoother version would compile the next preset ahead of time on a
   second, shared GL context. projectM 4.1's API doesn't offer that, so the prototype measures
   the stall instead.
+
+## In the browser
+
+`web/` builds projectM 4.1 to WebAssembly and a demo page that draws the same presets with
+WebGL 2, reacting to a synthesised beat or a music file you open. It's the starting point
+for a visualiser in RMS's web UI when the browser is the player: the audio is already in
+Web Audio there, so the visuals cost the server nothing and stay in sync.
+
+```sh
+# the Emscripten SDK, once: https://emscripten.org/docs/getting_started/downloads.html
+source ~/emsdk/emsdk_env.sh
+tools/projectm-viz/build.sh                 # for projectM's sources, presets and textures
+tools/projectm-viz/web/build.sh             # writes build/web/: 1 MB of WebAssembly, 120 presets, textures
+python3 -m http.server -d tools/projectm-viz/build/web 8000   # then open http://localhost:8000
+```
+
+- `pmweb.c` is a small wrapper (start, resize, add audio, draw a frame, load a preset), and
+  `index.html` drives it: two analyser nodes give it each frame's new samples, the presets
+  are fetched as needed, and the textures go into Emscripten's in-memory file system.
+- projectM's Emscripten build links SDL for its own test UI. The library doesn't use it, so
+  the script builds a copy of the sources without it.
+- In headless Chromium with software WebGL it draws at 4–7 fps; with a GPU it runs at the
+  display's frame rate.

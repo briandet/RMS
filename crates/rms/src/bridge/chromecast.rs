@@ -11,6 +11,20 @@
 //! device has, and tells it to `LOAD` the stream URL; the device fetches the audio from
 //! the server and reports its state in `MEDIA_STATUS` messages, which become the bridge's
 //! [`FromRenderer`] reports.  The next track is loaded when the current one finishes.
+//!
+//! With the player's visualiser on (`visualizer`; when unset, on for devices with a screen)
+//! and the `pmviz` helper installed, the device plays its sync group's
+//! visualiser stream instead ([`crate::viz`]): video with the music in it, the tracks one
+//! after another in one stream.  The TV that starts it feeds it the tracks; the group's
+//! other visualiser TVs join it.  Where each track starts in the stream turns the device's
+//! position into the track it plays and how far into it.
+//!
+//! With the visualiser set to be drawn on the TV (`tv`) and RMS's receiver app set up
+//! (`visualizerReceiverApp`), the driver launches that app instead of the Default Media
+//! Receiver.  It plays the same audio stream as an ordinary track, draws the visuals with
+//! projectM in the browser, and shows each track's cover and title.  The server's
+//! visualiser settings go with each `LOAD` (`customData.rms`), and the app reports how it
+//! draws on its own namespace ([`NS_VIZ`]).
 
 use super::devices::{self, Device, DriverIo, Protocol};
 use super::{mac_for, FromRenderer, Identity, ToRenderer};
@@ -49,6 +63,8 @@ const SENDER: &str = "sender-0";
 const RECEIVER: &str = "receiver-0";
 /// The Default Media Receiver.
 const APP_ID: &str = "CC1AD845";
+/// What RMS's receiver app says (how fast it draws, what failed).
+const NS_VIZ: &str = "urn:x-cast:net.rms.visualizer";
 
 /// A device to connect to.
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +74,8 @@ struct Candidate {
     port: u16,
     name: String,
     model_name: String,
+    /// It has a screen (mDNS `ca`, capability bit 0); unknown for devices given by address.
+    video: Option<bool>,
 }
 
 /// Find devices while the protocol is turned on and run a player for each.
@@ -119,6 +137,7 @@ pub async fn run(server: Arc<Server>) {
                 model_name: "Chromecast".into(),
                 host,
                 port,
+                video: None,
             });
         }
         for c in candidates {
@@ -175,12 +194,17 @@ fn on_mdns(seen: &mut HashMap<String, Candidate>, ev: mdns_sd::ServiceEvent) {
                 .get_property_val_str("md")
                 .filter(|s| !s.is_empty())
                 .unwrap_or("Chromecast");
+            let video = info
+                .get_property_val_str("ca")
+                .and_then(|ca| ca.parse::<u32>().ok())
+                .map(|ca| ca & 1 != 0);
             let c = Candidate {
                 key: format!("chromecast:{id}"),
                 host: ip.to_string(),
                 port: info.get_port(),
                 name: name.to_string(),
                 model_name: model.to_string(),
+                video,
             };
             if seen.get(&fullname) != Some(&c) {
                 debug!("chromecast: {} at {}:{}", c.name, c.host, c.port);
@@ -240,6 +264,7 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
     };
     let server2 = server.clone();
     let name = c.name.clone();
+    let video = c.video;
     let ip = c
         .host
         .parse()
@@ -254,7 +279,7 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
         },
         Box::new(move |io| {
             Box::pin(async move {
-                if let Err(e) = Cast::new(server2, mac, tls, io).run().await {
+                if let Err(e) = Cast::new(server2, mac, tls, io, video).run().await {
                     info!("{name}: {e}");
                 }
             })
@@ -449,6 +474,8 @@ struct Item {
     metadata: Option<Value>,
     /// Its length from the library, for devices that don't report it.
     duration: Option<f64>,
+    /// For RMS's receiver app: the visualiser settings.
+    custom: Option<Value>,
 }
 
 /// The track loaded on the device.
@@ -466,9 +493,10 @@ struct Media {
     duration: Option<f64>,
 }
 
-/// The Default Media Receiver as it runs on the device.
+/// The media receiver app as it runs on the device.
 #[derive(Debug, Clone, PartialEq)]
 struct App {
+    id: String,
     transport: String,
     session: String,
 }
@@ -480,6 +508,10 @@ struct Cast {
     io: DriverIo,
     next_request: i64,
     app: Option<App>,
+    /// The app to play in: the Default Media Receiver, or RMS's receiver app.
+    want_app: String,
+    /// RMS's receiver app, when the device wouldn't start it (not tried again).
+    receiver_failed: Option<String>,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -490,10 +522,37 @@ struct Cast {
     volume: Option<(u8, bool)>,
     /// What the device was last told.
     sent_volume: Option<(u8, bool)>,
+    /// Playing the group's visualiser stream.
+    viz: Option<Viz>,
+}
+
+/// The visualiser stream the device plays.
+struct Viz {
+    session: Arc<crate::viz::Session>,
+    /// This TV feeds the session the tracks (it started it).
+    owner: bool,
+    /// Names this TV's reader of the stream.
+    token: String,
+    /// The tracks as they came (loaded, then preloaded), with their length.
+    songs: Vec<(u64, Option<f64>)>,
+    /// Index in `songs` of the track last reported started.
+    playing: Option<usize>,
+    /// How many of `songs` are all fetched (decoded into the stream, or read).
+    fetched: Arc<std::sync::atomic::AtomicUsize>,
+    /// How many of those the server was told about: a track's Fetched waits until it
+    /// plays (the server only takes it from a playing track).
+    told_fetched: usize,
 }
 
 impl Cast {
-    fn new(server: Arc<Server>, mac: MacAddress, tls: TlsStream<TcpStream>, io: DriverIo) -> Cast {
+    fn new(
+        server: Arc<Server>,
+        mac: MacAddress,
+        tls: TlsStream<TcpStream>,
+        io: DriverIo,
+        video: Option<bool>,
+    ) -> Cast {
+        crate::viz::note_screen(mac, video);
         Cast {
             server,
             mac,
@@ -501,12 +560,15 @@ impl Cast {
             io,
             next_request: 1,
             app: None,
+            want_app: APP_ID.into(),
+            receiver_failed: None,
             launching: None,
             queued: None,
             media: None,
             next: None,
             volume: None,
             sent_volume: None,
+            viz: None,
         }
     }
 
@@ -575,31 +637,35 @@ impl Cast {
                 ..
             } => {
                 self.next = None;
-                let item = self.item(&url, &format, autostart);
-                if self.app.is_some() {
-                    self.load(item).await?;
-                } else {
-                    self.media = None;
-                    self.queued = Some(item);
-                    if self.launching.is_none() {
-                        self.launching = Some(Instant::now());
-                        self.request(
-                            RECEIVER,
-                            NS_RECEIVER,
-                            json!({"type": "LAUNCH", "appId": APP_ID}),
-                        )
-                        .await?;
+                self.leave_viz();
+                let (mode, receiver) = self.visualizer_mode();
+                let relaunch = receiver.is_some() != (self.want_app != APP_ID);
+                self.want_app = receiver.unwrap_or_else(|| APP_ID.into());
+                if relaunch {
+                    self.launching = None;
+                }
+                if mode == crate::viz::Mode::Video {
+                    match self.viz_item(&url, autostart) {
+                        Ok(item) => return self.load_or_launch(item).await,
+                        Err(e) => debug!("chromecast {}: no visualiser: {e}", self.mac),
                     }
                 }
+                let item = self.item(&url, &format, autostart);
+                self.load_or_launch(item).await?;
             }
             ToRenderer::Preload { url, format, .. } => {
-                self.next = Some(self.item(&url, &format, true));
+                if self.viz.is_some() {
+                    self.viz_add(&url);
+                } else {
+                    self.next = Some(self.item(&url, &format, true));
+                }
             }
             ToRenderer::Pause => self.play(false).await?,
             ToRenderer::Resume { .. } => self.play(true).await?,
             ToRenderer::Stop => {
                 self.queued = None;
                 self.next = None;
+                self.leave_viz();
                 if let Some(id) = self.media.take().and_then(|m| m.session) {
                     self.media_request(json!({"type": "STOP", "mediaSessionId": id}))
                         .await?;
@@ -613,6 +679,185 @@ impl Cast {
             }
         }
         Ok(())
+    }
+
+    /// Load `item`, launching the media receiver app first if it isn't running.
+    async fn load_or_launch(&mut self, item: Item) -> anyhow::Result<()> {
+        if self.app.as_ref().is_some_and(|a| a.id == self.want_app) {
+            return self.load(item).await;
+        }
+        // (the other receiver app gives way to this one without a report)
+        self.app = None;
+        self.media = None;
+        self.queued = Some(item);
+        if self.launching.is_none() {
+            self.launching = Some(Instant::now());
+            let app = self.want_app.clone();
+            self.request(
+                RECEIVER,
+                NS_RECEIVER,
+                json!({"type": "LAUNCH", "appId": app}),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// How the player's `visualizer` setting has the visualiser shown (the video where
+    /// pmviz is installed, drawn on the TV where the receiver app is set up; plain audio
+    /// otherwise), and the receiver app to launch for it.
+    fn visualizer_mode(&self) -> (crate::viz::Mode, Option<String>) {
+        let mode = crate::viz::mode(&self.server, &self.mac);
+        let receiver = match mode {
+            crate::viz::Mode::Tv => crate::viz::receiver_app(&self.server)
+                .filter(|id| self.receiver_failed.as_ref() != Some(id)),
+            _ => None,
+        };
+        if mode == crate::viz::Mode::Tv && receiver.is_none() {
+            debug!(
+                "chromecast {}: no receiver app set up (visualizerReceiverApp): plain audio",
+                self.mac
+            );
+        }
+        (mode, receiver)
+    }
+
+    /// The sync group (its master), and the id and length of the track about to stream.
+    fn group_song(&self) -> Option<(String, u64, Option<f64>)> {
+        let p = self.server.player(&self.mac)?;
+        let (_, spec) = p.pending_stream()?;
+        let key = p.controller().lock().master_id.to_string();
+        let duration = super::now_streaming(&self.server, &self.mac, &self.io.base_url)
+            .and_then(|t| t.duration);
+        Some((key, spec.song_id, duration))
+    }
+
+    /// Start or join the group's visualiser stream with the track at `url` (the player's
+    /// stream of it), and what to load for it.
+    fn viz_item(&mut self, url: &str, autoplay: bool) -> Result<Item, String> {
+        let (key, song, duration) = self.group_song().ok_or("no track to play")?;
+        let (session, owner) = crate::viz::start_or_join(&self.server, &key, song)?;
+        let token = self.mac.to_string().replace(':', "");
+        info!(
+            "chromecast {}: visualiser {} ({})",
+            self.mac,
+            session.id,
+            if owner { "starts it" } else { "joins" }
+        );
+        let item = Item {
+            url: format!("{}/viz/{}.mp4?r={token}", self.io.base_url, session.id),
+            format: "mp4v".into(),
+            autoplay,
+            // generic metadata, no cover: with a music track's the receiver may show its
+            // music screen (the cover) instead of the video
+            metadata: streaming(&self.server, &self.mac, &self.io.base_url).map(|(m, _)| {
+                let mut g = json!({"metadataType": 0, "title": m["title"]});
+                if let Some(a) = m["artist"].as_str() {
+                    g["subtitle"] = json!(a);
+                }
+                g
+            }),
+            duration: None,
+            custom: None,
+        };
+        self.viz = Some(Viz {
+            session,
+            owner,
+            token,
+            songs: Vec::new(),
+            playing: None,
+            fetched: Default::default(),
+            told_fetched: 0,
+        });
+        self.viz_track(url, song, duration);
+        Ok(item)
+    }
+
+    /// The next track (preloaded) joins the visualiser stream.
+    fn viz_add(&mut self, url: &str) {
+        let Some((_, song, duration)) = self.group_song() else {
+            return;
+        };
+        self.viz_track(url, song, duration);
+    }
+
+    /// Note a track of the visualiser stream; the TV that feeds it decodes it into the
+    /// stream, the others read their own stream of it (the group's one read of the track
+    /// waits for every player).  Either says when it is all fetched, so the next can come.
+    fn viz_track(&mut self, url: &str, song: u64, duration: Option<f64>) {
+        let Some(v) = self.viz.as_mut() else { return };
+        v.songs.push((song, duration));
+        let count = v.fetched.clone();
+        let fetched = move || {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        };
+        let url = format!("{}{}", self.io.base_url, url);
+        if v.owner {
+            v.session.feed(&self.server.http, song, url, fetched);
+        } else {
+            let http = self.server.http.clone();
+            crate::util::spawn(async move {
+                if let Ok(mut r) = http.get(&url).send().await {
+                    while let Ok(Some(_)) = r.chunk().await {}
+                }
+                fetched();
+            });
+        }
+    }
+
+    /// Stop playing the visualiser stream (and stop it, when this TV feeds it).
+    fn leave_viz(&mut self) {
+        if let Some(v) = self.viz.take() {
+            if v.owner {
+                v.session.stop();
+            }
+        }
+    }
+
+    /// The device is `at` seconds into its visualiser stream: the reports for the track
+    /// that is (a track started, how far into it).
+    fn viz_progress(&mut self, at: f64, reports: &mut Vec<FromRenderer>) {
+        // the song the sync group plays, as the server has it
+        let group_song = self
+            .server
+            .player(&self.mac)
+            .and_then(|p| p.controller().lock().playing_song().map(|s| s.id));
+        let Some(v) = self.viz.as_mut() else { return };
+        let t = at + v.session.joined_at(&v.token).unwrap_or(0.0);
+        // the last track whose audio starts by now
+        let Some((i, start)) = v
+            .songs
+            .iter()
+            .enumerate()
+            .rev()
+            .filter_map(|(i, (song, _))| v.session.start_of(*song).map(|s| (i, s)))
+            .find(|(_, s)| *s <= t + 0.02)
+        else {
+            return;
+        };
+        let from = v.playing.map_or(0, |p| p + 1);
+        for _ in from..=i {
+            reports.push(FromRenderer::Started);
+        }
+        if from <= i {
+            v.playing = Some(i);
+        }
+        reports.push(FromRenderer::Progress {
+            elapsed: (t - start).max(0.0),
+            duration: v.songs[i].1,
+            jiffies: None,
+        });
+        // the playing track is all fetched: the next one can come.  Only once the group
+        // plays it (its master's start counted): asked for earlier, by a TV of the group
+        // ahead of the master, the server would find nothing more to stream.
+        v.told_fetched = v.told_fetched.max(i);
+        if v.told_fetched == i
+            && v.fetched.load(std::sync::atomic::Ordering::SeqCst) > i
+            && group_song == Some(v.songs[i].0)
+        {
+            v.told_fetched = i + 1;
+            reports.push(FromRenderer::Fetched);
+        }
     }
 
     async fn on_message(&mut self, msg: CastMessage) -> anyhow::Result<()> {
@@ -633,6 +878,21 @@ impl Cast {
                 }
             }
             (NS_RECEIVER, "RECEIVER_STATUS") => self.on_receiver_status(&payload).await?,
+            (NS_RECEIVER, "LAUNCH_ERROR") if self.want_app != APP_ID => {
+                // plain audio instead
+                warn!(
+                    "chromecast {}: the device wouldn't start RMS's receiver app {} ({}); \
+                     while it isn't published, the device's serial number must be added \
+                     in the Cast developer console",
+                    self.mac, self.want_app, payload["reason"]
+                );
+                self.launching = None;
+                self.receiver_failed = Some(std::mem::replace(&mut self.want_app, APP_ID.into()));
+                if let Some(mut item) = self.queued.take() {
+                    item.custom = None;
+                    self.load_or_launch(item).await?;
+                }
+            }
             (NS_RECEIVER, "LAUNCH_ERROR") => {
                 self.launching = None;
                 if self.queued.take().is_some() {
@@ -642,6 +902,15 @@ impl Cast {
                 }
             }
             (NS_MEDIA, "MEDIA_STATUS") => self.on_media_status(&payload).await?,
+            (NS_VIZ, "STATS") => info!(
+                "chromecast {}: the TV draws at {} fps ({}), preset {}",
+                self.mac, payload["fps"], payload["size"], payload["preset"]
+            ),
+            (NS_VIZ, "ERROR") => warn!(
+                "chromecast {}: the TV's visualiser: {}",
+                self.mac,
+                payload["message"].as_str().unwrap_or_default()
+            ),
             (NS_MEDIA, "LOAD_FAILED" | "LOAD_CANCELLED" | "INVALID_REQUEST") => {
                 let ours = self
                     .media
@@ -663,9 +932,10 @@ impl Cast {
             .as_array()
             .into_iter()
             .flatten()
-            .find(|a| a["appId"] == APP_ID)
+            .find(|a| a["appId"] == self.want_app.as_str())
             .and_then(|a| {
                 Some(App {
+                    id: self.want_app.clone(),
                     transport: a["transportId"].as_str()?.to_string(),
                     session: a["sessionId"].as_str().unwrap_or_default().to_string(),
                 })
@@ -721,11 +991,15 @@ impl Cast {
             }
             let elapsed = st["currentTime"].as_f64();
             let mut reports = Vec::new();
+            let viz = self.viz.is_some();
             match st["playerState"].as_str().unwrap_or_default() {
                 "PLAYING" => {
                     if !m.started {
                         m.started = true;
-                        reports.push(FromRenderer::Started);
+                        // (with the visualiser: once the stream reaches the track)
+                        if !viz {
+                            reports.push(FromRenderer::Started);
+                        }
                     } else if m.paused {
                         reports.push(FromRenderer::Resumed);
                     }
@@ -761,16 +1035,26 @@ impl Cast {
                 }
                 _ => {} // buffering
             }
-            if let (true, Some(elapsed)) = (m.started, elapsed) {
-                reports.push(FromRenderer::Progress {
-                    elapsed,
-                    duration: m.duration.or(m.item.duration),
-                    jiffies: None,
-                });
+            let started = m.started;
+            let progress = (m.duration.or(m.item.duration), m.want_play.take(), m.paused);
+            if let (true, Some(elapsed)) = (started, elapsed) {
+                if viz {
+                    // Started goes before the Resumed/Paused of this status
+                    let mut v = Vec::new();
+                    self.viz_progress(elapsed, &mut v);
+                    v.extend(reports);
+                    reports = v;
+                } else {
+                    reports.push(FromRenderer::Progress {
+                        elapsed,
+                        duration: progress.0,
+                        jiffies: None,
+                    });
+                }
             }
             // asked before the device said which media session it was
-            if let Some(play) = m.want_play.take() {
-                if play == m.paused || !m.started {
+            if let Some(play) = progress.1 {
+                if play == progress.2 || !started {
                     self.play(play).await?;
                 }
             }
@@ -807,20 +1091,18 @@ impl Cast {
         if let Some(d) = item.duration {
             media["duration"] = json!(d);
         }
+        let mut load = json!({
+            "type": "LOAD",
+            "sessionId": app.session,
+            "media": media,
+            "autoplay": item.autoplay,
+            "currentTime": 0,
+        });
+        if let Some(c) = &item.custom {
+            load["customData"] = c.clone();
+        }
         debug!("chromecast {}: load {}", self.mac, item.url);
-        let request = self
-            .request(
-                &app.transport,
-                NS_MEDIA,
-                json!({
-                    "type": "LOAD",
-                    "sessionId": app.session,
-                    "media": media,
-                    "autoplay": item.autoplay,
-                    "currentTime": 0,
-                }),
-            )
-            .await?;
+        let request = self.request(&app.transport, NS_MEDIA, load).await?;
         self.media = Some(Media {
             item,
             request,
@@ -887,6 +1169,9 @@ impl Cast {
             autoplay,
             metadata,
             duration,
+            // RMS's receiver app draws the visualiser with the server's settings
+            custom: (self.want_app != APP_ID)
+                .then(|| json!({"rms": crate::viz::receiver_settings(&self.server)})),
         }
     }
 
@@ -955,6 +1240,8 @@ fn content_type(format: &str) -> &'static str {
         "ogg" => "audio/ogg",
         "ops" => "audio/ogg; codecs=opus",
         "pcm" => "audio/wav",
+        // the visualiser's video stream
+        "mp4v" => "video/mp4",
         _ => "audio/mpeg",
     }
 }

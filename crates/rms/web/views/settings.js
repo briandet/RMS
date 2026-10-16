@@ -32,6 +32,7 @@ export function render(node, { ctx }) {
   const browserSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-browser' });
   const secureSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-secure' });
   const devicesSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-devices' });
+  const vizSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-viz' });
   const spotifySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-spotify' });
   const libSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-library' });
   const lbSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-listenbrainz' });
@@ -40,7 +41,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, spotifySection, lbSection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, vizSection, spotifySection, lbSection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -111,6 +112,12 @@ export function render(node, { ctx }) {
         'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.')
       : null;
 
+    // Chromecasts: the TV visualiser
+    const vizField = pref.visualizer?.options?.length
+      ? choiceField('TV visualiser', pref.visualizer, (v) => setPref({ visualizer: v }),
+        'MilkDrop visuals drawn to the music instead of audio alone: as video from the server, or drawn on the TV by RMS’s receiver app (see TV visualiser below). Applies from the next track you start.')
+      : null;
+
     const digitalId = fieldId();
     playerSection.replaceChildren(...[
       h('h2', { id: 'set-player' }, `Player: ${p.name}`),
@@ -120,6 +127,7 @@ export function render(node, { ctx }) {
       selectField('Transition', TRANSITIONS, pref.transition_type, (v) => setPref({ transition_type: v })),
       h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
       dstmField,
+      vizField,
       scrobbleField(pref, setPref),
       pref.adventurous !== undefined && selectField('Adventurous', ADVENTUROUS, pref.adventurous, (v) => setPref({ adventurous: v }),
         'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
@@ -750,9 +758,66 @@ export function render(node, { ctx }) {
         h('span', { class: 'muted small block' }, 'Squeezeboxes connect to internet radio stations themselves, as in Lyrion. Off, radio plays through the server: one connection for synced players, and the spectrum bars move with radio too.')));
   }
 
+  // ---------------------------------------------------------------- TV visualiser
+  async function renderViz() {
+    const head = h('h2', { id: 'set-viz' }, 'TV visualiser');
+    let st;
+    try { st = await getSettings(); } catch (e) {
+      if (alive) vizSection.replaceChildren(head, h('p', { class: 'muted', role: 'alert' }, `Could not load: ${e.message}`));
+      return;
+    }
+    if (!alive) return;
+    const about = h('p', { class: 'muted small' }, 'Chromecasts with a screen can show MilkDrop visuals drawn to the music by projectM, in one of two ways, chosen for each Chromecast under Player: as video drawn and encoded on the server (a sync group’s TVs share one stream), or drawn on the TV by RMS’s receiver app, which needs only the audio. Changes apply from the next track you start.');
+    const choice = (label, key, help) => choiceField(label, st[key], (v) => saveServer({ [key]: v }), help);
+    const slider = (label, key, unit, help) => {
+      const r = st[key];
+      const id = fieldId();
+      const out = h('output', { for: id }, `${r.value}${unit}`);
+      return h('div', { class: 'field' }, h('label', { for: id }, label),
+        h('div', { class: 'inline-row' },
+          h('input', { id, type: 'range', class: 'range', min: r.min, max: r.max, step: 1, value: r.value,
+            oninput: (e) => { out.textContent = `${e.target.value}${unit}`; },
+            onchange: (e) => saveServer({ [key]: +e.target.value }) }), out),
+        help && h('p', { class: 'muted small' }, help));
+    };
+    const sub = (text) => h('h3', { class: 'settings-sub' }, text);
+
+    // the video from the server
+    const gpu = st.visualizer_encoder === 'h264_vaapi' || st.visualizer_encoder === 'h264_qsv';
+    const video = st.visualizer_available
+      ? [h('p', { class: 'muted small' }, `Encoding with ${st.visualizer_encoder}${gpu ? ' (the GPU)' : ' (the CPU: slow; a GPU with VAAPI is much better)'}.`),
+        choice('Video size', 'visualizer_size'),
+        slider('Compression', 'visualizer_quality', '', 'Higher is a smaller stream at lower quality: each +6 about halves it. Raise it if the TV keeps buffering.')]
+      : [h('p', { class: 'muted small', role: 'status' }, `Not available: ${st.visualizer_error || 'pmviz isn’t installed'}. packaging/install.sh builds and installs it with the presets when its build dependencies are there (see tools/projectm-viz).`)];
+
+    // drawn on the TV
+    const appId = fieldId();
+    const appInput = h('input', { id: appId, type: 'text', value: st.visualizer_receiver_app ?? '', placeholder: '8 hex digits, like 1A2B3C4D', spellcheck: 'false', autocomplete: 'off', maxlength: 8 });
+    const appForm = h('form', { class: 'field', onsubmit: async (e) => {
+      e.preventDefault();
+      const v = appInput.value.trim();
+      await saveServer({ visualizer_receiver_app: v }, v ? 'Receiver app saved' : 'Receiver app removed');
+      renderViz();
+      renderPlayer();
+    } }, h('label', { for: appId }, 'Receiver app ID'),
+    h('p', { class: 'muted small' }, 'Register the receiver app in the ',
+      h('a', { href: 'https://cast.google.com/publish', target: '_blank', rel: 'noopener' }, 'Google Cast developer console'),
+      ' as a Custom Receiver with the URL https://rustydc.github.io/RMS/receiver/, and enter its app ID here. Until the app is published, add each Chromecast’s serial number there too. Leave it empty if it isn’t set up.'),
+    h('div', { class: 'inline-row' }, appInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+
+    vizSection.replaceChildren(head, about,
+      sub('Video from the server'), ...video,
+      sub('Drawn on the TV'), appForm,
+      sub('Both ways'),
+      choice('Frames a second', 'visualizer_fps', '60 is smoother, but the video is about twice as big (30 is safer over Wi-Fi), and a TV drawing it itself may not keep up.'),
+      choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU (and makes a smaller video); MilkDrop’s soft visuals scale up well. A TV drawing it itself draws at 1280×720 when this is the video size.'),
+      slider('Each preset shows for', 'visualizer_preset_seconds', ' s'));
+  }
+
   // ---------------------------------------------------------------- wire up
   renderBrowser();
   renderDevices();
+  renderViz();
   // ---------------------------------------------------------------- secure connection
   let secureKey = null;
   function renderSecure() {

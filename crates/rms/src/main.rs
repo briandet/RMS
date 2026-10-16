@@ -19,6 +19,7 @@ mod tagedit;
 mod ui;
 mod upload;
 mod util;
+mod viz;
 mod watch;
 mod web;
 

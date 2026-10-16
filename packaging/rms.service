@@ -24,7 +24,10 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
-PrivateDevices=yes
+# no devices but the GPU's (the TV visualiser draws and encodes on it; install.sh puts the
+# rms user in the render and video groups)
+DevicePolicy=closed
+DeviceAllow=char-drm rw
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
