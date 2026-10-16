@@ -35,6 +35,7 @@ static struct {
     const char *encoder;    // libx264 | h264_vaapi | h264_qsv
     const char *device;     // DRM render node to prefer, e.g. /dev/dri/renderD128
     int width, height, fps;
+    int rw, rh;             // the size projectM draws at (--render-size; default: the output size)
     double seconds;         // stop after this long (0: when the audio ends)
     double preset_secs;     // switch presets this often
     int mesh_w, mesh_h;
@@ -120,9 +121,9 @@ static void egl_setup(void) {
     EGLint n = 0;
     if (!eglChooseConfig(d, cfg_attrs, &cfg, 1, &n) || n < 1) die("no EGL config with GLES 3 and pbuffers");
     // projectM draws to the default framebuffer: a pbuffer the size of the video
-    const EGLint pb_attrs[] = { EGL_WIDTH, opt.width, EGL_HEIGHT, opt.height, EGL_NONE };
+    const EGLint pb_attrs[] = { EGL_WIDTH, opt.rw, EGL_HEIGHT, opt.rh, EGL_NONE };
     EGLSurface s = eglCreatePbufferSurface(d, cfg, pb_attrs);
-    if (s == EGL_NO_SURFACE) die("cannot create a %dx%d pbuffer", opt.width, opt.height);
+    if (s == EGL_NO_SURFACE) die("cannot create a %dx%d pbuffer", opt.rw, opt.rh);
     if (!eglBindAPI(EGL_OPENGL_ES_API)) die("no OpenGL ES");
     EGLContext c = EGL_NO_CONTEXT;
     for (int minor = 2; minor >= 0 && c == EGL_NO_CONTEXT; minor--) {
@@ -175,11 +176,28 @@ static void find_presets(void) {
 
 static int preset_failures;
 
+/// How the current preset draws: frames (not counting the switch), their total and worst
+/// time, and how many missed the frame's budget.
+static struct {
+    char name[256];
+    long frames, late;
+    double total, worst;
+} cur;
+
+static void preset_report(void) {
+    if (cur.frames == 0) return;
+    fprintf(stderr, "pmviz:   %s: %.1f ms a frame, worst %.1f ms, %.1f%% over budget\n", cur.name,
+            1e3 * cur.total / cur.frames, 1e3 * cur.worst, 100.0 * cur.late / cur.frames);
+}
+
 static void load_next(projectm_handle pm, bool smooth) {
     if (!n_presets) return;
     const char *p = presets[next_preset++ % n_presets];
     const char *base = strrchr(p, '/');
-    fprintf(stderr, "pmviz: preset %s\n", base ? base + 1 : p);
+    preset_report();
+    memset(&cur, 0, sizeof cur);
+    snprintf(cur.name, sizeof cur.name, "%s", base ? base + 1 : p);
+    fprintf(stderr, "pmviz: preset %s\n", cur.name);
     projectm_load_preset_file(pm, p, smooth);
 }
 
@@ -246,7 +264,9 @@ static void video_open(void) {
     // GL frames are RGBA bottom row first: flip, and convert with the HD matrix (BT.709,
     // limited range; ffmpeg's default for RGB is SD's BT.601).  --gpu-yuv frames are NV12
     // already, the right way up.
-    const char *conv = opt.gpu_yuv ? "null" : "vflip,scale=out_color_matrix=bt709:out_range=tv";
+    char conv[160] = "null";
+    if (!opt.gpu_yuv)
+        snprintf(conv, sizeof conv, "vflip,scale=%d:%d:out_color_matrix=bt709:out_range=tv", opt.width, opt.height);
     if (strcmp(opt.encoder, "h264_vaapi") == 0) {
         snprintf(vf, sizeof vf, "%s,format=nv12,hwupload", conv);
         snprintf(enc, sizeof enc, "-vaapi_device %s", dev);
@@ -263,7 +283,8 @@ static void video_open(void) {
              "-f rawvideo -pix_fmt %s -s %dx%d -r %d -i - %s "
              "-map 0:v -vf '%s' -c:v %s %s -g %d "
              "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv %s '%s'",
-             enc, opt.gpu_yuv ? "nv12" : "rgba", opt.width, opt.height, opt.fps, ain, vf, opt.encoder,
+             enc, opt.gpu_yuv ? "nv12" : "rgba", opt.gpu_yuv ? opt.width : opt.rw,
+             opt.gpu_yuv ? opt.height : opt.rh, opt.fps, ain, vf, opt.encoder,
              strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
              : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
              : "-global_quality 22",
@@ -290,9 +311,9 @@ static const char *VS = "#version 300 es\n"
 #define YUV_COMMON "#version 300 es\n" \
     "precision highp float;\n" \
     "uniform highp sampler2D frame;\n" \
-    "uniform int height;\n" \
+    "uniform vec2 size;\n" \
     "out vec4 color;\n" \
-    "vec3 px(int x, int y) { return texelFetch(frame, ivec2(x, height - 1 - y), 0).rgb; }\n" \
+    "vec3 at(vec2 p) { return texture(frame, vec2(p.x / size.x, 1.0 - p.y / size.y)).rgb; }\n" \
     "float luma(vec3 c) { return (16.0 + 219.0 * dot(c, vec3(0.2126, 0.7152, 0.0722))) / 255.0; }\n" \
     "vec2 chroma(vec3 c) {\n" \
     "  return (128.0 + 224.0 * vec2(dot(c, vec3(-0.11457, -0.38543, 0.5)),\n" \
@@ -301,19 +322,18 @@ static const char *VS = "#version 300 es\n"
 
 static const char *FS_Y = YUV_COMMON
     "void main() {\n"
-    "  ivec2 o = ivec2(gl_FragCoord.xy);\n"
-    "  int x = o.x * 4;\n"
-    "  color = vec4(luma(px(x, o.y)), luma(px(x + 1, o.y)), luma(px(x + 2, o.y)), luma(px(x + 3, o.y)));\n"
+    "  vec2 o = floor(gl_FragCoord.xy);\n"
+    "  float x = o.x * 4.0 + 0.5, y = o.y + 0.5;\n"
+    "  color = vec4(luma(at(vec2(x, y))), luma(at(vec2(x + 1.0, y))),\n"
+    "               luma(at(vec2(x + 2.0, y))), luma(at(vec2(x + 3.0, y))));\n"
     "}\n";
 
 static const char *FS_UV = YUV_COMMON
-    "vec3 block(int cx, int cy) {\n"
-    "  int x = cx * 2, y = cy * 2;\n"
-    "  return (px(x, y) + px(x + 1, y) + px(x, y + 1) + px(x + 1, y + 1)) * 0.25;\n"
-    "}\n"
+    // the corner between a 2x2 block's pixels: filtering averages the four
+    "vec3 block(float cx, float cy) { return at(vec2(cx * 2.0 + 1.0, cy * 2.0 + 1.0)); }\n"
     "void main() {\n"
-    "  ivec2 o = ivec2(gl_FragCoord.xy);\n"
-    "  color = vec4(chroma(block(o.x * 2, o.y)), chroma(block(o.x * 2 + 1, o.y)));\n"
+    "  vec2 o = floor(gl_FragCoord.xy);\n"
+    "  color = vec4(chroma(block(o.x * 2.0, o.y)), chroma(block(o.x * 2.0 + 1.0, o.y)));\n"
     "}\n";
 
 static struct {
@@ -344,7 +364,7 @@ static GLuint program(const char *fs) {
     if (!ok) die("shader program did not link");
     glUseProgram(p);
     glUniform1i(glGetUniformLocation(p, "frame"), 0);
-    glUniform1i(glGetUniformLocation(p, "height"), opt.height);
+    glUniform2f(glGetUniformLocation(p, "size"), (float)opt.width, (float)opt.height);
     glUseProgram(0);
     return p;
 }
@@ -366,9 +386,13 @@ static void yuv_setup(void) {
     if (opt.width % 4 || opt.height % 2) die("--gpu-yuv needs a width divisible by 4 and an even height");
     glGenTextures(1, &yuv.src);
     glBindTexture(GL_TEXTURE_2D, yuv.src);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, opt.width, opt.height);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, opt.rw, opt.rh);
+    // (scaled from the render size to the output size; at the same size, the samples fall
+    // on pixel centres or on the corners of 2x2 blocks)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     yuv.tex_y = target(opt.width / 4, opt.height, &yuv.fb_y);
     yuv.tex_uv = target(opt.width / 4, opt.height / 2, &yuv.fb_uv);
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -397,7 +421,7 @@ static void yuv_convert(void) {
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glBindTexture(GL_TEXTURE_2D, yuv.src);
-    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, opt.width, opt.height);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, opt.rw, opt.rh);
     glBindVertexArray(yuv.vao);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, yuv.fb_y);
     glViewport(0, 0, opt.width / 4, opt.height);
@@ -424,7 +448,7 @@ static void yuv_convert(void) {
 static void read_frame(uint8_t *dst) {
     if (!opt.gpu_yuv) {
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, dst);
+        glReadPixels(0, 0, opt.rw, opt.rh, GL_RGBA, GL_UNSIGNED_BYTE, dst);
         return;
     }
     yuv_convert();
@@ -445,15 +469,15 @@ static void draw_bars(void) {
     };
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glEnable(GL_SCISSOR_TEST);
-    int top = opt.height / 3; // GL rows count from the bottom: the bars are above this
+    int top = opt.rh / 3; // GL rows count from the bottom: the bars are above this
     for (int i = 0; i < 8; i++) {
-        int x0 = opt.width * i / 8, x1 = opt.width * (i + 1) / 8;
-        glScissor(x0, top, x1 - x0, opt.height - top);
+        int x0 = opt.rw * i / 8, x1 = opt.rw * (i + 1) / 8;
+        glScissor(x0, top, x1 - x0, opt.rh - top);
         glClearColor(bars[i][0], bars[i][1], bars[i][2], 1);
         glClear(GL_COLOR_BUFFER_BIT);
     }
     for (int i = 0; i < 8; i++) {
-        int x0 = opt.width * i / 8, x1 = opt.width * (i + 1) / 8;
+        int x0 = opt.rw * i / 8, x1 = opt.rw * (i + 1) / 8;
         float g = i / 7.0f;
         glScissor(x0, 0, x1 - x0, top);
         glClearColor(g, g, g, 1);
@@ -524,6 +548,7 @@ static void usage(void) {
         "  -o FILE      encode a video with the music (mp4, mkv, ts, …)\n"
         "  -e ENCODER   libx264 (default), h264_vaapi or h264_qsv\n"
         "  -s WxH       size (default 1280x720)\n"
+        "  --render-size WxH  draw at this size and scale to -s (default: the same)\n"
         "  -r FPS       frames a second (default 30)\n"
         "  -T SECS      stop after this long (default: when the music ends; 30 with the test signal)\n"
         "  -d SECS      switch presets this often (default 20)\n"
@@ -551,7 +576,7 @@ int main(int argc, char **argv) {
         { "device", required_argument, 0, 'D' }, { "software", no_argument, 0, 'S' },
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
         { "readback", required_argument, 0, 'R' }, { "gpu-yuv", no_argument, 0, 'Y' },
-        { "bars", no_argument, 0, 'A' }, { "help", no_argument, 0, 'h' }, { 0 },
+        { "bars", no_argument, 0, 'A' }, { "render-size", required_argument, 0, 'Q' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
@@ -575,6 +600,7 @@ int main(int argc, char **argv) {
         case 'Z': opt.seed = (unsigned)strtoul(optarg, NULL, 10); break;
         case 'Y': opt.gpu_yuv = true; break;
         case 'A': opt.bars = true; break;
+        case 'Q': parse_size(optarg, &opt.rw, &opt.rh); break;
         case 'R':
             if (strcmp(optarg, "direct") == 0) opt.direct = true;
             else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");
@@ -583,6 +609,10 @@ int main(int argc, char **argv) {
         }
     }
     if (opt.fps < 1 || opt.fps > 240) die("bad frame rate");
+    if (!opt.rw) {
+        opt.rw = opt.width;
+        opt.rh = opt.height;
+    }
     if (opt.bench && opt.output) die("--bench writes no output; leave out -o");
     if (!opt.input && opt.seconds <= 0) opt.seconds = 30;
     signal(SIGINT, on_signal);
@@ -595,10 +625,10 @@ int main(int argc, char **argv) {
     projectm_handle pm = projectm_create();
     if (!pm) die("projectm_create failed (is the GL context usable?)");
     char *ver = projectm_get_version_string();
-    fprintf(stderr, "pmviz: projectM %s, %dx%d at %d fps, mesh %dx%d\n", ver, opt.width, opt.height,
-            opt.fps, opt.mesh_w, opt.mesh_h);
+    fprintf(stderr, "pmviz: projectM %s, %dx%d at %d fps, drawn at %dx%d, mesh %dx%d\n", ver, opt.width,
+            opt.height, opt.fps, opt.rw, opt.rh, opt.mesh_w, opt.mesh_h);
     projectm_free_string(ver);
-    projectm_set_window_size(pm, opt.width, opt.height);
+    projectm_set_window_size(pm, opt.rw, opt.rh);
     projectm_set_fps(pm, opt.fps);
     projectm_set_mesh_size(pm, opt.mesh_w, opt.mesh_h);
     projectm_set_aspect_correction(pm, true);
@@ -620,7 +650,8 @@ int main(int argc, char **argv) {
     const int spf = RATE / opt.fps; // audio frames per video frame
     float *pcm = malloc(sizeof(float) * 2 * (size_t)spf);
     // RGBA: 4 bytes a pixel; NV12: luma plus a quarter-size interleaved chroma plane
-    const size_t frame_bytes = (size_t)opt.width * opt.height * (opt.gpu_yuv ? 3 : 8) / 2;
+    const size_t frame_bytes = opt.gpu_yuv ? (size_t)opt.width * opt.height * 3 / 2
+                                           : (size_t)opt.rw * opt.rh * 4;
     if (opt.gpu_yuv) yuv_setup();
 
     // two pixel buffers: read frame N into one while frame N-1 is copied out of the other.
@@ -665,7 +696,7 @@ int main(int argc, char **argv) {
             load_next(pm, true);
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, opt.width, opt.height);
+        glViewport(0, 0, opt.rw, opt.rh);
         if (opt.bars) draw_bars();
         else projectm_opengl_render_frame(pm);
         if (opt.bench) glFinish(); // so the render time is the GPU's, not just the queueing
@@ -711,6 +742,10 @@ int main(int argc, char **argv) {
         } else {
             if (t_end - t0 > worst) worst = t_end - t0;
             if (t_end - t0 > 1.0 / opt.fps) late++;
+            cur.frames++;
+            cur.total += t_end - t0;
+            if (t_end - t0 > cur.worst) cur.worst = t_end - t0;
+            if (t_end - t0 > 1.0 / opt.fps) cur.late++;
         }
         frames++;
 
@@ -729,6 +764,7 @@ int main(int argc, char **argv) {
                     1e3 * t_write / frames, paced && repeated ? ", some repeated to keep time" : "");
         }
     }
+    preset_report();
     // the last frame still in its pixel buffer
     if (video && frames > 0 && !opt.direct && read_pbo(pbo[(frames - 1) & 1], frame, frame_bytes))
         write_out(frame, frame_bytes, reps[(frames - 1) & 1]);

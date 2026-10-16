@@ -99,6 +99,8 @@ The second run, with those changes:
 | 1280x720, paced to a song, h264_vaapi | 8 of 1,800 frames repeated (0.4%), mostly at the 3 preset switches; about 13 ms of each 33 ms frame used |
 | 1920x1080, drawing and h264_vaapi | 1.9x real time; 11 of 896 frames over budget |
 | 1920x1080, paced to a song, h264_vaapi | 7 of 1,800 frames repeated (0.4%); about 17 ms of each 33 ms frame used, 13 of them copying the frame out and piping it to ffmpeg |
+| 1920x1080 at 60 fps, drawing and h264_vaapi | 1.0x real time (RGBA); 1.4x with `--gpu-yuv` |
+| 1920x1080 at 60 fps, paced to a song, `--gpu-yuv` | 63 of 3,600 frames repeated (1.8%), 19% of frames over the 16.7 ms budget, mostly once the shader-heavy presets came on |
 
 So the TV visualiser is viable on this machine at 720p30 and 1080p30 with the GPU's encoder; with
 libx264 it would only just keep up, and starve the rest of RMS.  The two readbacks are
@@ -109,7 +111,7 @@ close (the streaming copy slightly ahead), so pixel buffers stay the default.
 ```
 pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h264_qsv]
       [-s 1280x720] [-r 30] [-T secs] [-d preset-secs] [-m 48x32]
-      [--bench] [--unpaced] [--gpu-yuv] [--readback pbo|direct] [--bars]
+      [--bench] [--unpaced] [--gpu-yuv] [--render-size WxH] [--readback pbo|direct] [--bars]
       [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
 ```
 
@@ -118,6 +120,11 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 - The mesh (`-m`) is MilkDrop's per-pixel grid. Larger meshes look smoother and cost more.
 - `--gpu-yuv` converts each frame to NV12 on the GPU (see below): 1.5 bytes a pixel to copy
   and pipe instead of 4, and nothing left for ffmpeg to convert.
+- `--render-size` has projectM draw smaller than the video (`-s`), scaled up on the GPU by
+  the `--gpu-yuv` pass (or by ffmpeg without it). Heavy presets cost about as much as the
+  pixels they draw, and MilkDrop's soft visuals scale up well.
+- At each preset switch pmviz prints how the preset drew (time a frame, worst, share over
+  budget), to find presets too heavy for the GPU.
 - `--bars` draws colour bars over a grey ramp instead of projectM, to check the colours and
   orientation of the output.
 
