@@ -39,6 +39,7 @@ static struct {
     int rw, rh;             // the size projectM draws at (--render-size; default: the output size)
     double seconds;         // stop after this long (0: when the audio ends)
     double preset_secs;     // switch presets this often
+    double ahead;           // paced: how far (seconds) drawing may run ahead of the clock
     int mesh_w, mesh_h;
     bool bench;             // no output, as fast as it goes
     bool unpaced;           // with -o: don't pace to real time (animation speed will be wrong)
@@ -50,7 +51,7 @@ static struct {
     unsigned seed;
 } opt = {
     .encoder = "libx264", .width = 1280, .height = 720, .fps = 30,
-    .preset_secs = 20, .mesh_w = 48, .mesh_h = 32, .shuffle = true,
+    .preset_secs = 20, .ahead = 0.15, .mesh_w = 48, .mesh_h = 32, .shuffle = true,
 };
 
 static volatile sig_atomic_t stop;
@@ -620,6 +621,8 @@ static void usage(void) {
         "  -e ENCODER   libx264 (default), h264_vaapi or h264_qsv\n"
         "  -s WxH       size (default 1280x720)\n"
         "  --render-size WxH  draw at this size and scale to -s (default: the same)\n"
+        "  --ahead MS   paced: draw up to this far ahead of the clock (default 150), so a slow\n"
+        "               frame or a preset switch uses up the margin instead of repeating frames\n"
         "  -r FPS       frames a second (default 30)\n"
         "  -T SECS      stop after this long (default: when the music ends; 30 with the test signal)\n"
         "  -d SECS      switch presets this often (default 20)\n"
@@ -647,7 +650,8 @@ int main(int argc, char **argv) {
         { "device", required_argument, 0, 'D' }, { "software", no_argument, 0, 'S' },
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
         { "readback", required_argument, 0, 'R' }, { "gpu-yuv", no_argument, 0, 'Y' },
-        { "bars", no_argument, 0, 'A' }, { "render-size", required_argument, 0, 'Q' }, { "help", no_argument, 0, 'h' }, { 0 },
+        { "bars", no_argument, 0, 'A' }, { "render-size", required_argument, 0, 'Q' },
+        { "ahead", required_argument, 0, 'H' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
@@ -672,6 +676,7 @@ int main(int argc, char **argv) {
         case 'Y': opt.gpu_yuv = true; break;
         case 'A': opt.bars = true; break;
         case 'Q': parse_size(optarg, &opt.rw, &opt.rh); break;
+        case 'H': opt.ahead = atof(optarg) / 1000.0; break;
         case 'R':
             if (strcmp(optarg, "direct") == 0) opt.direct = true;
             else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");
@@ -714,6 +719,13 @@ int main(int argc, char **argv) {
         projectm_set_texture_search_paths(pm, paths, 1);
     }
     load_next(pm, false);
+    // the first preset's shaders compile on its first frame: before the clock starts
+    if (!opt.bars) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, opt.rw, opt.rh);
+        projectm_opengl_render_frame(pm);
+        glFinish();
+    }
 
     audio_open();
     video_open();
@@ -749,7 +761,7 @@ int main(int argc, char **argv) {
     const long max_frames = opt.seconds > 0 ? (long)(opt.seconds * opt.fps) : -1;
     const long preset_frames = (long)(opt.preset_secs * opt.fps);
     const bool paced = opt.output && !opt.unpaced;
-    const double start = now();
+    double start = now();
     double report = start + 5, next_switch = (double)preset_frames;
 
     while (!stop && (max_frames < 0 || out < max_frames)) {
@@ -778,6 +790,11 @@ int main(int argc, char **argv) {
         double t1 = now();
         double took = t1 - t0;
         t_render += took;
+        if (frames == 0) {
+            // the clock starts with the first frame (decoders and shaders get going first)
+            start = t1;
+            report = start + 5;
+        }
 
         // paced: this frame covers every frame slot until the next one can be drawn, so the
         // video keeps time with the music even when a frame was late
@@ -837,7 +854,9 @@ int main(int argc, char **argv) {
         frames++;
 
         if (paced) {
-            double wait = start + (double)out / opt.fps - now();
+            // each frame carries the music of its own time slot, so drawing a little ahead
+            // keeps the sync; a frame is only repeated once drawing falls behind the clock
+            double wait = start + (double)out / opt.fps - opt.ahead - now();
             if (wait > 0) {
                 struct timespec ts = { (time_t)wait, (long)((wait - (time_t)wait) * 1e9) };
                 nanosleep(&ts, NULL);

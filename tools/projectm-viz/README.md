@@ -101,6 +101,7 @@ The second run, with those changes:
 | 1920x1080, paced to a song, h264_vaapi | 7 of 1,800 frames repeated (0.4%); about 17 ms of each 33 ms frame used, 13 of them copying the frame out and piping it to ffmpeg |
 | 1920x1080 at 60 fps, drawing and h264_vaapi | 1.0x real time (RGBA); 1.4x with `--gpu-yuv` |
 | 1920x1080 at 60 fps, paced to a song, `--gpu-yuv` | 63 of 3,600 frames repeated (1.8%), 19% of frames over the 16.7 ms budget, mostly once the shader-heavy presets came on |
+| with the readback ring and writer thread, drawn at 1920x1080 / 1280x720 | 3.2% / 2.2% repeated, 9.8% / 4.3% of frames over budget: what is left is mostly preset switches, the first frame and single slow frames |
 | the same over 2 minutes and 12 presets, drawn at 1920x1080 / 1600x900 / 1280x720 | 6.2% / 3.2% / 2.3% of frames repeated: drawing fewer pixels barely helps, so most of a frame is a fixed cost (projectM's per-frame and mesh work on the CPU, and pmviz's readback and pipe, then all on one thread) |
 
 So the TV visualiser is viable on this machine at 720p30 and 1080p30 with the GPU's encoder; with
@@ -112,7 +113,7 @@ close (the streaming copy slightly ahead), so pixel buffers stay the default.
 ```
 pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h264_qsv]
       [-s 1280x720] [-r 30] [-T secs] [-d preset-secs] [-m 48x32]
-      [--bench] [--unpaced] [--gpu-yuv] [--render-size WxH] [--readback pbo|direct] [--bars]
+      [--bench] [--unpaced] [--gpu-yuv] [--render-size WxH] [--ahead MS] [--readback pbo|direct] [--bars]
       [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
 ```
 
@@ -124,6 +125,10 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 - `--render-size` has projectM draw smaller than the video (`-s`), scaled up on the GPU by
   the `--gpu-yuv` pass (or by ffmpeg without it). Heavy presets cost about as much as the
   pixels they draw, and MilkDrop's soft visuals scale up well.
+- `--ahead` (default 150 ms): paced drawing may run this far ahead of the clock, so a slow
+  frame or a preset switch uses up the margin instead of repeating frames. Each frame gets
+  the music of its own time slot, and the video's timestamps are fixed, so the sync with
+  the music doesn't change.
 - At each preset switch pmviz prints how the preset drew (time a frame, worst, share over
   budget), to find presets too heavy for the GPU.
 - `--bars` draws colour bars over a grey ramp instead of projectM, to check the colours and
