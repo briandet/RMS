@@ -70,6 +70,22 @@ What was measured in the development container, which has no GPU and uses Mesa's
 
 So software rendering isn't an option, and the decision rests on the server's GPU.
 
+The first run on an Intel NUC (i5-1135G7, Iris Xe, Mesa 25.2):
+
+| run | result |
+| --- | --- |
+| 1280x720, drawing only | 15 ms a frame (2.2x real time); 1 frame in 1,791 over budget |
+| 1920x1080, drawing only | 15 ms a frame (2.2x real time): the GPU isn't what limits it |
+| preset switches | 50–140 ms on average, at most 385 ms |
+| 1280x720, drawing and libx264 | 1.0x real time: 22 ms a frame getting it to ffmpeg |
+| 1280x720, paced to the music | 19% of frames repeated |
+
+The GPU keeps up easily; the output path didn't.  That version copied each frame to ffmpeg
+straight out of the mapped pixel buffer, which the CPU reads uncached (about 20 ms for 3.7
+MB), and bench mode never copied it at all.  The readback now copies with streaming loads,
+counts that copy in bench mode too, and `--readback direct` is there to compare.  VAAPI on
+this GPU only offers constant quality (`CQP`), which pmviz now asks for.
+
 ## Options
 
 ```

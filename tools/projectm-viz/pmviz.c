@@ -41,6 +41,7 @@ static struct {
     bool bench;             // no output, as fast as it goes
     bool unpaced;           // with -o: don't pace to real time (animation speed will be wrong)
     bool software;          // force a software (llvmpipe) EGL device
+    bool direct;            // --readback direct: glReadPixels into memory, no pixel buffers
     bool shuffle;
     unsigned seed;
 } opt = {
@@ -199,7 +200,7 @@ static void audio_open(void) {
         if (*s == '\'') { memcpy(o, "'\\''", 4); o += 4; } else *o++ = *s;
     }
     *o = 0;
-    snprintf(cmd, sizeof cmd, "ffmpeg -nostdin -hide_banner -loglevel error -i '%s' -f f32le -ac 2 -ar %d -", q, RATE);
+    snprintf(cmd, sizeof cmd, "ffmpeg -nostdin -hide_banner -loglevel fatal -i '%s' -f f32le -ac 2 -ar %d -", q, RATE);
     audio = popen(cmd, "r");
     if (!audio) die("cannot run ffmpeg");
 }
@@ -256,11 +257,63 @@ static void video_open(void) {
              "-f rawvideo -pix_fmt rgba -s %dx%d -r %d -i - %s "
              "-map 0:v -vf '%s' -c:v %s %s -g %d %s '%s'",
              enc, opt.width, opt.height, opt.fps, ain, vf, opt.encoder,
-             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -tune animation -crf 20" : "-b:v 6M",
+             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
+             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
+             : "-global_quality 22",
              opt.fps * 2, amap, opt.output);
     fprintf(stderr, "pmviz: %s\n", cmd);
     video = popen(cmd, "w");
     if (!video) die("cannot run ffmpeg");
+}
+
+// ------------------------------------------------------------------------------- readback
+
+// The CPU reads mapped pixel buffers from memory it doesn't cache (write-combined): plain
+// loads crawl (~20 ms for a 720p frame).  SSE4.1 streaming loads read it in whole cache
+// lines, as Mesa's own glReadPixels does.
+#if defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+__attribute__((target("sse4.1"))) static void copy_stream(void *dst, const void *src, size_t n) {
+    __m128i *d = dst;
+    const __m128i *s = src;
+    for (size_t i = 0; i < n / 64; i++, d += 4, s += 4) {
+        __m128i a = _mm_stream_load_si128((__m128i *)s);
+        __m128i b = _mm_stream_load_si128((__m128i *)s + 1);
+        __m128i c = _mm_stream_load_si128((__m128i *)s + 2);
+        __m128i e = _mm_stream_load_si128((__m128i *)s + 3);
+        _mm_store_si128(d, a);
+        _mm_store_si128(d + 1, b);
+        _mm_store_si128(d + 2, c);
+        _mm_store_si128(d + 3, e);
+    }
+    memcpy((char *)dst + n / 64 * 64, (const char *)src + n / 64 * 64, n % 64);
+}
+static bool can_stream(void) { return __builtin_cpu_supports("sse4.1"); }
+#else
+static void copy_stream(void *dst, const void *src, size_t n) { memcpy(dst, src, n); }
+static bool can_stream(void) { return false; }
+#endif
+
+/// Copy a pixel buffer's frame into `dst` (64-byte aligned).
+static bool read_pbo(GLuint pbo, uint8_t *dst, size_t bytes) {
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+    const void *px = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)bytes, GL_MAP_READ_BIT);
+    if (px) {
+        if (((uintptr_t)px & 15) == 0 && can_stream()) copy_stream(dst, px, bytes);
+        else memcpy(dst, px, bytes);
+    }
+    glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    return px != NULL;
+}
+
+/// Send a frame to the encoder `n` times.
+static void write_out(const uint8_t *frame, size_t bytes, int n) {
+    for (int k = 0; video && k < n && !stop; k++) {
+        if (fwrite(frame, bytes, 1, video) != 1) {
+            fprintf(stderr, "pmviz: the encoder stopped\n");
+            stop = 1;
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------- main
@@ -284,6 +337,7 @@ static void usage(void) {
         "               so the video's motion is wrong; only to test the encoder's throughput)\n"
         "  --device N   DRM render node to use (default: the first GPU EGL finds)\n"
         "  --software   draw with Mesa's software renderer\n"
+        "  --readback M pbo (default: two pixel buffers, read a frame late) or direct\n"
         "  --in-order   presets in name order instead of shuffled; --seed N for the shuffle\n");
     exit(2);
 }
@@ -297,7 +351,7 @@ int main(int argc, char **argv) {
         { "bench", no_argument, 0, 'B' }, { "unpaced", no_argument, 0, 'U' },
         { "device", required_argument, 0, 'D' }, { "software", no_argument, 0, 'S' },
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
-        { "help", no_argument, 0, 'h' }, { 0 },
+        { "readback", required_argument, 0, 'R' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
@@ -319,6 +373,10 @@ int main(int argc, char **argv) {
         case 'S': opt.software = true; break;
         case 'O': opt.shuffle = false; break;
         case 'Z': opt.seed = (unsigned)strtoul(optarg, NULL, 10); break;
+        case 'R':
+            if (strcmp(optarg, "direct") == 0) opt.direct = true;
+            else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");
+            break;
         default: usage();
         }
     }
@@ -361,7 +419,8 @@ int main(int argc, char **argv) {
     float *pcm = malloc(sizeof(float) * 2 * (size_t)spf);
     const size_t frame_bytes = (size_t)opt.width * opt.height * 4;
 
-    // two pixel buffers: read frame N into one while the other (frame N-1) is written out
+    // two pixel buffers: read frame N into one while frame N-1 is copied out of the other.
+    // (--readback direct: glReadPixels straight into memory, waiting for the frame)
     GLuint pbo[2];
     glGenBuffers(2, pbo);
     for (int i = 0; i < 2; i++) {
@@ -370,6 +429,8 @@ int main(int argc, char **argv) {
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     const bool readback = opt.output || opt.bench;
+    uint8_t *frame = aligned_alloc(64, frame_bytes);
+    if (!frame) die("out of memory");
 
     double t_render = 0, t_read = 0, t_write = 0, worst = 0, worst_switch = 0, sum_switch = 0;
     long frames = 0, late = 0, switches = 0, repeated = 0;
@@ -380,18 +441,6 @@ int main(int argc, char **argv) {
     const bool paced = opt.output && !opt.unpaced;
     const double start = now();
     double report = start + 5, next_switch = (double)preset_frames;
-
-    // write the frame in pixel buffer `slot` out `n` times
-    #define WRITE_OUT(slot, n) do {                                                              \
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[slot]);                                          \
-        void *px_ = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)frame_bytes, GL_MAP_READ_BIT); \
-        for (int k_ = 0; px_ && video && k_ < (n) && !stop; k_++)                               \
-            if (fwrite(px_, frame_bytes, 1, video) != 1) {                                      \
-                fprintf(stderr, "pmviz: the encoder stopped\n");                                \
-                stop = 1;                                                                       \
-            }                                                                                   \
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);                                                    \
-    } while (0)
 
     while (!stop && (max_frames < 0 || out < max_frames)) {
         // the music up to this frame's time; with repeats, the audio of the skipped frames too
@@ -432,15 +481,22 @@ int main(int argc, char **argv) {
         out += n;
 
         if (readback) {
-            int slot = (int)(frames & 1);
-            reps[slot] = n;
             glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[slot]);
-            glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+            int ready = 0; // copies of a frame now in `frame` to write out
+            if (opt.direct) {
+                glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, frame);
+                ready = n;
+            } else {
+                int slot = (int)(frames & 1);
+                reps[slot] = n;
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[slot]);
+                glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+                if (frames > 0 && read_pbo(pbo[slot ^ 1], frame, frame_bytes)) ready = reps[slot ^ 1];
+                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            }
             double t2 = now();
             t_read += t2 - t1;
-            if (frames > 0) WRITE_OUT(slot ^ 1, reps[slot ^ 1]);
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+            write_out(frame, frame_bytes, ready);
             t_write += now() - t2;
         }
         double t_end = now();
@@ -470,7 +526,8 @@ int main(int argc, char **argv) {
         }
     }
     // the last frame still in its pixel buffer
-    if (video && frames > 0) WRITE_OUT((frames - 1) & 1, reps[(frames - 1) & 1]);
+    if (video && frames > 0 && !opt.direct && read_pbo(pbo[(frames - 1) & 1], frame, frame_bytes))
+        write_out(frame, frame_bytes, reps[(frames - 1) & 1]);
     double el = now() - start;
     if (frames == 0) die("no frames drawn");
     long normal = frames - switches;
@@ -478,8 +535,9 @@ int main(int argc, char **argv) {
     printf("\n%ld frames drawn, %dx%d, mesh %dx%d, %s\n", frames, opt.width, opt.height, opt.mesh_w,
            opt.mesh_h, glGetString(GL_RENDERER));
     printf("  render    %6.2f ms a frame\n", 1e3 * t_render / frames);
-    printf("  readback  %6.2f ms a frame\n", 1e3 * t_read / frames);
-    if (video) printf("  to ffmpeg %6.2f ms a frame (includes waiting for the encoder)\n", 1e3 * t_write / frames);
+    printf("  readback  %6.2f ms a frame (%s)\n", 1e3 * t_read / frames,
+           opt.direct ? "direct" : "pixel buffers, streaming copy");
+    if (video) printf("  to ffmpeg %6.2f ms a frame (waiting for the encoder when it's slower)\n", 1e3 * t_write / frames);
     if (normal > 0)
         printf("  slowest   %6.2f ms; %ld of %ld frames over the %.1f ms budget (%.1f%%)\n", 1e3 * worst, late,
                normal, 1e3 / opt.fps, 100.0 * late / normal);

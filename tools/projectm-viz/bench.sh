@@ -36,12 +36,26 @@ run() {
     run --bench -T 60 -d 6 -m 64x48 $P
     run --bench -T 30 -d 6 -s 1920x1080 $P
 
-    # 2. drawing and encoding together, as fast as it goes (the motion is wrong in these files;
+    # 2. the encoders alone, on a test picture: how fast ffmpeg takes 720p RGBA frames
+    for enc in "libx264 -preset veryfast -crf 20" \
+               "h264_vaapi -rc_mode CQP -qp 22 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload"; do
+        echo
+        echo "### ffmpeg encoder alone: $enc"
+        set -- $enc
+        codec=$1; shift
+        ffmpeg -hide_banner -loglevel error -benchmark -f lavfi -i testsrc2=size=1280x720:rate=30 \
+            -t 20 -pix_fmt rgba -f rawvideo - 2>/dev/null |
+            ffmpeg -hide_banner -loglevel error -stats -f rawvideo -pix_fmt rgba -s 1280x720 -r 30 \
+                -i - "$@" -c:v "$codec" -f null - 2>&1 | tr '\r' '\n' | grep 'speed=' | tail -1
+    done
+
+    # 3. drawing and encoding together, as fast as it goes (the motion is wrong in these files;
     #    they only measure throughput)
     run -T 30 -d 6 --unpaced -o /tmp/pmviz-x264.mp4 $P
+    run -T 30 -d 6 --unpaced --readback direct -o /tmp/pmviz-x264.mp4 $P
     run -T 30 -d 6 --unpaced -e h264_vaapi -o /tmp/pmviz-vaapi.mp4 $P
 
-    # 3. the real thing: paced to the music, as a live stream would be
+    # 4. the real thing: paced to the music, as a live stream would be
     if [ -n "$music" ]; then
         run -i "$music" -T 60 -d 15 -o sample.mp4 $P
     else
