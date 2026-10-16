@@ -60,6 +60,7 @@ enum Subscribe {
 }
 
 async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
+    let peer = sock.peer_addr().ok();
     let conn_id = NEXT_CONN.fetch_add(1, Ordering::SeqCst);
     let cnx = format!("cli:{}", conn_id);
     let (mut rd, mut wr) = sock.into_split();
@@ -138,6 +139,7 @@ async fn handle(server: Arc<Server>, sock: TcpStream) -> anyhow::Result<()> {
                 &subscribe,
                 &tx,
                 &terminator,
+                peer,
             )
             .await
             {
@@ -168,11 +170,17 @@ async fn process_line(
     subscribe: &Arc<parking_lot::Mutex<Subscribe>>,
     tx: &mpsc::UnboundedSender<String>,
     term: &str,
+    peer: Option<std::net::SocketAddr>,
 ) -> LineResult {
     let mut tokens: Vec<String> = line.split_whitespace().map(unescape).collect();
     if tokens.is_empty() {
         return LineResult::Continue;
     }
+    crate::web::jsonrpc::first_contact(
+        "CLI",
+        peer,
+        &format!("{:?}", super::request::mask_secrets(&tokens)),
+    );
     // player prefix
     let mut client = server.resolve_client(&tokens[0]);
     let mut client_raw: Option<String> = None;
@@ -288,6 +296,15 @@ async fn process_line(
         debug!(
             "CLI: unknown or missing client -- echoing as is: {:?}",
             super::request::mask_secrets(&tokens)
+        );
+        crate::web::jsonrpc::unanswered(
+            "CLI",
+            peer,
+            &format!(
+                "{:?} {:?}",
+                req.status,
+                super::request::mask_secrets(&tokens)
+            ),
         );
     }
     if req.is_query && req.param("subscribe").is_some() {

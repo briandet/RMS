@@ -277,14 +277,17 @@ enum Transport {
 pub async fn handle(
     State(server): State<Arc<Server>>,
     Query(query): Query<HashMap<String, String>>,
+    ext: axum::http::Extensions,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
+    let peer = crate::web::jsonrpc::peer(&ext);
     let Some(msg) = extract_message(&headers, &query, &body) else {
         return json_response(vec![
             json!({"successful": false, "error": "no bayeux message found"}),
         ]);
     };
+    crate::web::jsonrpc::first_contact("Cometd", peer, &msg);
     let parsed: Value = match serde_json::from_str(&msg) {
         Ok(v) => v,
         Err(e) => return json_response(vec![json!({"successful": false, "error": e.to_string()})]),
