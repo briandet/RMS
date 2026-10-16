@@ -26,6 +26,8 @@ serde_json = { workspace = true }
 serde_yaml = "0.9"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# the real target of librespot's `log` records (Spotify's refused keys)
+tracing-log = "0.2"
 clap = { version = "4", features = ["derive", "env"] }
 axum = { version = "0.8", features = ["http1", "json", "query", "tokio", "macros", "ws"] }
 tower = "0.5"
@@ -84,5 +86,7 @@ rsa = "0.9"
 
 [dev-dependencies]
 claxon = "0.4"
+# librespot's log records, as it sends them (Spotify's refused keys)
+log = "0.4"
 tempfile = "3"
 tokio-tungstenite = "0.28"

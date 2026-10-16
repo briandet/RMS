@@ -2,6 +2,13 @@
 //! into 16-bit stereo at 44.1 kHz, which is sent to the player as FLAC (about half the size
 //! of PCM, still lossless) or, for players without FLAC, as little-endian PCM.  Its output
 //! goes through a bounded channel, so decoding runs only as fast as the player takes it.
+//!
+//! When Spotify refuses a track's decryption key, librespot plays the file undecrypted, and
+//! its decoder can take the scrambled bytes for MP3 and make noise of them.  librespot only
+//! logs it, so [`key_refusals`] watches its log: the stream loading the track drops what
+//! that attempt decodes and loads the track again on a new librespot player ([`TRIES`] in all,
+//! through the same encoder, so a FLAC stream stays one stream), and then gives up with an
+//! error rather than noise.
 
 use super::Spotify;
 use bytes::Bytes;
@@ -13,7 +20,11 @@ use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::NoOpVolume;
 use librespot_playback::player::{Player, PlayerEvent};
-use std::sync::Arc;
+use parking_lot::Mutex;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use tracing::{debug, warn};
 
 /// Format of the PCM produced (what the `strm` header announces).
@@ -27,10 +38,88 @@ pub const QUEUE: usize = 8;
 /// FLAC block size (samples per channel), the reference encoder's default.
 const FLAC_BLOCK: usize = 4096;
 
+/// Times a stream loads its track before giving up when Spotify refuses its key.
+pub const TRIES: u32 = 3;
+/// Waits before loading again: the key server refuses requests that come too fast.
+const RETRY_AFTER: [Duration; 2] = [Duration::from_millis(1500), Duration::from_secs(4)];
+
+/// What librespot logs (`librespot_playback::player`, a warning) when the key is refused.
+const KEY_REFUSED: &str = "Unable to load key";
+
+/// One load of a track: whether Spotify refused its key.
+#[derive(Default)]
+pub struct Attempt {
+    refused: AtomicBool,
+    notify: tokio::sync::Notify,
+}
+
+impl Attempt {
+    fn refused(&self) -> bool {
+        self.refused.load(Ordering::Acquire)
+    }
+}
+
+/// Loads under way (no audio yet), oldest first.  librespot's message doesn't say which track
+/// it was loading, so a refusal goes to the oldest (loads at once are rare).
+static LOADING: LazyLock<Mutex<VecDeque<Arc<Attempt>>>> = LazyLock::new(Default::default);
+
+fn loaded(a: &Arc<Attempt>) {
+    LOADING.lock().retain(|x| !Arc::ptr_eq(x, a));
+}
+
+/// A refusal: the oldest load under way was refused (`false`: none was under way).
+pub fn key_refused() -> bool {
+    let Some(a) = LOADING.lock().pop_front() else {
+        return false;
+    };
+    a.refused.store(true, Ordering::Release);
+    a.notify.notify_one();
+    true
+}
+
+/// The log layer that sees librespot's key refusals (warnings and worse only).
+pub fn key_refusals<S>() -> impl tracing_subscriber::Layer<S>
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    use tracing_subscriber::Layer;
+    KeyRefusals.with_filter(tracing_subscriber::filter::LevelFilter::WARN)
+}
+
+struct KeyRefusals;
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for KeyRefusals {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        use tracing_log::NormalizeEvent;
+        // librespot logs through `log`: its target is in the normalized metadata
+        let normalized = event.normalized_metadata();
+        let meta = normalized.as_ref().unwrap_or_else(|| event.metadata());
+        if meta.target() != "librespot_playback::player" {
+            return;
+        }
+        struct Message(String);
+        impl tracing::field::Visit for Message {
+            fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                if f.name() == "message" {
+                    self.0 = format!("{v:?}");
+                }
+            }
+        }
+        let mut m = Message(String::new());
+        event.record(&mut m);
+        if m.0.starts_with(KEY_REFUSED) && !key_refused() {
+            debug!("Spotify: a key was refused, but no stream was loading");
+        }
+    }
+}
+
 /// librespot output: interleaved samples into a channel (blocking when the player is ahead).
+/// What a load whose key was refused decodes goes nowhere.
 struct ChannelSink {
     tx: std::sync::mpsc::SyncSender<Vec<i16>>,
     learner: super::learn::Learner,
+    attempt: Arc<Attempt>,
+    started: bool,
 }
 
 impl Sink for ChannelSink {
@@ -43,6 +132,14 @@ impl Sink for ChannelSink {
         let AudioPacket::Samples(samples) = packet else {
             return Ok(());
         };
+        // the key is asked for before decoding starts: refused or not, it's known by now
+        if self.attempt.refused() {
+            return Ok(());
+        }
+        if !self.started {
+            self.started = true;
+            loaded(&self.attempt);
+        }
         let samples = converter.f64_to_s16(&samples);
         self.learner.samples(&samples);
         self.tx
@@ -237,76 +334,53 @@ pub async fn open(
         .map_err(|e| std::io::Error::other(e.to_string()))?;
     let session = spotify.session().await.map_err(std::io::Error::other)?;
 
+    // one encoder for every attempt: its output is the stream
     let (sync_tx, sync_rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(QUEUE);
-    let learn_events = super::learn::EventSlot::default();
-    let learner = super::learn::Learner::new(spotify.server(), learn_events.clone());
-    let player = Player::new(config, session, Box::new(NoOpVolume), move || {
-        Box::new(ChannelSink {
-            tx: sync_tx,
-            learner,
-        })
-    });
-    *learn_events.lock() = Some(player.get_player_event_channel());
-    let mut events = player.get_player_event_channel();
-    player.load(uri, true, start_ms);
-
     let rx = encode(sync_rx, flac)?;
-
-    // Finish when librespot reports the end of the track (all audio is queued by then).
-    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-    let url_owned = url.to_string();
-    crate::util::spawn(async move {
-        let mut done = Some(done_tx);
-        while let Some(ev) = events.recv().await {
-            let result = match ev {
-                PlayerEvent::EndOfTrack { .. } | PlayerEvent::Stopped { .. } => Ok(()),
-                PlayerEvent::Unavailable { .. } => Err(format!("{url_owned} is unavailable")),
-                _ => continue,
-            };
-            if let Some(d) = done.take() {
-                let _ = d.send(result);
-            }
-            break;
-        }
-    });
-
-    struct State {
-        rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
-        done: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,
-        player: Option<Arc<Player>>,
-    }
-    impl State {
-        /// Shut the player down: its output closes, the bridge drains and ends `rx`.
-        fn release(&mut self) {
-            if let Some(p) = self.player.take() {
-                p.stop();
-                // joining the decoder thread may block briefly
-                std::thread::spawn(move || drop(p));
-            }
-        }
-    }
-    impl Drop for State {
-        fn drop(&mut self) {
-            self.rx.close();
-            self.release();
-        }
-    }
+    let load = Load {
+        spotify: spotify.clone(),
+        session,
+        config,
+        uri,
+        start_ms,
+        url: url.to_string(),
+    };
+    let running = load.start(sync_tx.clone());
     let state = State {
         rx,
-        done: Some(done_rx),
-        player: Some(player),
+        tx: Some(sync_tx),
+        load,
+        running: Some(running),
+        tries: 1,
     };
     Ok(stream::unfold(state, |mut st| async move {
         loop {
+            let refused = st.running.as_ref().map(|r| r.attempt.clone());
             tokio::select! {
                 chunk = st.rx.recv() => match chunk {
                     Some(c) => return Some((Ok(Bytes::from(c)), st)),
                     // everything decoded has been sent
                     None => return None,
                 },
-                res = async { st.done.as_mut().expect("pending").await }, if st.done.is_some() => {
-                    st.done = None;
-                    st.release();
+                _ = async { refused.as_ref().expect("running").notify.notified().await }, if refused.is_some() => {
+                    if let Err(e) = st.again().await {
+                        return Some((Err(e), st));
+                    }
+                }
+                res = async { st.running.as_mut().expect("running").done.as_mut().expect("pending").await },
+                    if st.running.as_ref().is_some_and(|r| r.done.is_some()) => {
+                    let refused = st.running.as_ref().is_some_and(|r| r.attempt.refused());
+                    if let Some(r) = st.running.as_mut() {
+                        r.done = None;
+                    }
+                    if refused {
+                        // the refusal's own notice may come after the player gave up
+                        if let Err(e) = st.again().await {
+                            return Some((Err(e), st));
+                        }
+                        continue;
+                    }
+                    st.finish();
                     if let Ok(Err(e)) = res {
                         warn!("Spotify: {e}");
                         return Some((Err(std::io::Error::other(e)), st));
@@ -317,6 +391,141 @@ pub async fn open(
         }
     })
     .boxed())
+}
+
+/// What a stream loads, again if needed.
+struct Load {
+    spotify: Arc<Spotify>,
+    session: librespot_core::Session,
+    config: PlayerConfig,
+    uri: SpotifyUri,
+    start_ms: u32,
+    url: String,
+}
+
+/// A librespot player loading or playing the track into the stream's encoder.
+struct Running {
+    player: Option<Arc<Player>>,
+    attempt: Arc<Attempt>,
+    /// Ends with the track (`Err`: it can't be played).
+    done: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,
+}
+
+impl Load {
+    fn start(&self, tx: std::sync::mpsc::SyncSender<Vec<i16>>) -> Running {
+        let attempt = Arc::new(Attempt::default());
+        LOADING.lock().push_back(attempt.clone());
+        let learn_events = super::learn::EventSlot::default();
+        let learner = super::learn::Learner::new(self.spotify.server(), learn_events.clone());
+        let sink_attempt = attempt.clone();
+        let player = Player::new(
+            self.config.clone(),
+            self.session.clone(),
+            Box::new(NoOpVolume),
+            move || {
+                Box::new(ChannelSink {
+                    tx,
+                    learner,
+                    attempt: sink_attempt,
+                    started: false,
+                })
+            },
+        );
+        *learn_events.lock() = Some(player.get_player_event_channel());
+        let mut events = player.get_player_event_channel();
+        player.load(self.uri.clone(), true, self.start_ms);
+
+        // Finish when librespot reports the end of the track (all audio is queued by then).
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+        let url = self.url.clone();
+        crate::util::spawn(async move {
+            while let Some(ev) = events.recv().await {
+                let result = match ev {
+                    PlayerEvent::EndOfTrack { .. } | PlayerEvent::Stopped { .. } => Ok(()),
+                    PlayerEvent::Unavailable { .. } => Err(format!("{url} is unavailable")),
+                    _ => continue,
+                };
+                let _ = done_tx.send(result);
+                break;
+            }
+        });
+        Running {
+            player: Some(player),
+            attempt,
+            done: Some(done_rx),
+        }
+    }
+}
+
+impl Running {
+    /// Shut the player down: its output closes.
+    fn release(&mut self) {
+        loaded(&self.attempt);
+        if let Some(p) = self.player.take() {
+            p.stop();
+            // joining the decoder thread may block briefly
+            std::thread::spawn(move || drop(p));
+        }
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+struct State {
+    rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    /// The encoder's input, for loading again; dropped at the end so the stream ends.
+    tx: Option<std::sync::mpsc::SyncSender<Vec<i16>>>,
+    load: Load,
+    running: Option<Running>,
+    tries: u32,
+}
+
+impl State {
+    /// Spotify refused the key: load the track again after a while, or give up.
+    async fn again(&mut self) -> std::io::Result<()> {
+        if let Some(mut r) = self.running.take() {
+            r.release();
+        }
+        let url = self.load.url.clone();
+        if self.tries >= TRIES {
+            self.finish();
+            warn!(
+                "Spotify: the key of {url} was refused {} times; giving up",
+                self.tries
+            );
+            return Err(std::io::Error::other(format!(
+                "Spotify refused the key of {url}"
+            )));
+        }
+        let wait = RETRY_AFTER[(self.tries as usize - 1).min(RETRY_AFTER.len() - 1)];
+        warn!("Spotify: the key of {url} was refused; loading it again in {wait:?}");
+        tokio::time::sleep(wait).await;
+        let Some(tx) = self.tx.clone() else {
+            return Err(std::io::Error::other("stream closed"));
+        };
+        self.tries += 1;
+        self.running = Some(self.load.start(tx));
+        Ok(())
+    }
+
+    /// The track is over: let the encoder finish and the stream end.
+    fn finish(&mut self) {
+        if let Some(mut r) = self.running.take() {
+            r.release();
+        }
+        self.tx = None;
+    }
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.rx.close();
+        self.finish();
+    }
 }
 
 #[cfg(test)]
@@ -356,6 +565,70 @@ mod tests {
         assert_eq!(info.samples, None);
         let decoded: Vec<i16> = reader.samples().map(|s| s.unwrap() as i16).collect();
         assert_eq!(decoded, pcm);
+    }
+
+    /// librespot's warning that Spotify refused a key marks the oldest load under way, whose
+    /// audio then goes nowhere; other messages and loads are left alone.
+    #[test]
+    fn a_refused_key_is_noticed_and_its_audio_dropped() {
+        use tracing_subscriber::prelude::*;
+        let subscriber = tracing_subscriber::registry().with(key_refusals());
+        // as librespot logs: through `log`, bridged to tracing
+        let warn = |target: &str, msg: &str| {
+            tracing_log::format_trace(
+                &log::Record::builder()
+                    .target(target)
+                    .level(log::Level::Warn)
+                    .args(format_args!("{msg}"))
+                    .build(),
+            )
+            .unwrap();
+        };
+        let (older, newer) = (Arc::new(Attempt::default()), Arc::new(Attempt::default()));
+        LOADING.lock().extend([older.clone(), newer.clone()]);
+        tracing::subscriber::with_default(subscriber, || {
+            warn(
+                "librespot_playback::player",
+                "Unable to get normalisation data, continuing with defaults.",
+            );
+            warn(
+                "librespot_core::audio_key",
+                "Unable to load key, but from elsewhere",
+            );
+            assert!(!older.refused() && !newer.refused());
+            warn("librespot_playback::player", "Unable to load key, continuing without decryption: Service unavailable { audio key error }");
+        });
+        assert!(older.refused());
+        assert!(!newer.refused());
+        assert!(LOADING.lock().iter().any(|a| Arc::ptr_eq(a, &newer)));
+        assert!(!LOADING.lock().iter().any(|a| Arc::ptr_eq(a, &older)));
+
+        // the refused load's sink passes nothing on; the other's does, and is loaded then
+        let sink = |attempt: &Arc<Attempt>| {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(4);
+            let learner =
+                super::super::learn::Learner::new(std::sync::Weak::new(), Default::default());
+            let sink = ChannelSink {
+                tx,
+                learner,
+                attempt: attempt.clone(),
+                started: false,
+            };
+            (sink, rx)
+        };
+        let mut converter = Converter::new(None);
+        let (mut refused, refused_rx) = sink(&older);
+        refused
+            .write(AudioPacket::Samples(vec![0.5; 8]), &mut converter)
+            .unwrap();
+        assert!(refused_rx.try_recv().is_err());
+        let (mut fine, fine_rx) = sink(&newer);
+        fine.write(AudioPacket::Samples(vec![0.5; 8]), &mut converter)
+            .unwrap();
+        assert_eq!(fine_rx.try_recv().unwrap().len(), 8);
+        assert!(!LOADING.lock().iter().any(|a| Arc::ptr_eq(a, &newer)));
+        // a refusal with no load under way is nobody's
+        assert!(!key_refused());
     }
 
     #[test]

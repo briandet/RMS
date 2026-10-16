@@ -8,15 +8,24 @@
 //! "clock", "jiffies": <ms>}` first and its play points with the time they were taken, starts
 //! at the time it is told to (`resume` with `at`), and plays a little ahead or behind on
 //! `hold` and `skip`, so the server keeps it in step with the players it is synced with.
+//!
+//! One page of a browser plays at a time (its tabs and windows share its id).  Another page
+//! that connects while one plays is told `{"type": "busy"}` and closed, unless it asks to take
+//! over (`takeover=1`, the user's "Play here"): then the page playing is told `{"type":
+//! "replaced"}` and closed.  Neither connects again by itself until the player is free, so two
+//! pages don't take it from each other in turn (each takeover restarts what plays).
 
 use super::{mac_for, FromRenderer, Identity, ToRenderer};
 use crate::server::Server;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::Response;
+use parking_lot::Mutex;
 use serde::Deserialize;
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 #[derive(Debug, Deserialize)]
@@ -32,7 +41,19 @@ pub struct Params {
     pub clock: Option<String>,
     /// The highest sample rate it plays (its audio output's rate).
     pub rate: Option<u32>,
+    /// `1`: take the player over from another page of this browser playing it.
+    pub takeover: Option<String>,
 }
+
+/// A page playing: its connection's number, and the way to tell it it has been replaced
+/// (closed once that connection has ended).
+type Playing = (u64, oneshot::Sender<()>);
+/// The page playing for each browser, by player id.
+static PLAYING: LazyLock<Mutex<HashMap<String, Playing>>> = LazyLock::new(Default::default);
+static NEXT: AtomicU64 = AtomicU64::new(1);
+
+/// Close code of a page whose player another page took (`replaced`) or has (`busy`).
+const CLOSE_ELSEWHERE: u16 = 4000;
 
 /// Formats a browser may declare.
 const KNOWN: &[&str] = &["pcm", "flc", "mp3", "ogg", "ops", "aac"];
@@ -71,10 +92,57 @@ pub async fn handle(
             .unwrap_or(192_000),
         accurate: p.clock.as_deref() == Some("1"),
     };
-    ws.on_upgrade(move |socket| relay(server, identity, socket))
+    let takeover = p.takeover.as_deref() == Some("1");
+    ws.on_upgrade(move |socket| relay(server, identity, socket, takeover))
 }
 
-async fn relay(server: Arc<Server>, identity: Identity, mut socket: WebSocket) {
+/// Tell a page the player is elsewhere (`busy`, `replaced`) and close it.
+async fn elsewhere(socket: &mut WebSocket, kind: &str) {
+    let msg = serde_json::json!({ "type": kind });
+    let _ = socket.send(Message::Text(msg.to_string().into())).await;
+    let _ = socket
+        .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+            code: CLOSE_ELSEWHERE,
+            reason: kind.to_string().into(),
+        })))
+        .await;
+}
+
+async fn relay(server: Arc<Server>, identity: Identity, mut socket: WebSocket, takeover: bool) {
+    let key = identity.mac.to_string();
+    let conn = NEXT.fetch_add(1, Ordering::Relaxed);
+    let (kick_tx, mut kick_rx) = oneshot::channel::<()>();
+    let busy = {
+        let mut playing = PLAYING.lock();
+        // a page that has gone doesn't count
+        let other = playing.get(&key).is_some_and(|(_, tx)| !tx.is_closed());
+        if other && !takeover {
+            true
+        } else {
+            if let Some((_, old)) = playing.insert(key.clone(), (conn, kick_tx)) {
+                let _ = old.send(());
+            }
+            false
+        }
+    };
+    if busy {
+        debug!("{}: another page of this browser plays", identity.name);
+        elsewhere(&mut socket, "busy").await;
+        return;
+    }
+    relay_player(server, identity, socket, &mut kick_rx).await;
+    let mut playing = PLAYING.lock();
+    if playing.get(&key).is_some_and(|(c, _)| *c == conn) {
+        playing.remove(&key);
+    }
+}
+
+async fn relay_player(
+    server: Arc<Server>,
+    identity: Identity,
+    mut socket: WebSocket,
+    kick: &mut oneshot::Receiver<()>,
+) {
     let (to_tx, mut to_rx) = mpsc::channel::<ToRenderer>(32);
     let (from_tx, from_rx) = mpsc::channel::<FromRenderer>(32);
     let name = identity.name.clone();
@@ -90,6 +158,12 @@ async fn relay(server: Arc<Server>, identity: Identity, mut socket: WebSocket) {
     let bridge = crate::util::spawn(super::run(server, identity, to_tx, from_rx));
     loop {
         tokio::select! {
+            // another page of this browser took the player
+            Ok(()) = &mut *kick => {
+                debug!("{name}: another page of this browser plays now");
+                elsewhere(&mut socket, "replaced").await;
+                break;
+            }
             cmd = to_rx.recv() => {
                 // the bridge ended: the server dropped the player
                 let Some(cmd) = cmd else { break };
