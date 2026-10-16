@@ -227,6 +227,20 @@ async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Value>, String
     Ok(out)
 }
 
+/// An artist's pictures: its portraits, or failing those the portrait group or its
+/// biography's (where Spotify keeps them for many artists).
+fn artist_images(a: &Artist) -> Value {
+    let bios = a
+        .biographies
+        .iter()
+        .flat_map(|b| std::iter::once(&b.portraits).chain(b.portrait_group.iter()));
+    [&a.portraits, &a.portrait_group]
+        .into_iter()
+        .chain(bios)
+        .find(|i| !i.is_empty())
+        .map_or_else(|| json!([]), images)
+}
+
 async fn artists(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
     let mut out = Vec::with_capacity(uris.len());
     for (u, bytes) in batch(session, uris, ExtensionKind::ARTIST_V4).await? {
@@ -237,7 +251,7 @@ async fn artists(session: &Session, uris: &[String]) -> Result<Vec<Value>, Strin
             out.push(json!({
                 "id": id_of(&a.id),
                 "name": a.name,
-                "images": images(&a.portraits),
+                "images": artist_images(&a),
             }));
         }
     }
