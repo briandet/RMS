@@ -404,9 +404,10 @@ const webAudio = (() => {
     let total = 0;
     const deliver = (left, right) => {
       if (signal.aborted) return;
-      post({ type: 'audio', track: t.id, left, right }, [left.buffer, right.buffer]);
+      // (counted first: posting hands the buffers over, and leaves them empty here)
       total += left.length;
       buffered += left.length;
+      post({ type: 'audio', track: t.id, left, right }, [left.buffer, right.buffer]);
       // enough to begin
       if (t === current && !t.started && !t.ready) {
         if (t.autostart && total >= START_AFTER * sr) { t.ready = true; start(); }
