@@ -109,19 +109,31 @@ close (the streaming copy slightly ahead), so pixel buffers stay the default.
 ```
 pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h264_qsv]
       [-s 1280x720] [-r 30] [-T secs] [-d preset-secs] [-m 48x32]
-      [--bench] [--unpaced] [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
+      [--bench] [--unpaced] [--gpu-yuv] [--readback pbo|direct] [--bars]
+      [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
 ```
 
 - `-i -` reads 32-bit float stereo samples at 44.1 kHz from stdin, which is how RMS would feed
   it the playing audio. With no `-i`, it uses a built-in test signal.
 - The mesh (`-m`) is MilkDrop's per-pixel grid. Larger meshes look smoother and cost more.
+- `--gpu-yuv` converts each frame to NV12 on the GPU (see below): 1.5 bytes a pixel to copy
+  and pipe instead of 4, and nothing left for ffmpeg to convert.
+- `--bars` draws colour bars over a grey ramp instead of projectM, to check the colours and
+  orientation of the output.
 
 ## How it works, and what it means for RMS
 
 - **Rendering.** An EGL pbuffer with an OpenGL ES 3 context, on the first GPU render node EGL
   finds, with software rendering as a fallback. projectM 4.1 draws to the default framebuffer.
 - **Readback.** Frames are read through two pixel buffers, so frame N is read while frame N-1
-  goes to ffmpeg as raw RGBA. ffmpeg flips it right side up and encodes it.
+  goes to ffmpeg. By default that's raw RGBA, which ffmpeg flips right side up and converts
+  to YUV on the CPU. With `--gpu-yuv` a shader pass does both on the GPU: luma at full size
+  and chroma at half size each way, packed four bytes to an RGBA texel because OpenGL ES only
+  promises RGBA reads, which is also NV12's byte order.
+- **Colours.** HD video uses the BT.709 matrix in limited ("TV") range. Both paths convert
+  with it and tag the stream so (`-colorspace bt709 …`). Before, ffmpeg converted with its
+  default for RGB input, SD's BT.601, and left the stream untagged, so colours were slightly
+  off on HD players.
 - **Timing.** projectM animates by the wall clock: version 4.1 has no way to set the frame
   time. So output must be drawn in real time, which a live stream needs anyway. Offline
   rendering faster than real time would get the motion wrong, which is why `--unpaced` is only

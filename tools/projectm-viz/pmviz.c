@@ -42,6 +42,8 @@ static struct {
     bool unpaced;           // with -o: don't pace to real time (animation speed will be wrong)
     bool software;          // force a software (llvmpipe) EGL device
     bool direct;            // --readback direct: glReadPixels into memory, no pixel buffers
+    bool gpu_yuv;           // convert to NV12 (BT.709) on the GPU before reading back
+    bool bars;              // colour bars instead of projectM (to check colours and orientation)
     bool shuffle;
     unsigned seed;
 } opt = {
@@ -241,22 +243,27 @@ static void video_open(void) {
         snprintf(amap, sizeof amap, "-map 1:a -c:a aac -b:a 192k -shortest");
     }
     const char *dev = opt.device ? opt.device : "/dev/dri/renderD128";
+    // GL frames are RGBA bottom row first: flip, and convert with the HD matrix (BT.709,
+    // limited range; ffmpeg's default for RGB is SD's BT.601).  --gpu-yuv frames are NV12
+    // already, the right way up.
+    const char *conv = opt.gpu_yuv ? "null" : "vflip,scale=out_color_matrix=bt709:out_range=tv";
     if (strcmp(opt.encoder, "h264_vaapi") == 0) {
-        snprintf(vf, sizeof vf, "vflip,format=nv12,hwupload");
+        snprintf(vf, sizeof vf, "%s,format=nv12,hwupload", conv);
         snprintf(enc, sizeof enc, "-vaapi_device %s", dev);
     } else if (strcmp(opt.encoder, "h264_qsv") == 0) {
-        snprintf(vf, sizeof vf, "vflip,format=nv12");
+        snprintf(vf, sizeof vf, "%s,format=nv12", conv);
         snprintf(enc, sizeof enc, "-init_hw_device qsv=hw -filter_hw_device hw");
     } else {
-        snprintf(vf, sizeof vf, "vflip,format=yuv420p");
+        snprintf(vf, sizeof vf, "%s,format=%s", conv, opt.gpu_yuv ? "nv12" : "yuv420p");
         snprintf(enc, sizeof enc, " ");
     }
     char cmd[8192];
     snprintf(cmd, sizeof cmd,
              "ffmpeg -nostdin -hide_banner -loglevel warning -y %s "
-             "-f rawvideo -pix_fmt rgba -s %dx%d -r %d -i - %s "
-             "-map 0:v -vf '%s' -c:v %s %s -g %d %s '%s'",
-             enc, opt.width, opt.height, opt.fps, ain, vf, opt.encoder,
+             "-f rawvideo -pix_fmt %s -s %dx%d -r %d -i - %s "
+             "-map 0:v -vf '%s' -c:v %s %s -g %d "
+             "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv %s '%s'",
+             enc, opt.gpu_yuv ? "nv12" : "rgba", opt.width, opt.height, opt.fps, ain, vf, opt.encoder,
              strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
              : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
              : "-global_quality 22",
@@ -264,6 +271,195 @@ static void video_open(void) {
     fprintf(stderr, "pmviz: %s\n", cmd);
     video = popen(cmd, "w");
     if (!video) die("cannot run ffmpeg");
+}
+
+// ------------------------------------------------------------------------------- GPU NV12
+
+// The frame (copied out of the default framebuffer) becomes NV12 in two passes: luma at
+// full size, then interleaved chroma at half size each way, averaged over 2x2 pixels.
+// OpenGL ES only promises RGBA reads, so each RGBA texel carries four bytes of a plane: four
+// Y values, or two U,V pairs (NV12's own byte order).  Rows come out top first.
+
+static const char *VS = "#version 300 es\n"
+    "void main() {\n"
+    "  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+    "  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n";
+
+// BT.709, limited range ("TV": Y 16-235, Cb/Cr 16-240)
+#define YUV_COMMON "#version 300 es\n" \
+    "precision highp float;\n" \
+    "uniform highp sampler2D frame;\n" \
+    "uniform int height;\n" \
+    "out vec4 color;\n" \
+    "vec3 px(int x, int y) { return texelFetch(frame, ivec2(x, height - 1 - y), 0).rgb; }\n" \
+    "float luma(vec3 c) { return (16.0 + 219.0 * dot(c, vec3(0.2126, 0.7152, 0.0722))) / 255.0; }\n" \
+    "vec2 chroma(vec3 c) {\n" \
+    "  return (128.0 + 224.0 * vec2(dot(c, vec3(-0.11457, -0.38543, 0.5)),\n" \
+    "                               dot(c, vec3(0.5, -0.45415, -0.04585)))) / 255.0;\n" \
+    "}\n"
+
+static const char *FS_Y = YUV_COMMON
+    "void main() {\n"
+    "  ivec2 o = ivec2(gl_FragCoord.xy);\n"
+    "  int x = o.x * 4;\n"
+    "  color = vec4(luma(px(x, o.y)), luma(px(x + 1, o.y)), luma(px(x + 2, o.y)), luma(px(x + 3, o.y)));\n"
+    "}\n";
+
+static const char *FS_UV = YUV_COMMON
+    "vec3 block(int cx, int cy) {\n"
+    "  int x = cx * 2, y = cy * 2;\n"
+    "  return (px(x, y) + px(x + 1, y) + px(x, y + 1) + px(x + 1, y + 1)) * 0.25;\n"
+    "}\n"
+    "void main() {\n"
+    "  ivec2 o = ivec2(gl_FragCoord.xy);\n"
+    "  color = vec4(chroma(block(o.x * 2, o.y)), chroma(block(o.x * 2 + 1, o.y)));\n"
+    "}\n";
+
+static struct {
+    GLuint src, vao, prog_y, prog_uv, tex_y, tex_uv, fb_y, fb_uv;
+} yuv;
+
+static GLuint shader(GLenum kind, const char *src) {
+    GLuint s = glCreateShader(kind);
+    glShaderSource(s, 1, &src, NULL);
+    glCompileShader(s);
+    GLint ok = 0;
+    glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[2048];
+        glGetShaderInfoLog(s, sizeof log, NULL, log);
+        die("shader: %s", log);
+    }
+    return s;
+}
+
+static GLuint program(const char *fs) {
+    GLuint p = glCreateProgram();
+    glAttachShader(p, shader(GL_VERTEX_SHADER, VS));
+    glAttachShader(p, shader(GL_FRAGMENT_SHADER, fs));
+    glLinkProgram(p);
+    GLint ok = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &ok);
+    if (!ok) die("shader program did not link");
+    glUseProgram(p);
+    glUniform1i(glGetUniformLocation(p, "frame"), 0);
+    glUniform1i(glGetUniformLocation(p, "height"), opt.height);
+    glUseProgram(0);
+    return p;
+}
+
+static GLuint target(int w, int h, GLuint *fb) {
+    GLuint t;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, w, h);
+    glGenFramebuffers(1, fb);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fb);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) die("NV12 target incomplete");
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return t;
+}
+
+static void yuv_setup(void) {
+    if (opt.width % 4 || opt.height % 2) die("--gpu-yuv needs a width divisible by 4 and an even height");
+    glGenTextures(1, &yuv.src);
+    glBindTexture(GL_TEXTURE_2D, yuv.src);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, opt.width, opt.height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    yuv.tex_y = target(opt.width / 4, opt.height, &yuv.fb_y);
+    yuv.tex_uv = target(opt.width / 4, opt.height / 2, &yuv.fb_uv);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glGenVertexArrays(1, &yuv.vao);
+    yuv.prog_y = program(FS_Y);
+    yuv.prog_uv = program(FS_UV);
+}
+
+/// Convert the frame in the default framebuffer, leaving projectM's GL state as it was.
+static void yuv_convert(void) {
+    GLint prog, vao, tex, unit, fb_draw, fb_read, vp[4];
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prog);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &unit);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &fb_draw);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &fb_read);
+    glGetIntegerv(GL_VIEWPORT, vp);
+    const GLenum caps[] = { GL_BLEND, GL_DEPTH_TEST, GL_SCISSOR_TEST, GL_CULL_FACE, GL_STENCIL_TEST };
+    GLboolean on[5];
+    for (int i = 0; i < 5; i++) {
+        on[i] = glIsEnabled(caps[i]);
+        glDisable(caps[i]);
+    }
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glBindTexture(GL_TEXTURE_2D, yuv.src);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, opt.width, opt.height);
+    glBindVertexArray(yuv.vao);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, yuv.fb_y);
+    glViewport(0, 0, opt.width / 4, opt.height);
+    glUseProgram(yuv.prog_y);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, yuv.fb_uv);
+    glViewport(0, 0, opt.width / 4, opt.height / 2);
+    glUseProgram(yuv.prog_uv);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    for (int i = 0; i < 5; i++)
+        if (on[i]) glEnable(caps[i]);
+    glUseProgram((GLuint)prog);
+    glBindVertexArray((GLuint)vao);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)tex);
+    glActiveTexture((GLenum)unit);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)fb_draw);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)fb_read);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+}
+
+/// Read the frame into `dst` (memory, or an offset into the bound pixel pack buffer): RGBA
+/// bottom row first, or with --gpu-yuv NV12 top row first.
+static void read_frame(uint8_t *dst) {
+    if (!opt.gpu_yuv) {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+        glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, dst);
+        return;
+    }
+    yuv_convert();
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, yuv.fb_y);
+    glReadPixels(0, 0, opt.width / 4, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, dst);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, yuv.fb_uv);
+    glReadPixels(0, 0, opt.width / 4, opt.height / 2, GL_RGBA, GL_UNSIGNED_BYTE,
+                 (void *)((uintptr_t)dst + (size_t)opt.width * opt.height));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+}
+
+/// Colour bars (white, yellow, cyan, green, magenta, red, blue, black) over the top two
+/// thirds, a grey ramp below: wrong colours or an upside-down picture show at once.
+static void draw_bars(void) {
+    static const float bars[8][3] = {
+        { .75f, .75f, .75f }, { .75f, .75f, 0 }, { 0, .75f, .75f }, { 0, .75f, 0 },
+        { .75f, 0, .75f }, { .75f, 0, 0 }, { 0, 0, .75f }, { 0, 0, 0 },
+    };
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glEnable(GL_SCISSOR_TEST);
+    int top = opt.height / 3; // GL rows count from the bottom: the bars are above this
+    for (int i = 0; i < 8; i++) {
+        int x0 = opt.width * i / 8, x1 = opt.width * (i + 1) / 8;
+        glScissor(x0, top, x1 - x0, opt.height - top);
+        glClearColor(bars[i][0], bars[i][1], bars[i][2], 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    for (int i = 0; i < 8; i++) {
+        int x0 = opt.width * i / 8, x1 = opt.width * (i + 1) / 8;
+        float g = i / 7.0f;
+        glScissor(x0, 0, x1 - x0, top);
+        glClearColor(g, g, g, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glDisable(GL_SCISSOR_TEST);
 }
 
 // ------------------------------------------------------------------------------- readback
@@ -338,6 +534,9 @@ static void usage(void) {
         "  --device N   DRM render node to use (default: the first GPU EGL finds)\n"
         "  --software   draw with Mesa's software renderer\n"
         "  --readback M pbo (default: two pixel buffers, read a frame late) or direct\n"
+        "  --gpu-yuv    convert to NV12 (BT.709, limited range) on the GPU: 1.5 bytes a pixel\n"
+        "               to read back and pipe instead of 4, and nothing for ffmpeg to convert\n"
+        "  --bars       colour bars instead of projectM, to check colours and orientation\n"
         "  --in-order   presets in name order instead of shuffled; --seed N for the shuffle\n");
     exit(2);
 }
@@ -351,7 +550,8 @@ int main(int argc, char **argv) {
         { "bench", no_argument, 0, 'B' }, { "unpaced", no_argument, 0, 'U' },
         { "device", required_argument, 0, 'D' }, { "software", no_argument, 0, 'S' },
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
-        { "readback", required_argument, 0, 'R' }, { "help", no_argument, 0, 'h' }, { 0 },
+        { "readback", required_argument, 0, 'R' }, { "gpu-yuv", no_argument, 0, 'Y' },
+        { "bars", no_argument, 0, 'A' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
@@ -373,6 +573,8 @@ int main(int argc, char **argv) {
         case 'S': opt.software = true; break;
         case 'O': opt.shuffle = false; break;
         case 'Z': opt.seed = (unsigned)strtoul(optarg, NULL, 10); break;
+        case 'Y': opt.gpu_yuv = true; break;
+        case 'A': opt.bars = true; break;
         case 'R':
             if (strcmp(optarg, "direct") == 0) opt.direct = true;
             else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");
@@ -417,7 +619,9 @@ int main(int argc, char **argv) {
 
     const int spf = RATE / opt.fps; // audio frames per video frame
     float *pcm = malloc(sizeof(float) * 2 * (size_t)spf);
-    const size_t frame_bytes = (size_t)opt.width * opt.height * 4;
+    // RGBA: 4 bytes a pixel; NV12: luma plus a quarter-size interleaved chroma plane
+    const size_t frame_bytes = (size_t)opt.width * opt.height * (opt.gpu_yuv ? 3 : 8) / 2;
+    if (opt.gpu_yuv) yuv_setup();
 
     // two pixel buffers: read frame N into one while frame N-1 is copied out of the other.
     // (--readback direct: glReadPixels straight into memory, waiting for the frame)
@@ -462,7 +666,8 @@ int main(int argc, char **argv) {
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, opt.width, opt.height);
-        projectm_opengl_render_frame(pm);
+        if (opt.bars) draw_bars();
+        else projectm_opengl_render_frame(pm);
         if (opt.bench) glFinish(); // so the render time is the GPU's, not just the queueing
         double t1 = now();
         double took = t1 - t0;
@@ -481,16 +686,15 @@ int main(int argc, char **argv) {
         out += n;
 
         if (readback) {
-            glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
             int ready = 0; // copies of a frame now in `frame` to write out
             if (opt.direct) {
-                glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, frame);
+                read_frame(frame);
                 ready = n;
             } else {
                 int slot = (int)(frames & 1);
                 reps[slot] = n;
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[slot]);
-                glReadPixels(0, 0, opt.width, opt.height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+                read_frame(NULL);
                 if (frames > 0 && read_pbo(pbo[slot ^ 1], frame, frame_bytes)) ready = reps[slot ^ 1];
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
             }
@@ -535,8 +739,8 @@ int main(int argc, char **argv) {
     printf("\n%ld frames drawn, %dx%d, mesh %dx%d, %s\n", frames, opt.width, opt.height, opt.mesh_w,
            opt.mesh_h, glGetString(GL_RENDERER));
     printf("  render    %6.2f ms a frame\n", 1e3 * t_render / frames);
-    printf("  readback  %6.2f ms a frame (%s)\n", 1e3 * t_read / frames,
-           opt.direct ? "direct" : "pixel buffers, streaming copy");
+    printf("  readback  %6.2f ms a frame (%s%s)\n", 1e3 * t_read / frames,
+           opt.direct ? "direct" : "pixel buffers, streaming copy", opt.gpu_yuv ? ", NV12 from the GPU" : ", RGBA");
     if (video) printf("  to ffmpeg %6.2f ms a frame (waiting for the encoder when it's slower)\n", 1e3 * t_write / frames);
     if (normal > 0)
         printf("  slowest   %6.2f ms; %ld of %ld frames over the %.1f ms budget (%.1f%%)\n", 1e3 * worst, late,
