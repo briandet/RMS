@@ -191,7 +191,8 @@ The script builds a release binary (the web UI is built in), installs it as
   address).  Server prefs:
   `visualizerSize` (`1920x1080`), `visualizerFps` (60), `visualizerRenderSize` (draw smaller
   and scale up, e.g. `1280x720`), `visualizerPresetSeconds` (30), `visualizerEncoder`
-  (`h264_vaapi` where there is a GPU, else `libx264`), and `visualizerCommand`,
+  (`h264_vaapi` where there is a GPU, else `libx264`), `visualizerQuality` (the encoder's
+  QP / CRF, 30 by default: each +6 halves the stream, for Wi-Fi), and `visualizerCommand`,
   `visualizerPresets`, `visualizerTextures` for where things are (by default
   `/usr/local/lib/rms/pmviz` and `/usr/local/share/rms/projectm`).  The visuals start a
   second or two after the music would, and a TV shows the first track's title only (the

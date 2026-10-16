@@ -41,6 +41,7 @@ static struct {
     double seconds;         // stop after this long (0: when the audio ends)
     double preset_secs;     // switch presets this often
     double ahead;           // paced: how far (seconds) drawing may run ahead of the clock
+    int quality;            // -q: QP (VAAPI), CRF (x264), global_quality (QSV); 0: default
     int mesh_w, mesh_h;
     bool bench;             // no output, as fast as it goes
     bool unpaced;           // with -o: don't pace to real time (animation speed will be wrong)
@@ -334,11 +335,14 @@ static void video_open(void) {
     double mbps = (double)((opt.width + 15) / 16) * ((opt.height + 15) / 16) * opt.fps;
     const char *level = mbps > 245760 ? "4.2" : "4.1";
     char quality[160];
-    snprintf(quality, sizeof quality, "%s -profile:v high -level %s",
-             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf 20"
-             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp 22"
-             : "-global_quality 22",
-             level);
+    // constant quality (the GPU encoder may offer nothing else); higher is smaller.  A live
+    // stream goes over Wi-Fi: MilkDrop's fine moving detail costs a lot at 22
+    int q = opt.quality > 0 ? opt.quality : streaming() ? 30 : 22;
+    snprintf(quality, sizeof quality, "%s %d -profile:v high -level %s",
+             strcmp(opt.encoder, "libx264") == 0 ? "-preset veryfast -crf"
+             : strcmp(opt.encoder, "h264_vaapi") == 0 ? "-rc_mode CQP -qp"
+             : "-global_quality",
+             q, level);
     char cmd[8192];
     snprintf(cmd, sizeof cmd,
              "ffmpeg -nostdin -hide_banner -loglevel warning -y %s "
@@ -680,6 +684,8 @@ static void usage(void) {
         "  -e ENCODER   libx264 (default), h264_vaapi or h264_qsv\n"
         "  -s WxH       size (default 1280x720)\n"
         "  --render-size WxH  draw at this size and scale to -s (default: the same)\n"
+        "  -q N         encoder quality: QP (VAAPI), CRF (x264); higher is smaller (default 22,\n"
+        "               30 with -o -)\n"
         "  --ahead MS   paced: draw up to this far ahead of the clock (default 150), so a slow\n"
         "               frame or a preset switch uses up the margin instead of repeating frames\n"
         "  -r FPS       frames a second (default 30)\n"
@@ -710,11 +716,11 @@ int main(int argc, char **argv) {
         { "in-order", no_argument, 0, 'O' }, { "seed", required_argument, 0, 'Z' },
         { "readback", required_argument, 0, 'R' }, { "gpu-yuv", no_argument, 0, 'Y' },
         { "bars", no_argument, 0, 'A' }, { "render-size", required_argument, 0, 'Q' },
-        { "ahead", required_argument, 0, 'H' }, { "help", no_argument, 0, 'h' }, { 0 },
+        { "ahead", required_argument, 0, 'H' }, { "quality", required_argument, 0, 'q' }, { "help", no_argument, 0, 'h' }, { 0 },
     };
     opt.seed = (unsigned)time(NULL);
     int c;
-    while ((c = getopt_long(argc, argv, "i:p:t:o:e:s:r:T:d:m:h", longs, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "i:p:t:o:e:s:r:T:d:m:q:h", longs, NULL)) != -1) {
         switch (c) {
         case 'i': opt.input = optarg; break;
         case 'p': opt.presets = optarg; break;
@@ -736,6 +742,7 @@ int main(int argc, char **argv) {
         case 'A': opt.bars = true; break;
         case 'Q': parse_size(optarg, &opt.rw, &opt.rh); break;
         case 'H': opt.ahead = atof(optarg) / 1000.0; break;
+        case 'q': opt.quality = atoi(optarg); break;
         case 'R':
             if (strcmp(optarg, "direct") == 0) opt.direct = true;
             else if (strcmp(optarg, "pbo") != 0) die("--readback is pbo or direct");

@@ -62,6 +62,8 @@ pub struct Config {
     pub preset_seconds: u32,
     /// `h264_vaapi`, `libx264`, …
     pub encoder: String,
+    /// Encoder quality (QP / CRF: higher is a smaller stream); 0: pmviz's default.
+    pub quality: u32,
 }
 
 fn exe_dir() -> Option<PathBuf> {
@@ -139,7 +141,12 @@ pub fn config(server: &Server) -> Result<Config, String> {
                 "libx264".into()
             }
         });
+    let quality = match prefs.get_i64("visualizerQuality") {
+        q @ 1..=51 => q as u32,
+        _ => 0,
+    };
     Ok(Config {
+        quality,
         command,
         presets,
         textures,
@@ -184,6 +191,9 @@ impl Config {
         }
         if !self.render_size.is_empty() {
             a.extend(["--render-size".into(), self.render_size.clone()]);
+        }
+        if self.quality > 0 {
+            a.extend(["-q".into(), self.quality.to_string()]);
         }
         a
     }

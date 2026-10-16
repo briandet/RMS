@@ -130,6 +130,9 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 - `--render-size` has projectM draw smaller than the video (`-s`), scaled up on the GPU by
   the `--gpu-yuv` pass (or by ffmpeg without it). Heavy presets cost about as much as the
   pixels they draw, and MilkDrop's soft visuals scale up well.
+- `-q N` sets the encoder's constant quality (QP for VAAPI, CRF for x264): higher is a
+  smaller stream. 22 by default, 30 when streaming (`-o -`), since MilkDrop's fine moving
+  detail costs a lot of bitrate and a TV is often on Wi-Fi.
 - `--ahead` (default 150 ms): paced drawing may run this far ahead of the clock, so a slow
   frame or a preset switch uses up the margin instead of repeating frames. Each frame gets
   the music of its own time slot, and the video's timestamps are fixed, so the sync with
