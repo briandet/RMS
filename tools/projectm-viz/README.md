@@ -184,3 +184,26 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 - **Switch stalls.** A smoother version would compile the next preset ahead of time on a
   second, shared GL context. projectM 4.1's API doesn't offer that, so the prototype measures
   the stall instead.
+
+## In the browser
+
+`web/` builds projectM 4.1 to WebAssembly and a demo page that draws the same presets with
+WebGL 2, reacting to a synthesised beat or a music file you open. It's the starting point
+for a visualiser in RMS's web UI when the browser is the player: the audio is already in
+Web Audio there, so the visuals cost the server nothing and stay in sync.
+
+```sh
+# the Emscripten SDK, once: https://emscripten.org/docs/getting_started/downloads.html
+source ~/emsdk/emsdk_env.sh
+tools/projectm-viz/build.sh                 # for projectM's sources, presets and textures
+tools/projectm-viz/web/build.sh             # writes build/web/: 1 MB of WebAssembly, 120 presets, textures
+python3 -m http.server -d tools/projectm-viz/build/web 8000   # then open http://localhost:8000
+```
+
+- `pmweb.c` is a small wrapper (start, resize, add audio, draw a frame, load a preset), and
+  `index.html` drives it: two analyser nodes give it each frame's new samples, the presets
+  are fetched as needed, and the textures go into Emscripten's in-memory file system.
+- projectM's Emscripten build links SDL for its own test UI. The library doesn't use it, so
+  the script builds a copy of the sources without it.
+- In headless Chromium with software WebGL it draws at 4–7 fps; with a GPU it runs at the
+  display's frame rate.

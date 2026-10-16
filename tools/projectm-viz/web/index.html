@@ -1,0 +1,451 @@
+<meta charset="utf-8">
+<title>MilkDrop in the Browser</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* One dark stage: the visuals fill the window; controls float over the bottom edge and
+     fade when the pointer rests.  A single dark look on purpose (it's a light show). */
+  :root {
+    --stage: #05060a;
+    --glass: rgba(14, 16, 26, 0.72);
+    --line: rgba(190, 200, 255, 0.16);
+    --fg: #eef0fa;
+    --dim: #9aa0bd;
+    --accent: #8fb4ff;
+    --warn: #ffb37a;
+    --sans: "Familjen Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--stage); color: var(--fg); font-family: var(--sans); font-size: 14px;
+    overflow: hidden;
+  }
+  #canvas {
+    position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--stage);
+  }
+  .ui { transition: opacity .4s ease; }
+  body.idle .ui { opacity: 0; pointer-events: none; }
+  body.idle { cursor: none; }
+
+  .top {
+    position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+    align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: linear-gradient(to bottom, rgba(5, 6, 10, 0.7), transparent);
+    padding-bottom: 24px;
+  }
+  .brand { font-weight: 600; letter-spacing: .02em; }
+  .brand small { color: var(--dim); font-weight: 400; margin-left: 8px; }
+  .stats { font-family: var(--mono); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  .bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-top: 14px;
+  }
+  .panel {
+    background: var(--glass); border: 1px solid var(--line); border-radius: 14px;
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    max-width: 980px; margin: 0 auto;
+  }
+  .now { flex: 1 1 260px; min-width: 0; }
+  .now .name { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now .meta {
+    font-family: var(--mono); font-size: 11px; color: var(--dim); text-transform: uppercase;
+    letter-spacing: .06em; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  button, select, .file {
+    font: inherit; color: var(--fg); background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--line); border-radius: 9px; padding: 7px 11px; cursor: pointer;
+    line-height: 1.2;
+  }
+  button:hover, select:hover, .file:hover { background: rgba(255, 255, 255, 0.12); }
+  button:focus-visible, select:focus-visible, .file:focus-within {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  select { padding-right: 6px; }
+  .file input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  label.small { font-size: 12px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
+
+  .start {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    pointer-events: none;
+  }
+  .card {
+    pointer-events: auto; max-width: 440px; background: var(--glass); border: 1px solid var(--line);
+    border-radius: 18px; padding: 22px 22px 18px; backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px); display: grid; gap: 14px;
+  }
+  .card h1 { margin: 0; font-size: 22px; font-weight: 600; text-wrap: balance; }
+  .card p { margin: 0; color: var(--dim); line-height: 1.5; }
+  .card .group button, .card .group .file { padding: 10px 14px; }
+  .card .group .primary { background: var(--accent); color: #0b1020; border-color: var(--accent); font-weight: 600; }
+  .card .group .primary:hover { background: #a9c5ff; }
+  .status { font-family: var(--mono); font-size: 12px; color: var(--dim); min-height: 1.2em; }
+  .status.err { color: var(--warn); }
+  kbd {
+    font-family: var(--mono); font-size: 11px; border: 1px solid var(--line); border-radius: 5px;
+    padding: 1px 5px; color: var(--fg);
+  }
+  @media (max-width: 520px) {
+    .brand small { display: none; }
+    .panel { padding: 10px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .ui { transition: none; } }
+</style>
+
+<canvas id="canvas"></canvas>
+
+<div class="top ui">
+  <div class="brand">MilkDrop in the Browser <small>projectM 4.1 · WebAssembly · WebGL 2</small></div>
+  <div class="stats" id="stats">starting…</div>
+</div>
+
+<div class="start ui" id="start">
+  <div class="card">
+    <h1>Give it something to listen to</h1>
+    <p>projectM is drawing right here in your browser, from the same MilkDrop presets the
+      server uses for the TV. Pick a sound source and it reacts to the music.</p>
+    <div class="group">
+      <button class="primary" id="demo-start" type="button">Play a demo beat</button>
+      <label class="file" for="file-start">Open a music file<input id="file-start" type="file" accept="audio/*"></label>
+    </div>
+    <div class="status" id="status">Loading projectM…</div>
+  </div>
+</div>
+
+<div class="bar ui">
+  <div class="panel">
+    <div class="now">
+      <div class="name" id="preset-name">—</div>
+      <div class="meta" id="preset-meta">no preset yet</div>
+    </div>
+    <div class="group" aria-label="Presets">
+      <button id="prev" type="button" title="Previous preset (P)">Previous</button>
+      <button id="next" type="button" title="Next preset (N)">Next</button>
+      <button id="lock" type="button" aria-pressed="false" title="Stay on this preset (L)">Stay</button>
+    </div>
+    <div class="group" aria-label="Sound">
+      <button id="play" type="button" title="Play or pause (Space)">Pause</button>
+      <button id="demo" type="button">Demo beat</button>
+      <label class="file" for="file">Music file<input id="file" type="file" accept="audio/*"></label>
+    </div>
+    <div class="group">
+      <label class="small" for="seconds">Each preset
+        <select id="seconds">
+          <option value="10">10 s</option>
+          <option value="20">20 s</option>
+          <option value="30" selected>30 s</option>
+          <option value="60">60 s</option>
+        </select>
+      </label>
+      <label class="small" for="scale">Detail
+        <select id="scale">
+          <option value="1">Full</option>
+          <option value="0.75">75%</option>
+          <option value="0.5">Half</option>
+        </select>
+      </label>
+      <button id="fullscreen" type="button" title="Full screen (F)">Full screen</button>
+    </div>
+  </div>
+</div>
+
+<script src="pmweb.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('canvas');
+  const statusEl = $('status');
+  const setStatus = (text, err = false) => { statusEl.textContent = text; statusEl.classList.toggle('err', err); };
+
+  let pm = null;              // the WebAssembly module
+  let presets = [];           // [{file, name, category}]
+  let order = [];             // shuffled preset indices
+  let pos = -1;               // place in `order`
+  let locked = false;
+  let failures = 0;
+  let scale = 1;
+
+  // ------------------------------------------------------------------ audio
+  let ctx = null, master = null, left = null, right = null;
+  let audioEl = null, mediaSource = null, demo = null;
+  let lastTime = 0;
+  const FFT = 2048;
+  let bufL, bufR;
+
+  function ensureAudio() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    master = ctx.createGain();
+    master.connect(ctx.destination);
+    const split = ctx.createChannelSplitter(2);
+    master.connect(split);
+    left = ctx.createAnalyser(); right = ctx.createAnalyser();
+    left.fftSize = right.fftSize = FFT;
+    split.connect(left, 0); split.connect(right, 1);
+    bufL = new Float32Array(FFT); bufR = new Float32Array(FFT);
+    lastTime = ctx.currentTime;
+  }
+
+  // the samples played since the last frame, interleaved, into projectM
+  let pcmPtr = 0;
+  function feedAudio() {
+    if (!ctx || !pm) return;
+    const now = ctx.currentTime;
+    let n = Math.round((now - lastTime) * ctx.sampleRate);
+    lastTime = now;
+    if (n <= 0) return;
+    n = Math.min(n, FFT);
+    left.getFloatTimeDomainData(bufL);
+    right.getFloatTimeDomainData(bufR);
+    if (!pcmPtr) pcmPtr = pm._malloc(FFT * 2 * 4);
+    const heap = new Float32Array(pm.HEAPF32.buffer, pcmPtr, n * 2);
+    const from = FFT - n;
+    for (let i = 0; i < n; i++) { heap[2 * i] = bufL[from + i]; heap[2 * i + 1] = bufR[from + i]; }
+    pm._pm_pcm(pcmPtr, n);
+  }
+
+  function stopSources() {
+    if (demo) { demo.stop(); demo = null; }
+    if (audioEl) { audioEl.pause(); }
+  }
+
+  function playFile(file) {
+    if (!file) return;
+    ensureAudio();
+    stopSources();
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.loop = true;
+      mediaSource = ctx.createMediaElementSource(audioEl);
+      mediaSource.connect(master);
+    }
+    if (audioEl.src) URL.revokeObjectURL(audioEl.src);
+    audioEl.src = URL.createObjectURL(file);
+    ctx.resume();
+    audioEl.play().then(() => {
+      started(`Playing ${file.name}`);
+    }).catch(() => setStatus(`Couldn't play ${file.name}: the browser may not decode that format.`, true));
+  }
+
+  function playDemo() {
+    ensureAudio();
+    stopSources();
+    ctx.resume();
+    demo = demoBeat(ctx, master);
+    started('Playing the demo beat');
+  }
+
+  function started(text) {
+    $('start').hidden = true;
+    $('play').textContent = 'Pause';
+    setStatus(text);
+  }
+
+  function togglePlay() {
+    if (!ctx) { playDemo(); return; }
+    if (ctx.state === 'running') { ctx.suspend(); $('play').textContent = 'Play'; }
+    else { ctx.resume(); $('play').textContent = 'Pause'; }
+  }
+
+  // A synthesised loop at 124 bpm: kick, snare, hats, a bass line and a pad, so the
+  // visuals have beats, bass and treble to react to without a file.
+  function demoBeat(ctx, out) {
+    const bus = ctx.createGain(); bus.gain.value = 0.8; bus.connect(out);
+    const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const nd = noise.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const beat = 60 / 124, step = beat / 4;
+    const bass = [36, 36, 48, 36, 39, 36, 43, 41];      // MIDI notes, one per half beat
+    const chords = [[60, 63, 67], [58, 62, 65], [56, 60, 63], [55, 58, 62]];
+    const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    let next = ctx.currentTime + 0.1, n = 0, timer = null, alive = true;
+
+    const pan = (node, p) => { const s = ctx.createStereoPanner(); s.pan.value = p; node.connect(s); s.connect(bus); return s; };
+    function kick(t) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      g.gain.setValueAtTime(1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      o.connect(g); g.connect(bus); o.start(t); o.stop(t + 0.4);
+    }
+    function hiss(t, len, type, freq, vol, p) {
+      const s = ctx.createBufferSource(); s.buffer = noise;
+      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      s.connect(f); f.connect(g); pan(g, p); s.start(t, Math.random() * 0.5); s.stop(t + len + 0.05);
+    }
+    function tone(t, len, f0, type, vol, cutoff, p) {
+      const o = ctx.createOscillator(); o.type = type; o.frequency.value = f0;
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(cutoff, t);
+      f.frequency.exponentialRampToValueAtTime(cutoff / 4, t + len);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(f); f.connect(g); pan(g, p); o.start(t); o.stop(t + len + 0.05);
+    }
+    function schedule() {
+      if (!alive) return;
+      while (next < ctx.currentTime + 0.2) {
+        const s = n % 16, bar = Math.floor(n / 16) % 4;
+        if (s % 4 === 0) kick(next);
+        if (s === 4 || s === 12) hiss(next, 0.18, 'bandpass', 1800, 0.7, 0);
+        if (s % 2 === 0) hiss(next, 0.05, 'highpass', 8000, 0.25, s % 4 ? 0.5 : -0.5);
+        if (s % 2 === 0) tone(next, step * 1.8, hz(bass[(s / 2) % 8]), 'sawtooth', 0.35, 900, 0);
+        if (s === 0) chords[bar].forEach((m, i) => tone(next, beat * 3.8, hz(m), 'triangle', 0.08, 2400, i - 1));
+        next += step; n++;
+      }
+      timer = setTimeout(schedule, 50);
+    }
+    schedule();
+    return { stop() { alive = false; clearTimeout(timer); bus.disconnect(); } };
+  }
+
+  // ---------------------------------------------------------------- presets
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+
+  async function loadPreset(step, smooth) {
+    if (!presets.length) return;
+    pos = (pos + step + order.length) % order.length;
+    const p = presets[order[pos]];
+    try {
+      const text = await (await fetch(`presets/${p.file}`)).text();
+      const ptr = pm.stringToNewUTF8(text);
+      pm._pm_load(ptr, smooth ? 1 : 0);
+      pm._free(ptr);
+      $('preset-name').textContent = p.name;
+      $('preset-meta').textContent = `${p.category} · ${pos + 1} of ${order.length}`;
+      failures = 0;
+    } catch (e) {
+      setStatus(`Couldn't fetch ${p.name}`, true);
+    }
+  }
+
+  // --------------------------------------------------------------- drawing
+  function size() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2) * scale;
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      if (pm) pm._pm_resize(w, h);
+    }
+  }
+
+  let frames = 0, fpsAt = performance.now(), fps = 0;
+  function frame() {
+    size();
+    feedAudio();
+    pm._pm_render();
+    frames++;
+    const now = performance.now();
+    if (now - fpsAt >= 1000) {
+      fps = Math.round(frames * 1000 / (now - fpsAt));
+      frames = 0; fpsAt = now;
+      $('stats').textContent = `${fps} fps · ${canvas.width}×${canvas.height}`;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  async function boot() {
+    if (typeof createPmweb !== 'function') { setStatus('pmweb.js didn’t load.', true); return; }
+    try {
+      pm = await createPmweb({ canvas });
+    } catch (e) {
+      setStatus(`projectM didn’t start: ${e.message || e}`, true); return;
+    }
+    let manifest;
+    try { manifest = await (await fetch('manifest.json')).json(); }
+    catch { setStatus('Couldn’t fetch the preset list (manifest.json).', true); return; }
+    presets = manifest.presets;
+    order = shuffle(presets.map((_, i) => i));
+
+    // the textures the presets use, into projectM's virtual file system
+    pm.FS.mkdir('/textures');
+    let done = 0;
+    await Promise.all(manifest.textures.map(async (t) => {
+      try {
+        const buf = new Uint8Array(await (await fetch(`textures/${t}`)).arrayBuffer());
+        pm.FS.writeFile(`/textures/${t}`, buf);
+      } catch { /* a missing texture just looks plainer */ }
+      setStatus(`Loading textures: ${++done} of ${manifest.textures.length}`);
+    }));
+
+    size();
+    const rc = pm._pm_init(canvas.width, canvas.height, 48, 32);
+    if (rc !== 0) {
+      setStatus(rc === -1 ? 'This browser has no WebGL 2, which projectM needs.' : 'projectM didn’t start.', true);
+      return;
+    }
+    pm._pm_fps(60);
+    pm.onSwitchRequested = () => { if (!locked) loadPreset(1, true); };
+    pm.onSwitchFailed = (msg) => {
+      console.warn('preset failed:', msg);
+      if (++failures < 10) loadPreset(1, false);
+    };
+    await loadPreset(1, false);
+    setStatus(`Ready: ${presets.length} presets. Keys: N next, P previous, L stay, F full screen.`);
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- controls
+  $('demo-start').addEventListener('click', playDemo);
+  $('demo').addEventListener('click', playDemo);
+  $('file-start').addEventListener('change', (e) => playFile(e.target.files[0]));
+  $('file').addEventListener('change', (e) => playFile(e.target.files[0]));
+  $('play').addEventListener('click', togglePlay);
+  $('next').addEventListener('click', () => loadPreset(1, false));
+  $('prev').addEventListener('click', () => loadPreset(-1, false));
+  function setLock(on) {
+    locked = on;
+    $('lock').setAttribute('aria-pressed', String(on));
+    if (pm) pm._pm_preset_seconds(on ? 1e9 : Number($('seconds').value));
+  }
+  $('lock').addEventListener('click', () => setLock(!locked));
+  $('seconds').addEventListener('change', () => { if (!locked && pm) pm._pm_preset_seconds(Number($('seconds').value)); });
+  $('scale').addEventListener('change', () => { scale = Number($('scale').value); });
+  function fullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else document.documentElement.requestFullscreen?.().catch(() => setStatus('Full screen isn’t available here.', true));
+  }
+  $('fullscreen').addEventListener('click', fullscreen);
+  window.addEventListener('keydown', (e) => {
+    if (e.target.closest('select, input')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'n' || k === 'arrowright') loadPreset(1, false);
+    else if (k === 'p' || k === 'arrowleft') loadPreset(-1, false);
+    else if (k === 'l') setLock(!locked);
+    else if (k === 'f') fullscreen();
+    else if (k === ' ') { e.preventDefault(); togglePlay(); }
+    else return;
+    wake();
+  });
+
+  // the controls fade when the pointer rests, once something is playing
+  let idleTimer = null;
+  function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { if ($('start').hidden) document.body.classList.add('idle'); }, 3000);
+  }
+  ['pointermove', 'pointerdown'].forEach((t) => window.addEventListener(t, wake));
+
+  boot();
+})();
+</script>
