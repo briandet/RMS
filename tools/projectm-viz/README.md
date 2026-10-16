@@ -101,6 +101,7 @@ The second run, with those changes:
 | 1920x1080, paced to a song, h264_vaapi | 7 of 1,800 frames repeated (0.4%); about 17 ms of each 33 ms frame used, 13 of them copying the frame out and piping it to ffmpeg |
 | 1920x1080 at 60 fps, drawing and h264_vaapi | 1.0x real time (RGBA); 1.4x with `--gpu-yuv` |
 | 1920x1080 at 60 fps, paced to a song, `--gpu-yuv` | 63 of 3,600 frames repeated (1.8%), 19% of frames over the 16.7 ms budget, mostly once the shader-heavy presets came on |
+| the same over 2 minutes and 12 presets, drawn at 1920x1080 / 1600x900 / 1280x720 | 6.2% / 3.2% / 2.3% of frames repeated: drawing fewer pixels barely helps, so most of a frame is a fixed cost (projectM's per-frame and mesh work on the CPU, and pmviz's readback and pipe, then all on one thread) |
 
 So the TV visualiser is viable on this machine at 720p30 and 1080p30 with the GPU's encoder; with
 libx264 it would only just keep up, and starve the rest of RMS.  The two readbacks are
@@ -132,8 +133,10 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
 
 - **Rendering.** An EGL pbuffer with an OpenGL ES 3 context, on the first GPU render node EGL
   finds, with software rendering as a fallback. projectM 4.1 draws to the default framebuffer.
-- **Readback.** Frames are read through two pixel buffers, so frame N is read while frame N-1
-  goes to ffmpeg. By default that's raw RGBA, which ffmpeg flips right side up and converts
+- **Readback.** Frames are read through a ring of three pixel buffers, so frame N is read
+  while frame N-2 is copied out: the GPU has had two frames' time to finish it. A writer
+  thread feeds ffmpeg from a few buffers, so a busy encoder doesn't hold up drawing ("to
+  ffmpeg" is then only the time spent waiting for a free buffer). By default that's raw RGBA, which ffmpeg flips right side up and converts
   to YUV on the CPU. With `--gpu-yuv` a shader pass does both on the GPU: luma at full size
   and chroma at half size each way, packed four bytes to an RGBA texel because OpenGL ES only
   promises RGBA reads, which is also NV12's byte order.

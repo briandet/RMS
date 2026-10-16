@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #define RATE 44100
@@ -536,6 +537,76 @@ static void write_out(const uint8_t *frame, size_t bytes, int n) {
     }
 }
 
+// ------------------------------------------------------------------------------- writer
+
+// Frames go to ffmpeg from a thread of their own, through a few buffers, so a pipe that is
+// full for a moment (the encoder busy) doesn't hold up drawing.
+#define QUEUE 4
+
+static struct {
+    pthread_mutex_t lock;
+    pthread_cond_t changed;
+    uint8_t *buf[QUEUE];
+    int reps[QUEUE];
+    int head, count;
+    bool done;
+    size_t bytes;
+    pthread_t thread;
+} q = { .lock = PTHREAD_MUTEX_INITIALIZER, .changed = PTHREAD_COND_INITIALIZER };
+
+static void *writer(void *arg) {
+    (void)arg;
+    pthread_mutex_lock(&q.lock);
+    for (;;) {
+        while (q.count == 0 && !q.done) pthread_cond_wait(&q.changed, &q.lock);
+        if (q.count == 0) break;
+        uint8_t *b = q.buf[q.head];
+        int n = q.reps[q.head];
+        pthread_mutex_unlock(&q.lock);
+        write_out(b, q.bytes, n);
+        pthread_mutex_lock(&q.lock);
+        q.head = (q.head + 1) % QUEUE;
+        q.count--;
+        pthread_cond_broadcast(&q.changed);
+    }
+    pthread_mutex_unlock(&q.lock);
+    return NULL;
+}
+
+static void queue_start(size_t bytes) {
+    q.bytes = bytes;
+    for (int i = 0; i < QUEUE; i++)
+        if (!(q.buf[i] = aligned_alloc(64, bytes))) die("out of memory");
+    if (pthread_create(&q.thread, NULL, writer, NULL)) die("cannot start the writer thread");
+}
+
+/// The next free buffer, waiting while the writer is behind.
+static uint8_t *queue_free(void) {
+    pthread_mutex_lock(&q.lock);
+    while (q.count == QUEUE) pthread_cond_wait(&q.changed, &q.lock);
+    uint8_t *b = q.buf[(q.head + q.count) % QUEUE];
+    pthread_mutex_unlock(&q.lock);
+    return b;
+}
+
+/// Hand the buffer `queue_free` gave to the writer, to go out `n` times (0: not at all).
+static void queue_push(int n) {
+    pthread_mutex_lock(&q.lock);
+    q.reps[(q.head + q.count) % QUEUE] = n;
+    q.count++;
+    pthread_cond_broadcast(&q.changed);
+    pthread_mutex_unlock(&q.lock);
+}
+
+/// Write out what is queued and stop the writer.
+static void queue_finish(void) {
+    pthread_mutex_lock(&q.lock);
+    q.done = true;
+    pthread_cond_broadcast(&q.changed);
+    pthread_mutex_unlock(&q.lock);
+    pthread_join(q.thread, NULL);
+}
+
 // ------------------------------------------------------------------------------- main
 
 static void usage(void) {
@@ -558,7 +629,7 @@ static void usage(void) {
         "               so the video's motion is wrong; only to test the encoder's throughput)\n"
         "  --device N   DRM render node to use (default: the first GPU EGL finds)\n"
         "  --software   draw with Mesa's software renderer\n"
-        "  --readback M pbo (default: two pixel buffers, read a frame late) or direct\n"
+        "  --readback M pbo (default: a ring of pixel buffers, read two frames late) or direct\n"
         "  --gpu-yuv    convert to NV12 (BT.709, limited range) on the GPU: 1.5 bytes a pixel\n"
         "               to read back and pipe instead of 4, and nothing for ffmpeg to convert\n"
         "  --bars       colour bars instead of projectM, to check colours and orientation\n"
@@ -654,23 +725,27 @@ int main(int argc, char **argv) {
                                            : (size_t)opt.rw * opt.rh * 4;
     if (opt.gpu_yuv) yuv_setup();
 
-    // two pixel buffers: read frame N into one while frame N-1 is copied out of the other.
-    // (--readback direct: glReadPixels straight into memory, waiting for the frame)
-    GLuint pbo[2];
-    glGenBuffers(2, pbo);
-    for (int i = 0; i < 2; i++) {
+    // a ring of pixel buffers: frame N is read into one while frame N-2 is copied out of
+    // another, so the GPU has had two frames' time to finish it.  (--readback direct:
+    // glReadPixels straight into memory, waiting for the frame)
+    #define RING 3
+    GLuint pbo[RING];
+    glGenBuffers(RING, pbo);
+    for (int i = 0; i < RING; i++) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[i]);
         glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)frame_bytes, NULL, GL_STREAM_READ);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     const bool readback = opt.output || opt.bench;
-    uint8_t *frame = aligned_alloc(64, frame_bytes);
-    if (!frame) die("out of memory");
+    // (bench: frames are copied out to here and dropped)
+    uint8_t *scratch = aligned_alloc(64, frame_bytes);
+    if (!scratch) die("out of memory");
+    if (video) queue_start(frame_bytes);
 
     double t_render = 0, t_read = 0, t_write = 0, worst = 0, worst_switch = 0, sum_switch = 0;
     long frames = 0, late = 0, switches = 0, repeated = 0;
     long out = 0;     // video frames due so far (drawn ones plus repeats)
-    int reps[2] = { 1, 1 }; // how many times the frame in each pixel buffer goes out
+    int reps[RING] = { 0 }; // how many times the frame in each pixel buffer goes out
     const long max_frames = opt.seconds > 0 ? (long)(opt.seconds * opt.fps) : -1;
     const long preset_frames = (long)(opt.preset_secs * opt.fps);
     const bool paced = opt.output && !opt.unpaced;
@@ -717,22 +792,34 @@ int main(int argc, char **argv) {
         out += n;
 
         if (readback) {
-            int ready = 0; // copies of a frame now in `frame` to write out
-            if (opt.direct) {
-                read_frame(frame);
-                ready = n;
-            } else {
-                int slot = (int)(frames & 1);
+            int slot = (int)(frames % RING);
+            bool collect = opt.direct || frames >= RING - 1; // a frame to copy out now
+            if (!opt.direct) {
                 reps[slot] = n;
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[slot]);
                 read_frame(NULL);
-                if (frames > 0 && read_pbo(pbo[slot ^ 1], frame, frame_bytes)) ready = reps[slot ^ 1];
                 glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
             }
-            double t2 = now();
-            t_read += t2 - t1;
-            write_out(frame, frame_bytes, ready);
-            t_write += now() - t2;
+            if (collect) {
+                // waiting for the writer counts as time to ffmpeg, copying out as readback
+                double tw = now();
+                uint8_t *dst = video ? queue_free() : scratch;
+                double t2 = now();
+                t_write += t2 - tw;
+                int ready = 0;
+                if (opt.direct) {
+                    read_frame(dst);
+                    ready = n;
+                } else {
+                    int old = (int)((frames - (RING - 1)) % RING);
+                    if (read_pbo(pbo[old], dst, frame_bytes)) ready = reps[old];
+                    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+                }
+                t_read += now() - t2;
+                if (video) queue_push(ready);
+            } else {
+                t_read += now() - t1;
+            }
         }
         double t_end = now();
         if (switching) {
@@ -765,9 +852,16 @@ int main(int argc, char **argv) {
         }
     }
     preset_report();
-    // the last frame still in its pixel buffer
-    if (video && frames > 0 && !opt.direct && read_pbo(pbo[(frames - 1) & 1], frame, frame_bytes))
-        write_out(frame, frame_bytes, reps[(frames - 1) & 1]);
+    // the last frames still in their pixel buffers, then whatever the writer has left
+    if (video && !opt.direct) {
+        for (long k = frames - (RING - 1) < 0 ? 0 : frames - (RING - 1); k < frames; k++) {
+            uint8_t *dst = queue_free();
+            bool ok = read_pbo(pbo[k % RING], dst, frame_bytes);
+            queue_push(ok ? reps[k % RING] : 0);
+        }
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
+    if (video) queue_finish();
     double el = now() - start;
     if (frames == 0) die("no frames drawn");
     long normal = frames - switches;
