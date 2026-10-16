@@ -1039,9 +1039,37 @@ effnet_status: string, effnet_error: string | null,
 /**
  * Tracks analysed with EffNet, and still to analyse.
  */
-effnet_analyzed: number, effnet_pending: number, };
+effnet_analyzed: number, effnet_pending: number, 
+/**
+ * The TV visualiser can run (pmviz and presets are installed).
+ */
+visualizer_available: boolean, 
+/**
+ * Why it can't, when it can't.
+ */
+visualizer_error: string | null, 
+/**
+ * The video encoder it uses (`h264_vaapi`: the GPU's, `libx264`: the CPU's).
+ */
+visualizer_encoder: string, 
+/**
+ * Video size (`1920x1080`).
+ */
+visualizer_size: Choice, 
+/**
+ * Size the visuals are drawn at, scaled up to the video size ("": the same).
+ */
+visualizer_render_size: Choice, visualizer_fps: Choice, 
+/**
+ * The encoder's constant quality: higher is a smaller stream (each +6 about halves it).
+ */
+visualizer_quality: Range, 
+/**
+ * Seconds each preset shows.
+ */
+visualizer_preset_seconds: Range, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 
@@ -1085,7 +1113,11 @@ scrobble_to: Array<string>,
 /**
  * For players with a screen.
  */
-display?: DisplaySettings, };
+display?: DisplaySettings, 
+/**
+ * For Chromecasts: the TV visualiser (`auto`: on for devices with a screen, `1`, `0`).
+ */
+visualizer?: Choice, };
 
 export type DisplaySettings = { 
 /**
@@ -1093,7 +1125,7 @@ export type DisplaySettings = {
  */
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
-export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, };
+export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, visualizer?: string, };
 
 export type ToRenderer = { "type": "load", url: string, format: string, 
 /**

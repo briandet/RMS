@@ -184,12 +184,13 @@ The script builds a release binary (the web UI is built in), installs it as
 * **TV visualiser** (Chromecasts, not in Lyrion): with `pmviz` installed (see below), a
   Chromecast plays MilkDrop visuals drawn to the music by projectM, as video with the music
   in it, instead of audio alone.  A sync group's Chromecasts share one stream, drawn and
-  encoded once on the server's GPU (1080p60 by default; an Intel Iris Xe keeps up), and the
+  encoded once on the server's GPU (1080p30 by default; an Intel Iris Xe keeps up with 60), and the
   tracks follow one another in it without gaps.  On, while `pmviz` is installed, for
   Chromecasts with a screen (as their discovery says; Cast speakers keep playing audio); a
   player's pref `visualizer` turns it off (0) or on (1, e.g. for a device given by
-  address).  Server prefs:
-  `visualizerSize` (`1920x1080`), `visualizerFps` (60), `visualizerRenderSize` (draw smaller
+  address), in Settings → Player → TV visualiser.  Settings → TV visualiser sets the video
+  size, frame rate, drawing size, compression and preset time.  Server prefs:
+  `visualizerSize` (`1920x1080`), `visualizerFps` (30; some TVs can't decode 1080p60), `visualizerRenderSize` (draw smaller
   and scale up, e.g. `1280x720`), `visualizerPresetSeconds` (30), `visualizerEncoder`
   (`h264_vaapi` where there is a GPU, else `libx264`), `visualizerQuality` (the encoder's
   QP / CRF, 30 by default: each +6 halves the stream, for Wi-Fi), and `visualizerCommand`,

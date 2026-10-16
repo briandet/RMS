@@ -23,6 +23,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
     let (pending, scrobble_error) = crate::plugins::scrobble::pending(server);
     let effnet = crate::plugins::effnet::status();
     let (effnet_analyzed, effnet_pending) = server.library.effnet_totals();
+    let viz = visualizer_settings(server);
     ServerSettings {
         library_name: prefs.get_str("libraryname"),
         media_dirs: prefs.get_string_list("mediadirs"),
@@ -74,6 +75,88 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         },
         effnet_analyzed,
         effnet_pending,
+        visualizer_available: viz.available,
+        visualizer_error: viz.error,
+        visualizer_encoder: viz.encoder,
+        visualizer_size: viz.size,
+        visualizer_render_size: viz.render_size,
+        visualizer_fps: viz.fps,
+        visualizer_quality: viz.quality,
+        visualizer_preset_seconds: viz.preset_seconds,
+    }
+}
+
+/// Video sizes, draw sizes and frame rates the settings offer.
+const VIZ_SIZES: &[(&str, &str)] = &[
+    ("1920x1080", "1080p (1920×1080)"),
+    ("1600x900", "900p (1600×900)"),
+    ("1280x720", "720p (1280×720)"),
+];
+const VIZ_RENDER_SIZES: &[(&str, &str)] = &[
+    ("", "The video size"),
+    ("1600x900", "1600×900"),
+    ("1280x720", "1280×720"),
+    ("960x540", "960×540"),
+];
+const VIZ_FPS: &[(&str, &str)] = &[("24", "24"), ("30", "30"), ("60", "60")];
+
+/// The visualiser part of the server settings.
+struct VizSettings {
+    available: bool,
+    error: Option<String>,
+    encoder: String,
+    size: Choice,
+    render_size: Choice,
+    fps: Choice,
+    quality: Range,
+    preset_seconds: Range,
+}
+
+fn visualizer_settings(server: &Server) -> VizSettings {
+    let prefs = &server.prefs.server;
+    let (cfg, error) = match crate::viz::config(server) {
+        Ok(c) => (Some(c), None),
+        Err(e) => (None, Some(e)),
+    };
+    let size = cfg
+        .as_ref()
+        .map(|c| c.size.clone())
+        .unwrap_or_else(|| crate::viz::DEFAULT_SIZE.into());
+    let render_size = Some(prefs.get_str("visualizerRenderSize"))
+        .filter(|s| crate::viz::valid_size(s))
+        .unwrap_or_default();
+    let fps = cfg
+        .as_ref()
+        .map(|c| c.fps)
+        .unwrap_or(crate::viz::DEFAULT_FPS);
+    let opts = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+        list.iter()
+            .map(|(v, l)| (v.to_string(), l.to_string()))
+            .collect()
+    };
+    VizSettings {
+        available: cfg.is_some(),
+        error,
+        encoder: cfg.as_ref().map(|c| c.encoder.clone()).unwrap_or_default(),
+        size: choice(size, opts(VIZ_SIZES)),
+        render_size: choice(render_size, opts(VIZ_RENDER_SIZES)),
+        fps: choice(fps.to_string(), opts(VIZ_FPS)),
+        quality: Range {
+            value: cfg
+                .as_ref()
+                .map(|c| c.quality as i64)
+                .unwrap_or(crate::viz::DEFAULT_QUALITY as i64),
+            min: 18,
+            max: 45,
+        },
+        preset_seconds: Range {
+            value: cfg
+                .as_ref()
+                .map(|c| c.preset_seconds as i64)
+                .unwrap_or(crate::viz::DEFAULT_PRESET_SECONDS as i64),
+            min: 5,
+            max: 600,
+        },
     }
 }
 
@@ -176,6 +259,37 @@ pub async fn update_server_settings(
     if let Some(v) = patch.acoustid_key {
         changes.push((crate::plugins::musicbrainz::KEY_PREF, v.trim().to_string()));
     }
+    let one_of = |list: &[(&str, &str)], v: String, field: &str| {
+        if list.iter().any(|(o, _)| *o == v) {
+            Ok(v)
+        } else {
+            Err(CommandError::Invalid(format!("{v} is not a valid {field}")))
+        }
+    };
+    if let Some(v) = patch.visualizer_size {
+        changes.push(("visualizerSize", one_of(VIZ_SIZES, v, "visualizer_size")?));
+    }
+    if let Some(v) = patch.visualizer_render_size {
+        changes.push((
+            "visualizerRenderSize",
+            one_of(VIZ_RENDER_SIZES, v, "visualizer_render_size")?,
+        ));
+    }
+    if let Some(v) = patch.visualizer_fps {
+        changes.push(("visualizerFps", one_of(VIZ_FPS, v, "visualizer_fps")?));
+    }
+    if let Some(v) = patch.visualizer_quality {
+        changes.push((
+            "visualizerQuality",
+            within(v, 18, 45, "visualizer_quality")?,
+        ));
+    }
+    if let Some(v) = patch.visualizer_preset_seconds {
+        changes.push((
+            "visualizerPresetSeconds",
+            within(v, 5, 600, "visualizer_preset_seconds")?,
+        ));
+    }
     for (name, value) in changes {
         set_pref(server, None, name, value).await?;
     }
@@ -234,7 +348,31 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
             .map(|a| a.user)
             .collect(),
         display: display_settings(p),
+        visualizer: visualizer_choice(p),
     }
+}
+
+/// A Chromecast's visualiser setting, with what automatic means for it.
+fn visualizer_choice(p: &Player) -> Option<Choice> {
+    let screen = crate::viz::screen(&p.id)?;
+    let value = match p.prefs.get("visualizer") {
+        None | Some(Value::Null) => "auto".to_string(),
+        Some(Value::String(s)) if s.is_empty() || s == "auto" => "auto".to_string(),
+        Some(_) => flag(p.prefs.get_bool("visualizer")),
+    };
+    let auto = match screen {
+        Some(true) => "Automatic (on: it has a screen)",
+        Some(false) => "Automatic (off: no screen)",
+        None => "Automatic (off: added by address, screen unknown)",
+    };
+    Some(choice(
+        value,
+        [
+            ("auto".to_string(), auto.to_string()),
+            ("1".to_string(), "On".to_string()),
+            ("0".to_string(), "Off".to_string()),
+        ],
+    ))
 }
 
 fn display_settings(p: &Player) -> Option<DisplaySettings> {
@@ -409,6 +547,10 @@ pub async fn update_player_settings(
     if let Some(v) = patch.auto_brightness_min {
         let r = d.and_then(|d| d.auto_brightness_min.as_ref());
         changes.push(("minAutoBrightness", range(r, v, "auto_brightness_min")?));
+    }
+    if let Some(v) = patch.visualizer {
+        let v = pick(cur.visualizer.as_ref(), "visualizer", v)?;
+        changes.push(("visualizer", if v == "auto" { String::new() } else { v }));
     }
     if let Some(v) = patch.auto_brightness_sensitivity {
         let r = d.and_then(|d| d.auto_brightness_sensitivity.as_ref());

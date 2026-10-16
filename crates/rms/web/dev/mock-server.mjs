@@ -167,6 +167,12 @@ const settings = {
   listenbrainz: false, discovered: 0, discovered_played: 0, discovered_rejected: 0,
   listenbrainz_accounts: [], scrobble_spotify: false, scrobble_pending: 0,
   effnet: false, effnet_status: 'off', effnet_analyzed: 0, effnet_pending: 0,
+  visualizer_available: true, visualizer_encoder: 'h264_vaapi',
+  visualizer_size: { value: '1920x1080', options: [['1920x1080', '1080p (1920×1080)'], ['1600x900', '900p (1600×900)'], ['1280x720', '720p (1280×720)']].map(([value, label]) => ({ value, label })) },
+  visualizer_render_size: { value: '', options: [['', 'The video size'], ['1600x900', '1600×900'], ['1280x720', '1280×720'], ['960x540', '960×540']].map(([value, label]) => ({ value, label })) },
+  visualizer_fps: { value: '30', options: ['24', '30', '60'].map((value) => ({ value, label: value })) },
+  visualizer_quality: { value: 30, min: 18, max: 45 },
+  visualizer_preset_seconds: { value: 30, min: 5, max: 600 },
 };
 const scan = { running: false, start: 0, total: tracks.length };
 let lastscan = Math.floor(Date.now() / 1000) - 3600 * 5;
@@ -370,6 +376,9 @@ function playerSettingsOut(p) {
     dont_stop_the_music: choice(DSTM, s.dont_stop_the_music), adventurous: s.adventurous ?? 15,
     scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
   };
+  if (p.model === 'chromecast') {
+    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (on: it has a screen)'], ['1', 'On'], ['0', 'Off']].map(([value, label]) => ({ value, label })) };
+  }
   if (SCREEN_MODELS.has(p.model)) {
     r.display = Object.fromEntries(Object.entries(DISPLAY_CHOICES).map(([k, pairs]) => [k, choice(pairs, s[k])]));
     if (s.auto_brightness_min != null) {
@@ -386,6 +395,11 @@ function patchPlayerSettings(p, b) {
     if (k === 'transition_type') { if (!(v >= 0 && v <= 4)) throw bad('transition_type must be 0–4'); s[k] = v; }
     else if (['transition_duration', 'replay_gain_mode', 'max_bitrate'].includes(k)) s[k] = +v;
     else if (k === 'digital_volume_control') s[k] = !!v;
+    else if (k === 'visualizer') {
+      if (p.model !== 'chromecast') throw bad('this player has no visualizer');
+      if (!['auto', '1', '0'].includes(v)) throw bad(`${v} is not a valid visualizer`);
+      s[k] = v;
+    }
     else if (k === 'dont_stop_the_music') {
       if (!DSTM.some(([x]) => x === v)) throw bad(`unknown dont_stop_the_music ${v}`);
       s[k] = v;
@@ -403,6 +417,13 @@ function patchServerSettings(b) {
     if (!(k in settings)) throw bad(`unknown field \`${k}\``);
     if (k === 'spotify_bitrate' && ![96, 160, 320].includes(v)) throw bad('spotify_bitrate must be 96, 160 or 320');
     if (k === 'media_dirs' && !Array.isArray(v)) throw bad('media_dirs must be a list');
+    if (k.startsWith('visualizer_')) {
+      const c = settings[k];
+      if (c.options && !c.options.some((o) => o.value === v)) throw bad(`${v} is not a valid ${k}`);
+      if (c.min != null && !(v >= c.min && v <= c.max)) throw bad(`${k} must be ${c.min}–${c.max}`);
+      c.value = v;
+      continue;
+    }
     settings[k] = v;
   }
   return settings;

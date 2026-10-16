@@ -508,8 +508,6 @@ struct Cast {
     sent_volume: Option<(u8, bool)>,
     /// Playing the group's visualiser stream.
     viz: Option<Viz>,
-    /// The device has a screen (unknown: given by address).
-    video: Option<bool>,
 }
 
 /// The visualiser stream the device plays.
@@ -538,8 +536,8 @@ impl Cast {
         io: DriverIo,
         video: Option<bool>,
     ) -> Cast {
+        crate::viz::note_screen(mac, video);
         Cast {
-            video,
             server,
             mac,
             tls,
@@ -678,15 +676,10 @@ impl Cast {
         Ok(())
     }
 
-    /// The player's `visualizer` setting; when unset, on for devices with a screen (used
-    /// where pmviz is installed; plain audio plays otherwise).
+    /// The player's `visualizer` setting; when automatic, on for devices with a screen
+    /// (used where pmviz is installed; plain audio plays otherwise).
     fn visualizer_on(&self) -> bool {
-        let prefs = self.server.prefs.player(&self.mac.to_string());
-        if prefs.exists("visualizer") {
-            prefs.get_bool("visualizer")
-        } else {
-            self.video == Some(true)
-        }
+        crate::viz::wanted(&self.server, &self.mac)
     }
 
     /// The sync group (its master), and the id and length of the track about to stream.

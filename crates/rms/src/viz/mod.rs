@@ -48,6 +48,43 @@ const NEXT_WITHIN: Duration = Duration::from_secs(4);
 const PCM_CHUNK: usize = 64 * 1024;
 const PCM_CHUNKS: usize = 16;
 
+/// 60 fps over Wi-Fi was too much for a Chromecast with Google TV even at QP 36.
+pub const DEFAULT_FPS: u32 = 30;
+/// The encoder's constant quality (QP / CRF): each +6 about halves the stream.
+pub const DEFAULT_QUALITY: u32 = 30;
+pub const DEFAULT_PRESET_SECONDS: u32 = 30;
+pub const DEFAULT_SIZE: &str = "1920x1080";
+
+/// Chromecasts by player: whether each has a screen (`None`: unknown, given by address).
+static SCREENS: LazyLock<Mutex<HashMap<slimproto::MacAddress, Option<bool>>>> =
+    LazyLock::new(Default::default);
+
+/// Note whether the Chromecast playing as `mac` has a screen.
+pub fn note_screen(mac: slimproto::MacAddress, screen: Option<bool>) {
+    SCREENS.lock().insert(mac, screen);
+}
+
+/// Whether a Chromecast player has a screen, if it is one (`Some(None)`: unknown).
+pub fn screen(mac: &slimproto::MacAddress) -> Option<Option<bool>> {
+    SCREENS.lock().get(mac).copied()
+}
+
+/// A player's `visualizer` setting: `Some(true)` on, `Some(false)` off, `None` automatic
+/// (on for a Chromecast with a screen).
+pub fn setting(server: &Server, mac: &slimproto::MacAddress) -> Option<bool> {
+    let prefs = server.prefs.player(&mac.to_string());
+    match prefs.get("visualizer") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) if s.is_empty() || s == "auto" => None,
+        Some(_) => Some(prefs.get_bool("visualizer")),
+    }
+}
+
+/// Whether the Chromecast playing as `mac` should show the visualiser (if it can run).
+pub fn wanted(server: &Server, mac: &slimproto::MacAddress) -> bool {
+    setting(server, mac).unwrap_or_else(|| screen(mac) == Some(Some(true)))
+}
+
 /// How the visualiser runs, from the server's settings.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
@@ -62,7 +99,7 @@ pub struct Config {
     pub preset_seconds: u32,
     /// `h264_vaapi`, `libx264`, …
     pub encoder: String,
-    /// Encoder quality (QP / CRF: higher is a smaller stream); 0: pmviz's default.
+    /// Encoder quality (QP / CRF: higher is a smaller stream).
     pub quality: u32,
 }
 
@@ -95,6 +132,11 @@ pub fn config(server: &Server) -> Result<Config, String> {
     };
     let command = match set("visualizerCommand") {
         Some(p) => Some(p),
+        // where to find it instead of looking (empty: nowhere; the tests' servers)
+        None if std::env::var_os("RMS_PMVIZ").is_some() => Some(PathBuf::from(
+            std::env::var_os("RMS_PMVIZ").unwrap_or_default(),
+        ))
+        .filter(|p| !p.as_os_str().is_empty()),
         None => first_existing(
             exe_dir()
                 .map(|d| d.join("pmviz"))
@@ -120,17 +162,17 @@ pub fn config(server: &Server) -> Result<Config, String> {
     let textures = set("visualizerTextures").or_else(|| share("textures"));
     let size = Some(prefs.get_str("visualizerSize"))
         .filter(|s| valid_size(s))
-        .unwrap_or_else(|| "1920x1080".into());
+        .unwrap_or_else(|| DEFAULT_SIZE.into());
     let render_size = Some(prefs.get_str("visualizerRenderSize"))
         .filter(|s| valid_size(s))
         .unwrap_or_default();
     let fps = match prefs.get_i64("visualizerFps") {
         f @ 1..=120 => f as u32,
-        _ => 60,
+        _ => DEFAULT_FPS,
     };
     let preset_seconds = match prefs.get_i64("visualizerPresetSeconds") {
         s @ 5..=3600 => s as u32,
-        _ => 30,
+        _ => DEFAULT_PRESET_SECONDS,
     };
     let encoder = Some(prefs.get_str("visualizerEncoder"))
         .filter(|e| !e.is_empty() && e != "auto")
@@ -143,7 +185,7 @@ pub fn config(server: &Server) -> Result<Config, String> {
         });
     let quality = match prefs.get_i64("visualizerQuality") {
         q @ 1..=51 => q as u32,
-        _ => 0,
+        _ => DEFAULT_QUALITY,
     };
     Ok(Config {
         quality,
@@ -192,9 +234,7 @@ impl Config {
         if !self.render_size.is_empty() {
             a.extend(["--render-size".into(), self.render_size.clone()]);
         }
-        if self.quality > 0 {
-            a.extend(["-q".into(), self.quality.to_string()]);
-        }
+        a.extend(["-q".into(), self.quality.to_string()]);
         a
     }
 }

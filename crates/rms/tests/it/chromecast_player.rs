@@ -599,6 +599,22 @@ async fn a_chromecast_plays_the_visualiser() {
     ] {
         pref(http, k, &v).await;
     }
+    // the settings see pmviz and check what they're given
+    let s = tokio::task::spawn_blocking(move || {
+        let patch = |body: &str| http_json(http, "PATCH", "/api/v1/settings", Some(body));
+        assert_eq!(patch(r#"{"visualizer_quality": 99}"#).0, 400);
+        assert_eq!(patch(r#"{"visualizer_fps": "25"}"#).0, 400);
+        let (code, text) = patch(r#"{"visualizer_quality": 28, "visualizer_preset_seconds": 20}"#);
+        assert_eq!(code, 200, "{text}");
+        serde_json::from_str::<Value>(&text).unwrap()
+    })
+    .await
+    .unwrap();
+    assert_eq!(s["visualizer_available"], true, "{s}");
+    assert_eq!(s["visualizer_encoder"], "libx264");
+    assert_eq!(s["visualizer_fps"]["value"], "30");
+    assert_eq!(s["visualizer_quality"]["value"], 28);
+    assert_eq!(s["visualizer_preset_seconds"]["value"], 20);
 
     let mut dev = Fake::start().await;
     let hosts = json!([format!("127.0.0.1:{}", dev.port)]).to_string();
@@ -619,8 +635,18 @@ async fn a_chromecast_plays_the_visualiser() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let id = id.expect("a chromecast player");
-    // (a device given by address might have no screen: the visualiser is asked for)
-    player_pref(http, &id, "visualizer", "1").await;
+    // a device given by address might have no screen: the visualiser is off until asked for
+    let path = format!("/api/v1/players/{}/settings", id.replace(':', "%3A"));
+    let s = get(http, &path).await;
+    assert_eq!(s["visualizer"]["value"], "auto", "{s}");
+    let s = tokio::task::spawn_blocking(move || {
+        let (code, text) = http_json(http, "PATCH", &path, Some(r#"{"visualizer": "1"}"#));
+        assert_eq!(code, 200, "{text}");
+        serde_json::from_str::<Value>(&text).unwrap()
+    })
+    .await
+    .unwrap();
+    assert_eq!(s["visualizer"]["value"], "1", "{s}");
 
     // the album plays as one video stream with the music in it
     command(

@@ -1609,6 +1609,22 @@ pub struct ServerSettings {
     /// Tracks analysed with EffNet, and still to analyse.
     pub effnet_analyzed: i64,
     pub effnet_pending: i64,
+    /// The TV visualiser can run (pmviz and presets are installed).
+    pub visualizer_available: bool,
+    /// Why it can't, when it can't.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visualizer_error: Option<String>,
+    /// The video encoder it uses (`h264_vaapi`: the GPU's, `libx264`: the CPU's).
+    pub visualizer_encoder: String,
+    /// Video size (`1920x1080`).
+    pub visualizer_size: Choice,
+    /// Size the visuals are drawn at, scaled up to the video size ("": the same).
+    pub visualizer_render_size: Choice,
+    pub visualizer_fps: Choice,
+    /// The encoder's constant quality: higher is a smaller stream (each +6 about halves it).
+    pub visualizer_quality: Range,
+    /// Seconds each preset shows.
+    pub visualizer_preset_seconds: Range,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1656,6 +1672,11 @@ pub struct ServerSettingsPatch {
     pub listenbrainz: Option<bool>,
     pub scrobble_spotify: Option<bool>,
     pub effnet: Option<bool>,
+    pub visualizer_size: Option<String>,
+    pub visualizer_render_size: Option<String>,
+    pub visualizer_fps: Option<String>,
+    pub visualizer_quality: Option<i64>,
+    pub visualizer_preset_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -1720,6 +1741,9 @@ pub struct PlayerSettings {
     /// For players with a screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplaySettings>,
+    /// For Chromecasts: the TV visualiser (`auto`: on for devices with a screen, `1`, `0`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visualizer: Option<Choice>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1760,4 +1784,5 @@ pub struct PlayerSettingsPatch {
     pub brightness_idle: Option<String>,
     pub auto_brightness_min: Option<i64>,
     pub auto_brightness_sensitivity: Option<i64>,
+    pub visualizer: Option<String>,
 }

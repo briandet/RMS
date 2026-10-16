@@ -56,6 +56,8 @@ fn try_start_server(music: &Path, args: &[&str]) -> Option<Server> {
     let (http, cli, slim) = (free_port(), free_port(), free_port());
     let log = std::env::var("RMS_TEST_LOG").ok();
     let mut child = Command::new(env!("CARGO_BIN_EXE_rms"))
+        // no visualiser unless a test names its pmviz (an installed one would change answers)
+        .env("RMS_PMVIZ", "")
         .args([
             "--data-dir",
             dir.path().to_str().unwrap(),
