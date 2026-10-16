@@ -55,11 +55,16 @@ run() {
     run -T 30 -d 6 --unpaced --readback direct -o /tmp/pmviz-x264.mp4 $P
     run -T 30 -d 6 --unpaced -e h264_vaapi -o /tmp/pmviz-vaapi.mp4 $P
 
-    # 4. the real thing: paced to the music, as a live stream would be
+    # 4. the real thing: paced to the music, as a live stream would be, with the GPU's
+    #    encoder when it has one
+    enc=libx264
+    if command -v vainfo >/dev/null && vainfo 2>/dev/null | grep -q 'VAProfileH264.*EncSlice'; then
+        enc=h264_vaapi
+    fi
     if [ -n "$music" ]; then
-        run -i "$music" -T 60 -d 15 -o sample.mp4 $P
+        run -i "$music" -T 60 -d 15 -e $enc -o sample.mp4 $P
     else
-        run -T 60 -d 15 -o sample.mp4 $P
+        run -T 60 -d 15 -e $enc -o sample.mp4 $P
     fi
     rm -f /tmp/pmviz-x264.mp4 /tmp/pmviz-vaapi.mp4
 } 2>&1 | tee "$log"

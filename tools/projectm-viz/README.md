@@ -86,6 +86,21 @@ MB), and bench mode never copied it at all.  The readback now copies with stream
 counts that copy in bench mode too, and `--readback direct` is there to compare.  VAAPI on
 this GPU only offers constant quality (`CQP`), which pmviz now asks for.
 
+The second run, with those changes:
+
+| run | result |
+| --- | --- |
+| 1280x720, drawing and readback | 15 ms a frame (2.2x real time) |
+| 1920x1080, drawing and readback | 17 ms a frame (1.9x real time) |
+| preset switches | about 50 ms on average, at most 86 ms |
+| encoders alone, 720p | libx264 2.9x real time; h264_vaapi 5.7x |
+| 1280x720, drawing and libx264 | 1.1–1.2x real time (x264 and projectM share the CPU) |
+| 1280x720, drawing and h264_vaapi | 2.8x real time; 1 frame in 896 over budget |
+
+So the TV visualiser is viable on this machine at 720p30 with the GPU's encoder; with
+libx264 it would only just keep up, and starve the rest of RMS.  The two readbacks are
+close (the streaming copy slightly ahead), so pixel buffers stay the default.
+
 ## Options
 
 ```
