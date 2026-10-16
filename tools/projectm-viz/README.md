@@ -96,6 +96,7 @@ The second run, with those changes:
 | encoders alone, 720p | libx264 2.9x real time; h264_vaapi 5.7x |
 | 1280x720, drawing and libx264 | 1.1–1.2x real time (x264 and projectM share the CPU) |
 | 1280x720, drawing and h264_vaapi | 2.8x real time; 1 frame in 896 over budget |
+| 1280x720, paced to a song, h264_vaapi | 8 of 1,800 frames repeated (0.4%), mostly at the 3 preset switches; about 13 ms of each 33 ms frame used |
 
 So the TV visualiser is viable on this machine at 720p30 with the GPU's encoder; with
 libx264 it would only just keep up, and starve the rest of RMS.  The two readbacks are
