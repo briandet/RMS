@@ -1,0 +1,61 @@
+name: Receiver site
+
+# RMS's Cast receiver app (/receiver/) and the projectM browser demo (/demo/), built with
+# Emscripten and published on GitHub Pages (Settings → Pages → Source: GitHub Actions).
+# Pull requests only build it.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - receiver/**
+      - tools/projectm-viz/web/**
+      - .github/workflows/receiver.yml
+  pull_request:
+    paths:
+      - receiver/**
+      - tools/projectm-viz/web/**
+      - .github/workflows/receiver.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: receiver-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ninja
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      # the Emscripten the site was last tried with
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.12
+
+      - name: Build
+        run: receiver/build.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: receiver/build/site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

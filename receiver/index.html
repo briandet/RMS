@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RMS Visualiser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600&display=swap">
+<style>
+  /* RMS's Cast receiver: projectM fills the screen; the playing track sits in the lower
+     left, large when it starts or pauses, then small.  TVs crop their edges, so
+     everything stays inside a 5% margin. */
+  :root {
+    --stage: #05060a;
+    --glass: rgba(10, 12, 20, 0.62);
+    --line: rgba(200, 210, 255, 0.14);
+    --fg: #f2f3fb;
+    --dim: rgba(222, 226, 245, 0.72);
+    --accent: #8fb4ff;
+    --safe-x: 5vw;
+    --safe-y: 5vh;
+    --sans: "Familjen Grotesk", "Roboto", ui-sans-serif, system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--stage); }
+  body { color: var(--fg); font-family: var(--sans); cursor: none; }
+  #canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #media { display: none; }
+
+  /* legibility under the track info, whatever the preset draws */
+  .shade {
+    position: fixed; inset: auto 0 0 0; height: 45vh; pointer-events: none;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.55), transparent);
+    opacity: 0; transition: opacity 0.8s ease;
+  }
+  body.playing .shade, body.paused .shade { opacity: 1; }
+  body.small .shade { opacity: 0.6; }
+
+  .track {
+    position: fixed; left: var(--safe-x); bottom: var(--safe-y);
+    max-width: calc(100vw - 2 * var(--safe-x));
+    display: flex; align-items: flex-end; gap: 28px;
+    transform-origin: left bottom;
+    transition: opacity 0.6s ease, transform 0.8s cubic-bezier(.2, .7, .2, 1);
+    opacity: 0;
+  }
+  body.playing .track, body.paused .track { opacity: 1; }
+  .art {
+    width: 240px; height: 240px; flex: none; border-radius: 10px; object-fit: cover;
+    background: linear-gradient(135deg, #263056, #121626);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    transition: width 0.8s cubic-bezier(.2, .7, .2, 1), height 0.8s cubic-bezier(.2, .7, .2, 1);
+  }
+  .art.none { visibility: hidden; width: 0; margin-right: -28px; }
+  .text { min-width: 0; padding-bottom: 6px; display: grid; gap: 6px; }
+  .status {
+    font-size: 15px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent);
+    font-weight: 600; height: 1.2em;
+  }
+  .title {
+    font-size: 46px; line-height: 1.08; font-weight: 600; text-wrap: balance;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+  }
+  .artist { font-size: 28px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .album { font-size: 22px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .progress { display: flex; align-items: center; gap: 14px; margin-top: 10px; }
+  .bar { width: 420px; max-width: 40vw; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; }
+  .time { font-size: 17px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* after a while: a small card that stays out of the way */
+  body.small .art { width: 88px; height: 88px; border-radius: 6px; }
+  body.small .track { gap: 18px; }
+  body.small .art.none { margin-right: -18px; }
+  body.small .status, body.small .album, body.small .progress { display: none; }
+  body.small .title { font-size: 24px; -webkit-line-clamp: 1; }
+  body.small .artist { font-size: 18px; color: var(--dim); }
+  body.small .text { gap: 2px; padding-bottom: 4px; }
+
+  .changing .text { opacity: 0; transition: opacity 0.3s ease; }
+
+  /* nothing playing yet */
+  .idle {
+    position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+    transition: opacity 0.8s ease;
+  }
+  body.playing .idle, body.paused .idle { opacity: 0; }
+  .idle .name { font-size: 40px; font-weight: 600; letter-spacing: 0.04em; }
+  .idle .hint { font-size: 20px; color: var(--dim); margin-top: 10px; }
+
+  .debug {
+    position: fixed; right: var(--safe-x); top: var(--safe-y); font-size: 16px;
+    color: var(--dim); font-variant-numeric: tabular-nums; text-align: right; white-space: pre-line;
+  }
+  @media (prefers-reduced-motion: reduce) { .track, .art, .shade, .idle { transition: none; } }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<audio id="media" crossorigin="anonymous"></audio>
+<div class="shade"></div>
+
+<div class="idle" id="idle">
+  <div>
+    <div class="name">RMS</div>
+    <div class="hint" id="idle-hint">Starting the visualiser…</div>
+  </div>
+</div>
+
+<div class="track" id="track">
+  <img class="art none" id="art" alt="" crossorigin="anonymous">
+  <div class="text">
+    <div class="status" id="status"></div>
+    <div class="title" id="title"></div>
+    <div class="artist" id="artist"></div>
+    <div class="album" id="album"></div>
+    <div class="progress">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="time" id="time"></div>
+    </div>
+  </div>
+</div>
+
+<div class="debug" id="debug" hidden></div>
+
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<script src="pmweb.js"></script>
+<script src="receiver.js"></script>
+</body>
+</html>

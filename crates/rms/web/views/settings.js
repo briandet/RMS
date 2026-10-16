@@ -115,7 +115,7 @@ export function render(node, { ctx }) {
     // Chromecasts: the TV visualiser
     const vizField = pref.visualizer?.options?.length
       ? choiceField('TV visualiser', pref.visualizer, (v) => setPref({ visualizer: v }),
-        'MilkDrop visuals drawn to the music, as video, instead of audio alone (see TV visualiser below). Applies from the next track you start.')
+        'MilkDrop visuals drawn to the music instead of audio alone: as video from the server, or drawn on the TV by RMS’s receiver app (see TV visualiser below). Applies from the next track you start.')
       : null;
 
     const digitalId = fieldId();
@@ -765,12 +765,7 @@ export function render(node, { ctx }) {
       return;
     }
     if (!alive) return;
-    const about = h('p', { class: 'muted small' }, 'Chromecasts with a screen show MilkDrop visuals drawn to the music by projectM, as video with the music in it. A sync group’s Chromecasts share one stream, drawn and encoded once on the server. Turn it on or off for each Chromecast under Player. Changes apply from the next track you start.');
-    if (!st.visualizer_available) {
-      vizSection.replaceChildren(head, about,
-        h('p', { class: 'muted small', role: 'status' }, `Not available: ${st.visualizer_error || 'pmviz isn’t installed'}. packaging/install.sh builds and installs it with the presets when its build dependencies are there (see tools/projectm-viz).`));
-      return;
-    }
+    const about = h('p', { class: 'muted small' }, 'Chromecasts with a screen can show MilkDrop visuals drawn to the music by projectM, in one of two ways, chosen for each Chromecast under Player: as video drawn and encoded on the server (a sync group’s TVs share one stream), or drawn on the TV by RMS’s receiver app, which needs only the audio. Changes apply from the next track you start.');
     const choice = (label, key, help) => choiceField(label, st[key], (v) => saveServer({ [key]: v }), help);
     const slider = (label, key, unit, help) => {
       const r = st[key];
@@ -783,13 +778,37 @@ export function render(node, { ctx }) {
             onchange: (e) => saveServer({ [key]: +e.target.value }) }), out),
         help && h('p', { class: 'muted small' }, help));
     };
+    const sub = (text) => h('h3', { class: 'settings-sub' }, text);
+
+    // the video from the server
     const gpu = st.visualizer_encoder === 'h264_vaapi' || st.visualizer_encoder === 'h264_qsv';
+    const video = st.visualizer_available
+      ? [h('p', { class: 'muted small' }, `Encoding with ${st.visualizer_encoder}${gpu ? ' (the GPU)' : ' (the CPU: slow; a GPU with VAAPI is much better)'}.`),
+        choice('Video size', 'visualizer_size'),
+        slider('Compression', 'visualizer_quality', '', 'Higher is a smaller stream at lower quality: each +6 about halves it. Raise it if the TV keeps buffering.')]
+      : [h('p', { class: 'muted small', role: 'status' }, `Not available: ${st.visualizer_error || 'pmviz isn’t installed'}. packaging/install.sh builds and installs it with the presets when its build dependencies are there (see tools/projectm-viz).`)];
+
+    // drawn on the TV
+    const appId = fieldId();
+    const appInput = h('input', { id: appId, type: 'text', value: st.visualizer_receiver_app ?? '', placeholder: '8 hex digits, like 1A2B3C4D', spellcheck: 'false', autocomplete: 'off', maxlength: 8 });
+    const appForm = h('form', { class: 'field', onsubmit: async (e) => {
+      e.preventDefault();
+      const v = appInput.value.trim();
+      await saveServer({ visualizer_receiver_app: v }, v ? 'Receiver app saved' : 'Receiver app removed');
+      renderViz();
+      renderPlayer();
+    } }, h('label', { for: appId }, 'Receiver app ID'),
+    h('p', { class: 'muted small' }, 'Register the receiver app in the ',
+      h('a', { href: 'https://cast.google.com/publish', target: '_blank', rel: 'noopener' }, 'Google Cast developer console'),
+      ' as a Custom Receiver with the URL https://rustydc.github.io/RMS/receiver/, and enter its app ID here. Until the app is published, add each Chromecast’s serial number there too. Leave it empty if it isn’t set up.'),
+    h('div', { class: 'inline-row' }, appInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
+
     vizSection.replaceChildren(head, about,
-      h('p', { class: 'muted small' }, `Encoding with ${st.visualizer_encoder}${gpu ? ' (the GPU)' : ' (the CPU: slow; a GPU with VAAPI is much better)'}.`),
-      choice('Video size', 'visualizer_size'),
-      choice('Frames a second', 'visualizer_fps', '60 is smoother, but the stream is about twice as big; over Wi-Fi 30 is safer.'),
-      choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU and makes a smaller stream; MilkDrop’s soft visuals scale up well.'),
-      slider('Compression', 'visualizer_quality', '', 'Higher is a smaller stream at lower quality: each +6 about halves it. Raise it if the TV keeps buffering.'),
+      sub('Video from the server'), ...video,
+      sub('Drawn on the TV'), appForm,
+      sub('Both ways'),
+      choice('Frames a second', 'visualizer_fps', '60 is smoother, but the video is about twice as big (30 is safer over Wi-Fi), and a TV drawing it itself may not keep up.'),
+      choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU (and makes a smaller video); MilkDrop’s soft visuals scale up well. A TV drawing it itself draws at 1280×720 when this is the video size.'),
       slider('Each preset shows for', 'visualizer_preset_seconds', ' s'));
   }
 

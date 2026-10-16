@@ -69,20 +69,88 @@ pub fn screen(mac: &slimproto::MacAddress) -> Option<Option<bool>> {
     SCREENS.lock().get(mac).copied()
 }
 
-/// A player's `visualizer` setting: `Some(true)` on, `Some(false)` off, `None` automatic
-/// (on for a Chromecast with a screen).
-pub fn setting(server: &Server, mac: &slimproto::MacAddress) -> Option<bool> {
+/// How a Chromecast shows the visualiser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Plain audio.
+    Off,
+    /// The group's video stream, drawn and encoded on the server.
+    Video,
+    /// Drawn on the TV by RMS's own Cast receiver app ([`receiver_app`]), from the audio.
+    Tv,
+}
+
+/// A player's `visualizer` setting (`1` video, `tv` drawn on the TV, `0` off), or `None`
+/// when automatic.
+pub fn setting(server: &Server, mac: &slimproto::MacAddress) -> Option<Mode> {
     let prefs = server.prefs.player(&mac.to_string());
     match prefs.get("visualizer") {
         None | Some(serde_json::Value::Null) => None,
         Some(serde_json::Value::String(s)) if s.is_empty() || s == "auto" => None,
-        Some(_) => Some(prefs.get_bool("visualizer")),
+        Some(serde_json::Value::String(s)) if s == "tv" => Some(Mode::Tv),
+        Some(_) if prefs.get_bool("visualizer") => Some(Mode::Video),
+        Some(_) => Some(Mode::Off),
     }
 }
 
-/// Whether the Chromecast playing as `mac` should show the visualiser (if it can run).
-pub fn wanted(server: &Server, mac: &slimproto::MacAddress) -> bool {
-    setting(server, mac).unwrap_or_else(|| screen(mac) == Some(Some(true)))
+/// How the Chromecast playing as `mac` should show the visualiser (if it can run):
+/// automatic is the video for devices with a screen.
+pub fn mode(server: &Server, mac: &slimproto::MacAddress) -> Mode {
+    setting(server, mac).unwrap_or_else(|| match screen(mac) {
+        Some(Some(true)) => Mode::Video,
+        _ => Mode::Off,
+    })
+}
+
+/// What the receiver app is told with each track, so it knows what it's talking to.
+pub const RECEIVER_PROTOCOL: u32 = 1;
+/// What the receiver draws at when "Draw at" is the video size: a Chromecast's GPU is a
+/// phone's, far slower than the server's.
+pub const RECEIVER_DEFAULT_SIZE: &str = "1280x720";
+
+/// The app id of RMS's Cast receiver (`visualizerReceiverApp`: registered in the Google
+/// Cast developer console for the page in `receiver/`), when one is set up.
+pub fn receiver_app(server: &Server) -> Option<String> {
+    let id = server
+        .prefs
+        .server
+        .get_str("visualizerReceiverApp")
+        .trim()
+        .to_ascii_uppercase();
+    valid_app_id(&id).then_some(id)
+}
+
+/// A Cast app id: 8 hex digits.
+pub fn valid_app_id(id: &str) -> bool {
+    id.len() == 8 && id.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The visualiser settings the receiver app gets with each track.
+pub fn receiver_settings(server: &Server) -> serde_json::Value {
+    let prefs = &server.prefs.server;
+    let render = Some(prefs.get_str("visualizerRenderSize"))
+        .filter(|s| valid_size(s))
+        .unwrap_or_else(|| RECEIVER_DEFAULT_SIZE.into());
+    serde_json::json!({
+        "version": RECEIVER_PROTOCOL,
+        "presetSeconds": preset_seconds(prefs),
+        "fps": fps(prefs),
+        "renderSize": render,
+    })
+}
+
+fn fps(prefs: &crate::prefs::PrefStore) -> u32 {
+    match prefs.get_i64("visualizerFps") {
+        f @ 1..=120 => f as u32,
+        _ => DEFAULT_FPS,
+    }
+}
+
+fn preset_seconds(prefs: &crate::prefs::PrefStore) -> u32 {
+    match prefs.get_i64("visualizerPresetSeconds") {
+        s @ 5..=3600 => s as u32,
+        _ => DEFAULT_PRESET_SECONDS,
+    }
 }
 
 /// How the visualiser runs, from the server's settings.
@@ -166,14 +234,8 @@ pub fn config(server: &Server) -> Result<Config, String> {
     let render_size = Some(prefs.get_str("visualizerRenderSize"))
         .filter(|s| valid_size(s))
         .unwrap_or_default();
-    let fps = match prefs.get_i64("visualizerFps") {
-        f @ 1..=120 => f as u32,
-        _ => DEFAULT_FPS,
-    };
-    let preset_seconds = match prefs.get_i64("visualizerPresetSeconds") {
-        s @ 5..=3600 => s as u32,
-        _ => DEFAULT_PRESET_SECONDS,
-    };
+    let fps = fps(prefs);
+    let preset_seconds = preset_seconds(prefs);
     let encoder = Some(prefs.get_str("visualizerEncoder"))
         .filter(|e| !e.is_empty() && e != "auto")
         .unwrap_or_else(|| {

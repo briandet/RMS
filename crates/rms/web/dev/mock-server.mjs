@@ -173,6 +173,7 @@ const settings = {
   visualizer_fps: { value: '30', options: ['24', '30', '60'].map((value) => ({ value, label: value })) },
   visualizer_quality: { value: 30, min: 18, max: 45 },
   visualizer_preset_seconds: { value: 30, min: 5, max: 600 },
+  visualizer_receiver_app: '',
 };
 const scan = { running: false, start: 0, total: tracks.length };
 let lastscan = Math.floor(Date.now() / 1000) - 3600 * 5;
@@ -377,7 +378,8 @@ function playerSettingsOut(p) {
     scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
   };
   if (p.model === 'chromecast') {
-    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (on: it has a screen)'], ['1', 'On'], ['0', 'Off']].map(([value, label]) => ({ value, label })) };
+    const tv = settings.visualizer_receiver_app ? 'Drawn on the TV' : 'Drawn on the TV (set up the receiver app first)';
+    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (video: it has a screen)'], ['1', 'Video from the server'], ['tv', tv], ['0', 'Off']].map(([value, label]) => ({ value, label })) };
   }
   if (SCREEN_MODELS.has(p.model)) {
     r.display = Object.fromEntries(Object.entries(DISPLAY_CHOICES).map(([k, pairs]) => [k, choice(pairs, s[k])]));
@@ -397,7 +399,7 @@ function patchPlayerSettings(p, b) {
     else if (k === 'digital_volume_control') s[k] = !!v;
     else if (k === 'visualizer') {
       if (p.model !== 'chromecast') throw bad('this player has no visualizer');
-      if (!['auto', '1', '0'].includes(v)) throw bad(`${v} is not a valid visualizer`);
+      if (!['auto', '1', 'tv', '0'].includes(v)) throw bad(`${v} is not a valid visualizer`);
       s[k] = v;
     }
     else if (k === 'dont_stop_the_music') {
@@ -417,6 +419,12 @@ function patchServerSettings(b) {
     if (!(k in settings)) throw bad(`unknown field \`${k}\``);
     if (k === 'spotify_bitrate' && ![96, 160, 320].includes(v)) throw bad('spotify_bitrate must be 96, 160 or 320');
     if (k === 'media_dirs' && !Array.isArray(v)) throw bad('media_dirs must be a list');
+    if (k === 'visualizer_receiver_app') {
+      const id = String(v).trim().toUpperCase();
+      if (id && !/^[0-9A-F]{8}$/.test(id)) throw bad('visualizer_receiver_app: a Cast app id is 8 hex digits, like 1A2B3C4D');
+      settings[k] = id;
+      continue;
+    }
     if (k.startsWith('visualizer_')) {
       const c = settings[k];
       if (c.options && !c.options.some((o) => o.value === v)) throw bad(`${v} is not a valid ${k}`);

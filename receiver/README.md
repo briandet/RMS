@@ -1,0 +1,62 @@
+# RMS's Cast receiver
+
+A Chromecast set to *Drawn on the TV* runs this page instead of the Default Media Receiver.
+It plays the audio stream RMS loads, the same as an ordinary track. It draws MilkDrop
+presets to the audio with projectM, built to WebAssembly in `tools/projectm-viz/web`. It
+also shows the playing track's cover, title, artist and album.
+
+GitHub Pages serves it at `https://<owner>.github.io/<repo>/receiver/`. The *Receiver site*
+workflow builds and publishes it on pushes to `main`, along with the projectM browser demo
+at `/demo/`. One registered app serves every RMS server: each server sends its stream URLs
+and settings with each track. The main README covers registering it in the Cast developer
+console.
+
+## How it talks to RMS
+
+- **Playing.** RMS sends the standard media `LOAD`, with the server's stream URL and
+  music-track metadata (`metadataType` 3 with `title`, `artist`, `albumName` and
+  `images`), one track at a time.
+- **Settings.** The `LOAD`'s `customData.rms` carries the server's visualiser settings:
+
+  ```json
+  {"version": 1, "presetSeconds": 30, "fps": 30, "renderSize": "1280x720"}
+  ```
+
+  `version` is the protocol, raised when a change needs a newer receiver. A receiver that
+  gets a newer version reports it as an error.
+- **Reports.** The page reports on `urn:x-cast:net.rms.visualizer`, and RMS logs what it
+  hears:
+  - `{"type": "STATS", "fps": 28, "size": "1280x720", "preset": "…"}` every 15 seconds
+  - `{"type": "ERROR", "message": "…"}` when something fails: no WebGL 2, Web Audio
+    refused, or the stream unreadable for lack of CORS
+
+## How it works
+
+- CAF (the Cast receiver framework) plays into the page's own `<audio crossorigin>`
+  element.
+- Once Web Audio is running, the element is routed through two analyser nodes. Each frame,
+  projectM gets the samples played since the last frame. Until Web Audio is running, the
+  element plays as usual.
+- **CORS.** Reading the audio needs CORS on the server's streams. RMS allows any origin,
+  and it answers Chrome's private-network preflights, since the page is public and the
+  server is on the LAN.
+- **Drawing.** projectM draws at `renderSize`, never larger than the screen, scaled up to
+  fill it. It draws at `fps`, whatever the screen's refresh rate. Presets change every
+  `presetSeconds`, blending for 3 seconds, as on the server.
+- **Track info.** It's large for 12 seconds when a track starts, and again while paused.
+  The rest of the time it's a small card in the corner. Everything stays inside a 5%
+  margin, since TVs crop their edges. The progress bar takes its colour from the cover.
+
+## Building and trying it
+
+```sh
+source ~/emsdk/emsdk_env.sh      # the Emscripten SDK
+receiver/build.sh                 # receiver/build/site: /receiver/ and /demo/
+python3 -m http.server -d receiver/build/site 8000
+```
+
+Then open, for example,
+`http://localhost:8000/receiver/?dev&debug&src=/some.flac&title=Song&artist=Band&album=Album&art=/cover.jpg`.
+`dev` plays `src` without the Cast framework, and `debug` shows the frame rate and preset.
+On a Chromecast, `chrome://inspect` can attach to the page once the device is registered
+for development in the Cast console.

@@ -237,7 +237,9 @@ pub async fn serve(server: Arc<Server>) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!("HTTP listening on http://{}/", addr);
     let app = router(server.clone())
-        .layer(tower_http::cors::CorsLayer::permissive())
+        // (Chrome asks before a public HTTPS page, like RMS's Cast receiver app on GitHub
+        // Pages, reads from a server on the LAN)
+        .layer(tower_http::cors::CorsLayer::permissive().allow_private_network(true))
         .into_make_service_with_connect_info::<std::net::SocketAddr>();
     crate::util::spawn(tls::serve(server.clone(), app.clone()));
     let shutdown = server.shutdown.clone();

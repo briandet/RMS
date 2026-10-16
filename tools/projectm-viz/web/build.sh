@@ -5,8 +5,9 @@
 #   tools/projectm-viz/web/build.sh [number-of-presets]
 #
 # Needs the Emscripten SDK on the PATH (https://emscripten.org/docs/getting_started/,
-# then `source emsdk_env.sh`), and tools/projectm-viz/build.sh run once for the sources,
-# presets and textures.  Writes tools/projectm-viz/build/web/; serve that directory over
+# then `source emsdk_env.sh`); fetches projectM's sources, the presets and the textures
+# into tools/projectm-viz/build/ if they aren't there.  Writes
+# tools/projectm-viz/build/web/; serve that directory over
 # HTTP (e.g. `python3 -m http.server -d tools/projectm-viz/build/web`) and open it.
 set -eu
 
@@ -15,8 +16,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 build="$here/../build"
 out="$build/web"
 command -v emcc >/dev/null || { echo "emcc not found: source emsdk_env.sh first" >&2; exit 1; }
-[ -d "$build/projectm" ] || { echo "run tools/projectm-viz/build.sh first" >&2; exit 1; }
+mkdir -p "$build"
 cd "$build"
+# the same sources, presets and textures as tools/projectm-viz/build.sh fetches
+[ -d projectm ] || git clone --depth 1 --branch v4.1.8 --recurse-submodules \
+    --shallow-submodules https://github.com/projectM-visualizer/projectm.git projectm
+[ -d presets ] || git clone --depth 1 https://github.com/projectM-visualizer/presets-cream-of-the-crop.git presets
+[ -d textures ] || git clone --depth 1 https://github.com/projectM-visualizer/presets-milkdrop-texture-pack.git textures
 
 if [ ! -f prefix-web/lib/libprojectM-4.a ]; then
     # projectM's Emscripten build adds SDL for its own demo; the library doesn't use it

@@ -198,6 +198,30 @@ The script builds a release binary (the web UI is built in), installs it as
   `/usr/local/lib/rms/pmviz` and `/usr/local/share/rms/projectm`).  The visuals start a
   second or two after the music would, and a TV shows the first track's title only (the
   Default Media Receiver takes no updates).
+* **Visualiser drawn on the TV** (Chromecasts, not in Lyrion): instead of the video, a
+  Chromecast can draw the visuals itself with RMS's own Cast receiver app
+  ([`receiver/`](receiver/README.md)), which runs projectM in the browser.  The TV fetches
+  the audio only, the server's GPU isn't used, and the TV shows each track's cover, title,
+  artist and album: large when a track starts or pauses, then small in a corner.  It
+  depends on the TV's GPU: a Chromecast's is a phone's, so it draws at 1280×720 unless
+  Settings → TV visualiser → Draw at says smaller.  The frame rate and preset time settings
+  apply too.  To set it up:
+  1. Publish the receiver: GitHub Pages builds and serves it from this repository
+     (Settings → Pages → Source: GitHub Actions; the *Receiver site* workflow runs on
+     pushes to `main`), at `https://<owner>.github.io/<repo>/receiver/`.  One receiver
+     serves any number of RMS servers.
+  2. Register it in the [Google Cast developer console](https://cast.google.com/publish)
+     (a one-time US$5): Add new application → Custom Receiver, with that URL.  Leave
+     Guest Mode and Google Cast for Audio off.
+  3. While it's unpublished, add each Chromecast's serial number there (Devices), and
+     restart the Chromecast.  Publishing it removes that step.
+  4. Enter its application ID in Settings → TV visualiser → Receiver app ID
+     (`visualizerReceiverApp`), and set the Chromecast to *Drawn on the TV* under
+     Settings → Player (`visualizer` = `tv`).
+
+  A device that won't start the app (one not added in step 3) plays plain audio instead,
+  and the log says why.  The log also gets the TV's frame rate every 15 seconds
+  (`the TV draws at … fps`), to see whether its GPU keeps up.
 * **The Table** (Library → Table, not in Lyrion): the library as a dense, sortable table,
   one row per track, or per album, artist, genre, year, format, folder, … with how many
   tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A

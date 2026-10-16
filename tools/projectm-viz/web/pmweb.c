@@ -51,6 +51,8 @@ EMSCRIPTEN_KEEPALIVE int pm_init(int width, int height, int mesh_w, int mesh_h) 
         return -2;
     projectm_set_window_size(pm, width, height);
     projectm_set_mesh_size(pm, mesh_w, mesh_h);
+    // as the server's pmviz: presets change on the timer, blending for 3 seconds
+    projectm_set_hard_cut_enabled(pm, false);
     projectm_set_soft_cut_duration(pm, 3);
     projectm_set_preset_duration(pm, 30);
     const char *paths[] = {"/textures"};

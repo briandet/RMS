@@ -83,6 +83,7 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         visualizer_fps: viz.fps,
         visualizer_quality: viz.quality,
         visualizer_preset_seconds: viz.preset_seconds,
+        visualizer_receiver_app: prefs.get_str("visualizerReceiverApp").trim().to_string(),
     }
 }
 
@@ -284,6 +285,15 @@ pub async fn update_server_settings(
             within(v, 18, 45, "visualizer_quality")?,
         ));
     }
+    if let Some(v) = patch.visualizer_receiver_app {
+        let v = v.trim().to_ascii_uppercase();
+        if !v.is_empty() && !crate::viz::valid_app_id(&v) {
+            return Err(CommandError::Invalid(
+                "visualizer_receiver_app: a Cast app id is 8 hex digits, like 1A2B3C4D".into(),
+            ));
+        }
+        changes.push(("visualizerReceiverApp", v));
+    }
     if let Some(v) = patch.visualizer_preset_seconds {
         changes.push((
             "visualizerPresetSeconds",
@@ -348,28 +358,35 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
             .map(|a| a.user)
             .collect(),
         display: display_settings(p),
-        visualizer: visualizer_choice(p),
+        visualizer: visualizer_choice(p, crate::viz::receiver_app(server).is_some()),
     }
 }
 
 /// A Chromecast's visualiser setting, with what automatic means for it.
-fn visualizer_choice(p: &Player) -> Option<Choice> {
+fn visualizer_choice(p: &Player, receiver: bool) -> Option<Choice> {
     let screen = crate::viz::screen(&p.id)?;
     let value = match p.prefs.get("visualizer") {
         None | Some(Value::Null) => "auto".to_string(),
         Some(Value::String(s)) if s.is_empty() || s == "auto" => "auto".to_string(),
+        Some(Value::String(s)) if s == "tv" => "tv".to_string(),
         Some(_) => flag(p.prefs.get_bool("visualizer")),
     };
     let auto = match screen {
-        Some(true) => "Automatic (on: it has a screen)",
+        Some(true) => "Automatic (video: it has a screen)",
         Some(false) => "Automatic (off: no screen)",
         None => "Automatic (off: added by address, screen unknown)",
+    };
+    let tv = if receiver {
+        "Drawn on the TV"
+    } else {
+        "Drawn on the TV (set up the receiver app first)"
     };
     Some(choice(
         value,
         [
             ("auto".to_string(), auto.to_string()),
-            ("1".to_string(), "On".to_string()),
+            ("1".to_string(), "Video from the server".to_string()),
+            ("tv".to_string(), tv.to_string()),
             ("0".to_string(), "Off".to_string()),
         ],
     ))

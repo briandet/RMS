@@ -1625,6 +1625,9 @@ pub struct ServerSettings {
     pub visualizer_quality: Range,
     /// Seconds each preset shows.
     pub visualizer_preset_seconds: Range,
+    /// The Cast app id of RMS's receiver app (drawn on the TV), or empty: registered in the
+    /// Google Cast developer console for `https://<owner>.github.io/<repo>/receiver/`.
+    pub visualizer_receiver_app: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1677,6 +1680,7 @@ pub struct ServerSettingsPatch {
     pub visualizer_fps: Option<String>,
     pub visualizer_quality: Option<i64>,
     pub visualizer_preset_seconds: Option<i64>,
+    pub visualizer_receiver_app: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -1741,7 +1745,8 @@ pub struct PlayerSettings {
     /// For players with a screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplaySettings>,
-    /// For Chromecasts: the TV visualiser (`auto`: on for devices with a screen, `1`, `0`).
+    /// For Chromecasts: the TV visualiser (`auto`: the video for devices with a screen, `1`
+    /// the video from the server, `tv` drawn on the TV by RMS's receiver app, `0` off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visualizer: Option<Choice>,
 }

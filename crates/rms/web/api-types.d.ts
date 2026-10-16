@@ -1067,9 +1067,14 @@ visualizer_quality: Range,
 /**
  * Seconds each preset shows.
  */
-visualizer_preset_seconds: Range, };
+visualizer_preset_seconds: Range, 
+/**
+ * The Cast app id of RMS's receiver app (drawn on the TV), or empty: registered in the
+ * Google Cast developer console for `https://<owner>.github.io/<repo>/receiver/`.
+ */
+visualizer_receiver_app: string, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, visualizer_receiver_app?: string, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 
@@ -1115,7 +1120,8 @@ scrobble_to: Array<string>,
  */
 display?: DisplaySettings, 
 /**
- * For Chromecasts: the TV visualiser (`auto`: on for devices with a screen, `1`, `0`).
+ * For Chromecasts: the TV visualiser (`auto`: the video for devices with a screen, `1`
+ * the video from the server, `tv` drawn on the TV by RMS's receiver app, `0` off).
  */
 visualizer?: Choice, };
 

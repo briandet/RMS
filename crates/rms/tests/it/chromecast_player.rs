@@ -101,6 +101,8 @@ fn rand_suffix() -> u64 {
 const NS_MEDIA: &str = "urn:x-cast:com.google.cast.media";
 const NS_RECEIVER: &str = "urn:x-cast:com.google.cast.receiver";
 const TRANSPORT: &str = "web-7";
+/// A receiver app the fake device won't start (an unpublished app, this device not added).
+const REFUSED_APP: &str = "DEADBEEF";
 /// The tracks' length (see `make_audio`).
 const LENGTH: f64 = 2.0;
 
@@ -199,7 +201,7 @@ async fn serve(
     log: &mpsc::UnboundedSender<Value>,
     ctl: &mut mpsc::UnboundedReceiver<Ctl>,
 ) {
-    let mut launched = false;
+    let mut launched: Option<String> = None;
     let mut volume = json!({"level": 1.0, "muted": false});
     let mut media: Option<Playing> = None;
     let mut sessions = 0;
@@ -226,10 +228,18 @@ async fn serve(
                 let mut out = Vec::new();
                 match (m.namespace.as_str(), p["type"].as_str().unwrap()) {
                     (_, "PING") => out.push(reply(&m.namespace, json!({"type": "PONG"}))),
+                    (NS_RECEIVER, "LAUNCH") if p["appId"] == REFUSED_APP => {
+                        out.push(reply(
+                            NS_RECEIVER,
+                            json!({"type": "LAUNCH_ERROR", "requestId": request,
+                                   "reason": "NOT_FOUND"}),
+                        ));
+                    }
                     (NS_RECEIVER, kind @ ("GET_STATUS" | "LAUNCH" | "SET_VOLUME")) => {
                         if kind == "LAUNCH" {
-                            assert_eq!(p["appId"], "CC1AD845");
-                            launched = true;
+                            // (the app that ran gives way to it)
+                            launched = Some(p["appId"].as_str().unwrap().to_string());
+                            media = None;
                         }
                         if kind == "SET_VOLUME" {
                             for k in ["level", "muted"] {
@@ -238,11 +248,10 @@ async fn serve(
                                 }
                             }
                         }
-                        let apps = if launched {
-                            json!([{"appId": "CC1AD845", "displayName": "Default Media Receiver",
-                                    "sessionId": "s-1", "transportId": TRANSPORT}])
-                        } else {
-                            json!([])
+                        let apps = match &launched {
+                            Some(app) => json!([{"appId": app, "displayName": "Receiver",
+                                    "sessionId": "s-1", "transportId": TRANSPORT}]),
+                            None => json!([]),
                         };
                         out.push(reply(
                             NS_RECEIVER,
@@ -841,4 +850,168 @@ async fn a_sync_groups_chromecasts_share_one_visualiser() {
     a.ctl.send(Ctl::Finish).unwrap();
     b.ctl.send(Ctl::Finish).unwrap();
     wait_player(http, &ida, "stopped", |p| p["mode"] == "stop").await;
+}
+
+/// A server with an album of two tracks and the fake Cast device as a player, and the
+/// player's id.
+async fn one_cast(m: &std::path::Path) -> (Server, Fake, String) {
+    for (i, t) in ["One", "Two"].iter().enumerate() {
+        make_audio(
+            &m.join(format!("A/Album/0{} {t}.flac", i + 1)),
+            i as u32 + 1,
+            &[
+                ("title", t),
+                ("artist", "A"),
+                ("album", "Album"),
+                ("track", &(i + 1).to_string()),
+            ],
+        );
+    }
+    let server = start_server(m);
+    let http = server.http;
+    for _ in 0..100 {
+        if get(http, "/api/v1/server").await["library"]["tracks"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let dev = Fake::start().await;
+    let hosts = json!([format!("127.0.0.1:{}", dev.port)]).to_string();
+    pref(http, "chromecastHosts", &hosts).await;
+    pref(http, "bridgeChromecast", "1").await;
+    let id = cast_players(http, 1).await.remove(0).1;
+    (server, dev, id)
+}
+
+async fn patch(http: u16, path: &str, body: Value) -> (u16, Value) {
+    let path = path.replace(':', "%3A");
+    tokio::task::spawn_blocking(move || {
+        let (code, text) = http_json(http, "PATCH", &path, Some(&body.to_string()));
+        (code, serde_json::from_str(&text).unwrap_or(Value::Null))
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chromecast_draws_the_visualiser_itself() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    let settings = format!("/api/v1/players/{id}/settings");
+
+    // drawn on the TV needs the receiver app set up
+    let s = get(http, &settings.replace(':', "%3A")).await;
+    let tv = s["visualizer"]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["value"] == "tv");
+    assert_eq!(
+        tv.unwrap()["label"],
+        "Drawn on the TV (set up the receiver app first)"
+    );
+    let (code, _) = patch(
+        http,
+        "/api/v1/settings",
+        json!({"visualizer_receiver_app": "nope"}),
+    )
+    .await;
+    assert_eq!(code, 400);
+    let (code, s) = patch(
+        http,
+        "/api/v1/settings",
+        json!({"visualizer_receiver_app": "1a2b3c4d", "visualizer_preset_seconds": 20}),
+    )
+    .await;
+    assert_eq!(code, 200, "{s}");
+    assert_eq!(s["visualizer_receiver_app"], "1A2B3C4D");
+    let (code, s) = patch(http, &settings, json!({"visualizer": "tv"})).await;
+    assert_eq!(code, 200, "{s}");
+    assert_eq!(s["visualizer"]["value"], "tv");
+
+    // the album plays as audio in RMS's receiver app, with the visualiser settings
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], "1A2B3C4D");
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["media"]["contentType"], "audio/flac");
+    assert_eq!(load["media"]["metadata"]["metadataType"], 3);
+    assert_eq!(load["media"]["metadata"]["title"], "One");
+    assert_eq!(load["media"]["metadata"]["artist"], "A");
+    let rms = &load["customData"]["rms"];
+    assert_eq!(rms["version"], 1, "{load}");
+    assert_eq!(rms["presetSeconds"], 20);
+    assert_eq!(rms["fps"], 30);
+    assert_eq!(rms["renderSize"], "1280x720");
+    wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
+
+    // the next track the same way
+    dev.ctl.send(Ctl::Finish).unwrap();
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["media"]["metadata"]["title"], "Two");
+    assert_eq!(load["customData"]["rms"]["version"], 1);
+    dev.ctl.send(Ctl::Finish).unwrap();
+    wait_player(http, &id, "stopped", |p| p["mode"] == "stop").await;
+
+    // turned off: back to the Default Media Receiver, plain audio
+    patch(http, &settings, json!({"visualizer": "0"})).await;
+    command(http, &id, json!({"command": "jump", "index": 0})).await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], "CC1AD845");
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["media"]["metadata"]["title"], "One");
+    assert!(load["customData"].is_null(), "{load}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chromecast_that_wont_start_the_receiver_plays_audio() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    patch(
+        http,
+        "/api/v1/settings",
+        json!({"visualizer_receiver_app": REFUSED_APP}),
+    )
+    .await;
+    patch(
+        http,
+        &format!("/api/v1/players/{id}/settings"),
+        json!({"visualizer": "tv"}),
+    )
+    .await;
+
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], REFUSED_APP);
+    // the Default Media Receiver instead, and the track plays
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], "CC1AD845");
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["media"]["metadata"]["title"], "One");
+    assert!(load["customData"].is_null(), "{load}");
+    wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
+
+    // not tried again on the next track
+    dev.ctl.send(Ctl::Finish).unwrap();
+    let load = dev
+        .expect("the next track", |v| {
+            v["type"] == "LOAD" || v["type"] == "LAUNCH"
+        })
+        .await;
+    assert_eq!(load["type"], "LOAD", "{load}");
+    assert_eq!(load["media"]["metadata"]["title"], "Two");
 }
