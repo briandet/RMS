@@ -1784,6 +1784,13 @@ impl Controller {
             return;
         }
         if self.queue.len() == 1 && self.players.len() > 1 {
+            // the start of a synced stream, which `_Start` already handled: only note that
+            // it really started, or the next song's start would be taken for this one's
+            if let Some(s) = self.queue.back_mut() {
+                if s.status == SongStatus::Playing {
+                    s.start_reported = true;
+                }
+            }
             return;
         }
         self.event(Event::Started, EvParams::default());
