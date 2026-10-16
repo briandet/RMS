@@ -54,6 +54,7 @@ pub fn start_server_with(music: &Path, args: &[&str]) -> Server {
 fn try_start_server(music: &Path, args: &[&str]) -> Option<Server> {
     let dir = tempfile::tempdir().unwrap();
     let (http, cli, slim) = (free_port(), free_port(), free_port());
+    let log = std::env::var("RMS_TEST_LOG").ok();
     let mut child = Command::new(env!("CARGO_BIN_EXE_rms"))
         .args([
             "--data-dir",
@@ -70,9 +71,14 @@ fn try_start_server(music: &Path, args: &[&str]) -> Option<Server> {
             "--slimproto-port",
             &slim.to_string(),
         ])
-        .args(["--log", "warn"])
+        // RMS_TEST_LOG=debug: the server's log, at that level (it logs to stdout)
+        .args(["--log", &log.clone().unwrap_or_else(|| "warn".into())])
         .args(args)
-        .stdout(Stdio::null())
+        .stdout(if log.is_some() {
+            Stdio::inherit()
+        } else {
+            Stdio::null()
+        })
         .stderr(Stdio::null())
         .spawn()
         .expect("start rms");

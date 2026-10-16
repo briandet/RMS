@@ -25,6 +25,7 @@ pub fn router(server: Arc<Server>) -> Router {
     Router::new()
         .route("/stream.mp3", get(stream_handler))
         .route("/stream", get(stream_handler))
+        .route("/viz/{file}", get(viz_handler))
         .route(
             "/jsonrpc.js",
             post(jsonrpc::handle_post).get(jsonrpc::handle_get),
@@ -181,6 +182,23 @@ async fn stream_handler(
     if let Some(ct) = spec.content_type() {
         h.insert(header::CONTENT_TYPE, HeaderValue::from_static(ct));
     }
+    resp
+}
+
+/// `/viz/<id>.mp4?r=<player>`: a visualiser stream (see [`crate::viz`]).
+async fn viz_handler(
+    axum::extract::Path(file): axum::extract::Path<String>,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let id = file.strip_suffix(".mp4").unwrap_or(&file);
+    let Some(session) = crate::viz::get(id) else {
+        return (StatusCode::NOT_FOUND, "no such visualiser stream").into_response();
+    };
+    let token = q.get("r").cloned().unwrap_or_default();
+    let mut resp = Response::new(Body::from_stream(session.reader(&token)));
+    let h = resp.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("video/mp4"));
+    h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     resp
 }
 

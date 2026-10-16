@@ -38,10 +38,30 @@ cargo build --release --locked -p rms --bin rms
 echo "==> Installing /usr/local/bin/rms"
 sudo install -m 755 target/release/rms /usr/local/bin/rms
 
+# The TV visualiser (optional): pmviz and the MilkDrop presets, when its build dependencies
+# are installed (see tools/projectm-viz/build.sh).
+echo "==> Building the TV visualiser (pmviz)"
+if tools/projectm-viz/build.sh; then
+    sudo install -d /usr/local/lib/rms /usr/local/share/rms/projectm/presets /usr/local/share/rms/projectm/textures
+    sudo install -m 755 tools/projectm-viz/build/pmviz /usr/local/lib/rms/pmviz
+    for d in presets textures; do
+        tar -C tools/projectm-viz/build/$d --exclude=.git -cf - . |
+            sudo tar -C /usr/local/share/rms/projectm/$d -xf -
+    done
+else
+    echo "note: the TV visualiser isn't installed (see above); Chromecasts play audio only" >&2
+fi
+
 if ! id rms >/dev/null 2>&1; then
     echo "==> Creating the rms system user"
     sudo useradd --system --home-dir /var/lib/rms --no-create-home --shell /usr/sbin/nologin rms
 fi
+# the GPU, for the visualiser
+for g in render video; do
+    if getent group "$g" >/dev/null && ! id -nG rms | grep -qw "$g"; then
+        sudo usermod -aG "$g" rms
+    fi
+done
 
 if [ ! -e /etc/default/rms ]; then
     echo "==> Writing /etc/default/rms"

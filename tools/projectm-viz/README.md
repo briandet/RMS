@@ -118,8 +118,12 @@ pmviz [-i music] [-p presets] [-t textures] [-o video] [-e libx264|h264_vaapi|h2
       [--device /dev/dri/renderD129] [--software] [--in-order] [--seed N]
 ```
 
-- `-i -` reads 32-bit float stereo samples at 44.1 kHz from stdin, which is how RMS would feed
+- `-i -` reads 32-bit float stereo samples at 44.1 kHz from stdin, which is how RMS feeds
   it the playing audio. With no `-i`, it uses a built-in test signal.
+- `-o -` writes fragmented MP4 (a fragment a second) to stdout, to stream as it comes: RMS's
+  TV visualiser runs `pmviz -i - -o - --gpu-yuv …`. With `-i -` the same samples are muxed
+  in as AAC, so the video carries the music. When the reader pauses (a paused TV) or the
+  input stalls, the clock waits instead of repeating frames.
 - The mesh (`-m`) is MilkDrop's per-pixel grid. Larger meshes look smoother and cost more.
 - `--gpu-yuv` converts each frame to NV12 on the GPU (see below): 1.5 bytes a pixel to copy
   and pipe instead of 4, and nothing left for ffmpeg to convert.

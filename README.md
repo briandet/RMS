@@ -107,6 +107,10 @@ The script builds a release binary (the web UI is built in), installs it as
   segment; elsewhere give them its address.
 * Spotify sign-in on a headless server: paste the address Spotify sends you to into the
   settings card, or sign in while running `ssh -L 5588:127.0.0.1:5588 <server>`.
+* The TV visualiser: the script also builds `pmviz` and installs it with the MilkDrop
+  presets when its build dependencies are there (`sudo apt install cmake ninja-build
+  libegl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri mesa-va-drivers`), and lets the
+  service use the GPU (the `render` and `video` groups, `DeviceAllow=char-drm`).
 
 ## What is implemented
 
@@ -177,6 +181,21 @@ The script builds a release binary (the web UI is built in), installs it as
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.
+* **TV visualiser** (Chromecasts, not in Lyrion): with `pmviz` installed (see below), a
+  Chromecast plays MilkDrop visuals drawn to the music by projectM, as video with the music
+  in it, instead of audio alone.  A sync group's Chromecasts share one stream, drawn and
+  encoded once on the server's GPU (1080p60 by default; an Intel Iris Xe keeps up), and the
+  tracks follow one another in it without gaps.  On, while `pmviz` is installed, for
+  Chromecasts with a screen (as their discovery says; Cast speakers keep playing audio); a
+  player's pref `visualizer` turns it off (0) or on (1, e.g. for a device given by
+  address).  Server prefs:
+  `visualizerSize` (`1920x1080`), `visualizerFps` (60), `visualizerRenderSize` (draw smaller
+  and scale up, e.g. `1280x720`), `visualizerPresetSeconds` (30), `visualizerEncoder`
+  (`h264_vaapi` where there is a GPU, else `libx264`), and `visualizerCommand`,
+  `visualizerPresets`, `visualizerTextures` for where things are (by default
+  `/usr/local/lib/rms/pmviz` and `/usr/local/share/rms/projectm`).  The visuals start a
+  second or two after the music would, and a TV shows the first track's title only (the
+  Default Media Receiver takes no updates).
 * **The Table** (Library → Table, not in Lyrion): the library as a dense, sortable table,
   one row per track, or per album, artist, genre, year, format, folder, … with how many
   tracks each has and what its tracks share (or that they differ: *‹3 values›*).  A
