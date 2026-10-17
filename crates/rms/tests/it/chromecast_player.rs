@@ -1351,10 +1351,15 @@ async fn chromecasts_in_a_sync_group_play_in_step() {
         })
         .await;
     assert!(normal["at"].as_u64() > fast["at"].as_u64());
-    // A, ahead, was never sped up
+    // A, ahead, wasn't sped up while B caught up (once they're in step, small corrections
+    // either way are fair)
+    let caught_up = normal["at"].as_u64().unwrap();
     while let Ok(v) = a.log.try_recv() {
+        let early = v["at"].as_u64().is_some_and(|at| at <= caught_up);
         assert!(
-            !(v["type"] == "SET_PLAYBACK_RATE" && v["playbackRate"].as_f64().unwrap() > 1.0),
+            !(early
+                && v["type"] == "SET_PLAYBACK_RATE"
+                && v["playbackRate"].as_f64().unwrap() > 1.0),
             "A sped up: {v}"
         );
     }

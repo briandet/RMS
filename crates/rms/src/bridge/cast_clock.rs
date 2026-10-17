@@ -194,6 +194,11 @@ impl ClockLink {
             .map(|s| s.1)
     }
 
+    /// Answers kept.
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
     pub fn reset(&mut self) {
         self.samples.clear();
     }

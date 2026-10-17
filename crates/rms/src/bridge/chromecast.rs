@@ -60,6 +60,9 @@ const CYCLE: Duration = Duration::from_secs(1);
 /// How long to wait before trying an unreachable device again.
 const RETRY: Duration = Duration::from_secs(10);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Answers to `PING`s asked one after another when the receiver app starts: the quickest
+/// of them lines the clocks up, even when some take longer.
+const LINK_FIRST: usize = 8;
 const PING_EVERY: Duration = Duration::from_secs(5);
 /// A device silent for this long is gone.
 const SILENCE: Duration = Duration::from_secs(30);
@@ -1030,7 +1033,13 @@ impl Cast {
                 }
             }
             (NS_MEDIA, "MEDIA_STATUS") => self.on_media_status(&payload).await?,
-            (NS_VIZ, "PONG") => self.on_pong(&payload),
+            (NS_VIZ, "PONG") => {
+                self.on_pong(&payload);
+                // a few answers straight away, so the clocks line up before the first start
+                if self.ping.is_none() && self.link.len() < LINK_FIRST {
+                    self.ping().await?;
+                }
+            }
             (NS_VIZ, "HELLO") => self.on_hello(&payload).await?,
             (NS_VIZ, "SLOW") => {
                 let why = format!("{} fps at {}", payload["fps"], payload["size"]);
