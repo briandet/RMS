@@ -820,7 +820,7 @@ export function render(node, { ctx }) {
       sub('Video from the server'), ...video,
       sub('Both ways'),
       choice('Frames a second', 'visualizer_fps', '60 is smoother, but the video is about twice as big (30 is safer over Wi-Fi), and a TV drawing it itself may not keep up.'),
-      choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU (and makes a smaller video); MilkDrop’s soft visuals scale up well. A TV drawing it itself draws at 1280×720 when this is the video size.'),
+      choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU (and makes a smaller video); MilkDrop’s soft visuals scale up well. Automatic: the video size from the server; a TV drawing it itself draws as large as it keeps up with (up to its screen and 1080p), and one that can’t keep up even small shows the video from the server instead.'),
       slider('Each preset shows for', 'visualizer_preset_seconds', ' s'));
   }
 

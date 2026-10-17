@@ -45,13 +45,17 @@ function build() {
   const btn = (name, label, onclick, text) =>
     h('button', { class: 'viz-btn', type: 'button', title: label, 'aria-label': label, onclick },
       name ? icon(name) : null, text ? h('span', {}, text) : null);
-  let detail = storage.get(DETAIL) === 'half' ? 'half' : 'full';
-  const detailBtn = btn(null, 'Draw at full or half resolution', () => {
-    detail = detail === 'full' ? 'half' : 'full';
+  // automatic: as large as this browser keeps up with; or full or half resolution
+  const DETAILS = { auto: 'Auto detail', full: 'Full detail', half: 'Half detail' };
+  const detailOptions = (d) => ({ adaptive: d === 'auto', scale: d === 'half' ? 0.5 : 1 });
+  let detail = storage.get(DETAIL);
+  if (!(detail in DETAILS)) detail = 'auto';
+  const detailBtn = btn(null, 'How much detail to draw: automatic (as much as keeps up), full or half', () => {
+    detail = detail === 'auto' ? 'full' : detail === 'full' ? 'half' : 'auto';
     storage.set(DETAIL, detail);
-    detailBtn.querySelector('span').textContent = detail === 'full' ? 'Full detail' : 'Half detail';
-    viz.setOptions({ scale: detail === 'full' ? 1 : 0.5 });
-  }, detail === 'full' ? 'Full detail' : 'Half detail');
+    detailBtn.querySelector('span').textContent = DETAILS[detail];
+    viz.setOptions(detailOptions(detail));
+  }, DETAILS[detail]);
   const bar = h('div', { class: 'viz-bar' },
     preset,
     btn('next', 'Next preset (N)', () => viz.next(false), 'Next preset'),
@@ -65,7 +69,7 @@ function build() {
   const overlay = new TrackOverlay(layer);
   const viz = new Visualiser(canvas, {
     base: storage.get('rms.vizAssets') || ASSETS,
-    scale: detail === 'full' ? 1 : 0.5,
+    ...detailOptions(detail),
     onPreset: (name) => { preset.textContent = name; },
     onError: (m) => console.warn('visualiser:', m),
   });

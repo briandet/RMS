@@ -221,9 +221,13 @@ The script builds a release binary (the web UI is built in), installs it as
   then small in a corner, over one of: the cover, blurred (*Off* under Settings → Player →
   TV visualiser), the server's visualiser video (above), or **MilkDrop drawn on the TV**
   (*Drawn on the TV*) by projectM in the browser, which needs only the audio and not the
-  server's GPU.  A Chromecast's GPU is a phone's, so it draws at 1280×720 unless Settings →
-  TV visualiser → Draw at says smaller; the frame rate and preset time settings apply
-  too.  On a speaker (no screen) it only plays.  The app is RMS's own unless Settings →
+  server's GPU.  A Chromecast's GPU is a phone's: with Settings → TV visualiser → Draw at
+  on *Automatic* it draws as large as it keeps up with at the frame rate setting (from
+  720p, up to its screen and 1080p, smaller when the frame rate falls short and larger
+  again when there's room), and *Automatic* under Settings → Player draws on the TV
+  unless even the smallest is too much (or it has no WebGL 2); then it shows the video
+  from the server where pmviz is installed, else the cover, from the next track.  The
+  preset time applies too.  On a speaker (no screen) it only plays.  The app is RMS's own unless Settings →
   TV visualiser → Receiver app ID (`visualizerReceiverApp`) names another; for your own
   copy:
   1. Publish the receiver: GitHub Pages builds and serves it from the repository

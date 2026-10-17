@@ -94,7 +94,7 @@ const VIZ_SIZES: &[(&str, &str)] = &[
     ("1280x720", "720p (1280×720)"),
 ];
 const VIZ_RENDER_SIZES: &[(&str, &str)] = &[
-    ("", "The video size"),
+    ("", "Automatic"),
     ("1600x900", "1600×900"),
     ("1280x720", "1280×720"),
     ("960x540", "960×540"),
@@ -359,12 +359,12 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
             .map(|a| a.user)
             .collect(),
         display: display_settings(p),
-        visualizer: visualizer_choice(p, crate::viz::receiver_app(server).is_some()),
+        visualizer: visualizer_choice(server, p, crate::viz::receiver_app(server).is_some()),
     }
 }
 
 /// A Chromecast's visualiser setting, with what automatic means for it.
-fn visualizer_choice(p: &Player, receiver: bool) -> Option<Choice> {
+fn visualizer_choice(server: &Server, p: &Player, receiver: bool) -> Option<Choice> {
     let screen = crate::viz::screen(&p.id)?;
     let value = match p.prefs.get("visualizer") {
         None | Some(Value::Null) => "auto".to_string(),
@@ -373,9 +373,13 @@ fn visualizer_choice(p: &Player, receiver: bool) -> Option<Choice> {
         Some(_) => flag(p.prefs.get_bool("visualizer")),
     };
     let auto = match screen {
-        Some(true) => "Automatic (video: it has a screen)",
+        Some(true) if crate::viz::too_slow(server, &p.id) => match crate::viz::config(server) {
+            Ok(_) => "Automatic (video: the TV couldn't keep up drawing)",
+            Err(_) => "Automatic (the cover: the TV couldn't keep up drawing)",
+        },
+        Some(true) => "Automatic (drawn on the TV)",
         Some(false) => "Automatic (off: no screen)",
-        None => "Automatic (off: added by address, screen unknown)",
+        None => "Automatic (off until it plays and says it has a screen)",
     };
     let tv = if receiver {
         "Drawn on the TV"
@@ -572,6 +576,8 @@ pub async fn update_player_settings(
     if let Some(v) = patch.visualizer {
         let v = pick(cur.visualizer.as_ref(), "visualizer", v)?;
         changes.push(("visualizer", if v == "auto" { String::new() } else { v }));
+        // (automatic tries drawing on the TV again)
+        changes.push(("visualizerAuto", String::new()));
     }
     if let Some(v) = patch.auto_brightness_sensitivity {
         let r = d.and_then(|d| d.auto_brightness_sensitivity.as_ref());

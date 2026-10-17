@@ -1032,6 +1032,10 @@ impl Cast {
             (NS_MEDIA, "MEDIA_STATUS") => self.on_media_status(&payload).await?,
             (NS_VIZ, "PONG") => self.on_pong(&payload),
             (NS_VIZ, "HELLO") => self.on_hello(&payload).await?,
+            (NS_VIZ, "SLOW") => {
+                let why = format!("{} fps at {}", payload["fps"], payload["size"]);
+                self.too_slow(&why);
+            }
             (NS_VIZ, "REPORT") => self.on_engine_report(&payload).await?,
             (NS_VIZ, "STATS") => info!(
                 "chromecast {}: the TV draws at {} fps ({}), preset {}",
@@ -1263,6 +1267,19 @@ impl Cast {
         let Some(app) = self.app.clone() else {
             return Ok(());
         };
+        // automatic, now the receiver has said whether there's a screen (a device given
+        // by address): draw on it, or show the cover
+        let mut item = item;
+        if item.format != "mp4v" && crate::viz::setting(&self.server, &self.mac).is_none() {
+            let visual = match crate::viz::mode(&self.server, &self.mac) {
+                crate::viz::Mode::Tv => "draw",
+                _ => "off",
+            };
+            if visual != self.visual {
+                self.visual = visual;
+                item.custom = Some(self.custom(visual));
+            }
+        }
         // audio on the receiver's Web Audio player, where it has one
         if self.engine == Some(true) && item.format != "mp4v" {
             return self.engine_load(item, false).await;
@@ -1356,6 +1373,26 @@ impl Cast {
         }
     }
 
+    /// The TV doesn't keep up drawing the visualiser: automatic shows something else from
+    /// the next track.
+    fn too_slow(&mut self, why: &str) {
+        if crate::viz::setting(&self.server, &self.mac).is_some()
+            || crate::viz::too_slow(&self.server, &self.mac)
+        {
+            return;
+        }
+        crate::viz::set_too_slow(&self.server, &self.mac);
+        let instead = match crate::viz::config(&self.server) {
+            Ok(_) => "the visualiser video from the server",
+            Err(_) => "the cover",
+        };
+        info!(
+            "chromecast {}: the TV can't keep up drawing the visualiser ({why}): {instead} from \
+             the next track",
+            self.mac
+        );
+    }
+
     /// Ask the receiver app the time.
     async fn ping(&mut self) -> anyhow::Result<()> {
         let Some(app) = self.app.clone() else {
@@ -1377,15 +1414,25 @@ impl Cast {
         }
         let engine = p["engine"] == true && p["version"].as_u64().is_some_and(|v| v >= 3);
         debug!(
-            "chromecast {}: the receiver plays on {}",
+            "chromecast {}: the receiver plays on {} (screen {}, WebGL 2 {}, {})",
             self.mac,
             if engine {
                 "Web Audio"
             } else {
                 "Cast's media element"
-            }
+            },
+            p["screen"],
+            p["webgl2"],
+            p["size"]
         );
         self.engine = Some(engine);
+        // what discovery couldn't say (a device given by address)
+        if let Some(screen) = p["screen"].as_bool() {
+            crate::viz::note_screen(self.mac, Some(screen));
+        }
+        if p["screen"] == true && p["webgl2"] == false {
+            self.too_slow("it has no WebGL 2");
+        }
         if let Some(item) = self.queued.take() {
             self.load(item).await?;
         }

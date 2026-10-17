@@ -908,8 +908,10 @@ events.
 * `play_delay`: milliseconds (0–1000) the player's sound comes out later than it says (TV
   speakers, a soundbar, Bluetooth), so it lines up with the players it is synced with.
 * `visualizer` (a choice of `auto`, `1` the video from the server, `tv` drawn on the TV,
-  and `0` off: the receiver app shows the cover) is there for Chromecasts.  `auto` is the
-  video for a Chromecast with a screen.
+  and `0` off: the receiver app shows the cover) is there for Chromecasts.  `auto` draws
+  on a Chromecast with a screen, unless it was seen not to keep up (or has no WebGL 2):
+  then the video from the server where pmviz is installed, else the cover.  Setting it
+  (to `auto` too) tries drawing on the TV again.
 
 `PATCH /api/v1/players/{id}/settings` with some of these fields (a choice as its value)
 changes them and returns all of them.  Nothing is changed when one of them is invalid.

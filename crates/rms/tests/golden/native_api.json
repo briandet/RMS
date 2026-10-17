@@ -1133,7 +1133,7 @@
         "options": [
           {
             "value": "",
-            "label": "The video size"
+            "label": "Automatic"
           },
           {
             "value": "1600x900",
@@ -1242,7 +1242,7 @@
         "options": [
           {
             "value": "",
-            "label": "The video size"
+            "label": "Automatic"
           },
           {
             "value": "1600x900",

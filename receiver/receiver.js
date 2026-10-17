@@ -67,7 +67,14 @@ function startDrawing() {
     base: './',
     presetSeconds: 30,
     fps: 30,
-    size: '1280x720',
+    // as large as the TV keeps up with (up to 1080p and its screen), from 720p
+    size: '',
+    adaptive: true,
+    level: 2,
+    maxPixels: 1920 * 1080,
+    onSize: (size) => { if (!debugEl.hidden) debugEl.textContent = `drawing at ${size}`; },
+    // even the smallest is too much: RMS shows the video or the cover instead
+    onTooSlow: (s) => { if (mode === 'draw') report('SLOW', s); },
     onStats: (s) => {
       if (mode !== 'draw') return;
       report('STATS', s);
@@ -88,7 +95,11 @@ function applySettings(s) {
   const o = {};
   if (Number(s.presetSeconds) > 0) o.presetSeconds = Number(s.presetSeconds);
   if (Number(s.fps) > 0) o.fps = Number(s.fps);
-  if (typeof s.renderSize === 'string') o.size = s.renderSize;
+  // a size, or empty: as large as the TV keeps up with
+  if (typeof s.renderSize === 'string') {
+    o.size = s.renderSize;
+    o.adaptive = s.renderSize === '';
+  }
   viz?.setOptions(o);
 }
 
@@ -299,6 +310,15 @@ media.addEventListener('playing', () => {
 media.addEventListener('pause', () => { if (!media.ended && !engineActive) setState('paused'); });
 media.addEventListener('emptied', () => { playingSince = 0; trackStart = 0; });
 
+/** Whether this device draws with WebGL 2 (projectM needs it). */
+function hasWebGL2() {
+  try {
+    return !!document.createElement('canvas').getContext('webgl2');
+  } catch (e) {
+    return false;
+  }
+}
+
 let canEngine = null;
 decodableFormats().then((d) => { canEngine = d.includes('flc') ? d : []; }).catch(() => { canEngine = []; });
 
@@ -318,6 +338,9 @@ function onMessage(data, from) {
     const answer = () => report('HELLO', {
       version: PROTOCOL,
       engine: (canEngine || []).length > 0 && typeof AudioContext !== 'undefined',
+      screen,
+      webgl2: hasWebGL2(),
+      size: `${Math.round(window.screen.width * (window.devicePixelRatio || 1))}x${Math.round(window.screen.height * (window.devicePixelRatio || 1))}`,
       decodes: canEngine || [],
     }, from);
     if (canEngine) answer();

@@ -79,7 +79,13 @@ next to `receiver.js`.
   and it answers Chrome's private-network preflights, since the page is public and the
   server is on the LAN.
 - **Drawing.** projectM draws at `renderSize`, never larger than the screen, scaled up to
-  fill it. It draws at `fps`, whatever the screen's refresh rate. Presets change every
+  fill it. With `renderSize` empty it draws as large as the TV keeps up with: from 720p, a
+  size smaller when two 5-second spells fall below 85% of `fps`, a size larger after a
+  minute at it (not a size it left in the last 10 minutes), between 360p and its screen
+  (at most 1080p). When even 360p is below 75% of `fps`, it tells RMS (`{"type": "SLOW",
+  "fps", "size"}`), and RMS's automatic setting shows the server's video or the cover from
+  the next track. Its `HELLO` also says whether it has a screen and WebGL 2, and the
+  screen's size. It draws at `fps`, whatever the screen's refresh rate. Presets change every
   `presetSeconds`, blending for 3 seconds, as on the server.
 - **Track info.** It's large for 12 seconds when a track starts, and again while paused.
   The rest of the time it's a small card in the corner. Everything stays inside a 5%

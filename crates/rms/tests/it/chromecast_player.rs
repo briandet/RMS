@@ -115,6 +115,8 @@ enum Ctl {
     At(f64),
     /// The current track plays to its end.
     Finish,
+    /// The receiver app can't keep up drawing the visualiser.
+    Slow,
 }
 
 struct Fake {
@@ -302,7 +304,8 @@ async fn serve(
                 match (m.namespace.as_str(), p["type"].as_str().unwrap()) {
                     (NS_VIZ, "HELLO") => out.push(reply(
                         NS_VIZ,
-                        json!({"type": "HELLO", "version": 3, "engine": engine_opts.is_some()}),
+                        json!({"type": "HELLO", "version": 3, "engine": engine_opts.is_some(),
+                               "screen": true, "webgl2": true, "size": "1920x1080"}),
                     )),
                     (NS_VIZ, "RENDER") => {
                         let cmd = &p["cmd"];
@@ -529,6 +532,18 @@ async fn serve(
             c = ctl.recv() => {
                 // (the test is over)
                 let Some(c) = c else { return };
+                if let Ctl::Slow = c {
+                    let m = CastMessage {
+                        source: TRANSPORT.into(),
+                        destination: "*".into(),
+                        namespace: NS_VIZ.into(),
+                        payload: json!({"type": "SLOW", "fps": 9, "size": "640x360"}).to_string(),
+                    };
+                    if tls.write_all(&encode(&m)).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 let Some(me) = media.as_mut() else { continue };
                 match c {
                     Ctl::At(t) => {
@@ -537,6 +552,7 @@ async fn serve(
                             me.since = Some(Instant::now());
                         }
                     }
+                    Ctl::Slow => {}
                     Ctl::Finish => {
                         me.since = None;
                         me.time = LENGTH;
@@ -1164,7 +1180,7 @@ async fn a_chromecast_draws_the_visualiser_itself() {
     assert_eq!(rms["visualizer"], "draw");
     assert_eq!(rms["presetSeconds"], 20);
     assert_eq!(rms["fps"], 30);
-    assert_eq!(rms["renderSize"], "1280x720");
+    assert_eq!(rms["renderSize"], "", "as large as the TV keeps up with");
     wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
     // the app is asked where playback is
     dev.expect_type(NS_VIZ, "PING").await;
@@ -1498,4 +1514,63 @@ async fn chromecasts_on_web_audio_start_together_and_stay_in_step() {
         elapsed(&pa),
         elapsed(&pb)
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn automatic_draws_on_the_tv_until_it_cant_keep_up() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    let settings = format!("/api/v1/players/{id}/settings");
+    let auto_label = |s: &Value| {
+        s["visualizer"]["options"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["value"] == "auto")
+            .unwrap()["label"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+
+    // the receiver says it has a screen (given by address, discovery couldn't): drawn on it
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["customData"]["rms"]["visualizer"], "draw", "{load}");
+    assert_eq!(
+        load["customData"]["rms"]["renderSize"], "",
+        "as large as it keeps up with"
+    );
+    let s = get(http, &settings.replace(':', "%3A")).await;
+    assert_eq!(auto_label(&s), "Automatic (drawn on the TV)");
+
+    // too slow even small: the cover from the next track (no pmviz in the tests)
+    dev.ctl.send(Ctl::Slow).unwrap();
+    for _ in 0..50 {
+        let s = get(http, &settings.replace(':', "%3A")).await;
+        if auto_label(&s) != "Automatic (drawn on the TV)" {
+            assert_eq!(
+                auto_label(&s),
+                "Automatic (the cover: the TV couldn't keep up drawing)"
+            );
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    dev.ctl.send(Ctl::Finish).unwrap();
+    let load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(load["media"]["metadata"]["title"], "Two");
+    assert_eq!(load["customData"]["rms"]["visualizer"], "off", "{load}");
+
+    // choosing Automatic again tries drawing again
+    let (code, s) = patch(http, &settings, json!({"visualizer": "auto"})).await;
+    assert_eq!(code, 200, "{s}");
+    assert_eq!(auto_label(&s), "Automatic (drawn on the TV)");
 }
