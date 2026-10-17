@@ -204,7 +204,7 @@ function makePlayer(i) {
     ip: `192.168.1.${20 + i}`, connected: i !== 5, power: i !== 4,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),
-    settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0' },
+    settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0', play_delay: 0 },
     syncGroup: null,
   };
   if (SCREEN_MODELS.has(model)) {
@@ -372,7 +372,7 @@ function playerOut(p) {
 function playerSettingsOut(p) {
   const s = p.settings;
   const r = {
-    transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode,
+    transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode, play_delay: s.play_delay ?? 0,
     max_bitrate: s.max_bitrate, digital_volume_control: s.digital_volume_control,
     dont_stop_the_music: choice(DSTM, s.dont_stop_the_music), adventurous: s.adventurous ?? 15,
     scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
@@ -396,6 +396,10 @@ function patchPlayerSettings(p, b) {
   for (const [k, v] of Object.entries(b)) {
     if (k === 'transition_type') { if (!(v >= 0 && v <= 4)) throw bad('transition_type must be 0–4'); s[k] = v; }
     else if (['transition_duration', 'replay_gain_mode', 'max_bitrate'].includes(k)) s[k] = +v;
+    else if (k === 'play_delay') {
+      if (!(v >= 0 && v <= 1000)) throw bad('play_delay must be 0–1000');
+      s[k] = +v;
+    }
     else if (k === 'digital_volume_control') s[k] = !!v;
     else if (k === 'visualizer') {
       if (p.model !== 'chromecast') throw bad('this player has no visualizer');

@@ -41,6 +41,8 @@ next to `receiver.js`.
 - Once Web Audio is running, the element is routed through two analyser nodes. Each frame,
   projectM gets the samples played since the last frame. Until Web Audio is running, the
   element plays as usual.
+- **Sync.** It takes `SET_PLAYBACK_RATE`: RMS keeps the TV in step with its sync group by
+  playing a little faster or slower for a while.
 - **CORS.** Reading the audio needs CORS on the server's streams. RMS allows any origin,
   and it answers Chrome's private-network preflights, since the page is public and the
   server is on the LAN.

@@ -1749,6 +1749,9 @@ pub struct PlayerSettings {
     /// the video from the server, `tv` drawn on the TV by RMS's receiver app, `0` off).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub visualizer: Option<Choice>,
+    /// Milliseconds the player's sound comes out later than it says (`playDelay`: TV
+    /// speakers, a soundbar), so synced players line up; 0–1000.
+    pub play_delay: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1775,6 +1778,7 @@ pub struct DisplaySettings {
 pub struct PlayerSettingsPatch {
     pub transition_type: Option<i64>,
     pub transition_duration: Option<i64>,
+    pub play_delay: Option<i64>,
     pub replay_gain_mode: Option<i64>,
     pub max_bitrate: Option<i64>,
     pub digital_volume_control: Option<bool>,

@@ -5,7 +5,7 @@
 use crate::common::*;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -130,6 +130,16 @@ impl Fake {
 
     /// A device at `ip` (devices are told apart by address).
     async fn start_on(ip: &str) -> Fake {
+        Fake::start_with(ip, None).await
+    }
+
+    /// A device whose position runs in real time while it plays, `lag` after it's told
+    /// to (a device slow to start), and which changes its playback rate when asked.
+    async fn start_live(ip: &str, lag: Duration) -> Fake {
+        Fake::start_with(ip, Some(lag)).await
+    }
+
+    async fn start_with(ip: &str, live: Option<Duration>) -> Fake {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let cert = rcgen::generate_simple_self_signed(vec!["chromecast.local".into()]).unwrap();
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into());
@@ -151,7 +161,7 @@ impl Fake {
                 let Ok(tls) = acceptor.accept(sock).await else {
                     continue;
                 };
-                serve(tls, &log_tx, &mut ctl_rx).await;
+                serve(tls, &log_tx, &mut ctl_rx, live).await;
                 let _ = log_tx.send(json!({"closed": true}));
             }
         });
@@ -194,12 +204,37 @@ struct Playing {
     state: &'static str,
     idle_reason: Option<&'static str>,
     time: f64,
+    /// A live device: playing in real time from then on (at `rate`) after `time`.
+    since: Option<Instant>,
+    rate: f64,
+}
+
+impl Playing {
+    fn now(&self) -> f64 {
+        self.time
+            + self.since.map_or(0.0, |s| {
+                self.rate * Instant::now().saturating_duration_since(s).as_secs_f64()
+            })
+    }
+
+    /// Stop the live clock where it is.
+    fn freeze(&mut self) {
+        self.time = self.now();
+        self.since = None;
+    }
+}
+
+/// Milliseconds since the tests began, for when the fake devices heard what.
+fn stamp() -> u64 {
+    static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
+    START.elapsed().as_millis() as u64
 }
 
 async fn serve(
     mut tls: tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
     log: &mpsc::UnboundedSender<Value>,
     ctl: &mut mpsc::UnboundedReceiver<Ctl>,
+    live: Option<Duration>,
 ) {
     let mut launched: Option<String> = None;
     let mut volume = json!({"level": 1.0, "muted": false});
@@ -217,6 +252,7 @@ async fn serve(
                 assert_eq!(m.source, "sender-0");
                 p["ns"] = json!(m.namespace);
                 p["to"] = json!(m.destination);
+                p["at"] = json!(stamp());
                 let _ = log.send(p.clone());
                 let request = p["requestId"].clone();
                 let reply = |ns: &str, payload: Value| CastMessage {
@@ -297,11 +333,29 @@ async fn serve(
                                     state: if autoplay { "PLAYING" } else { "PAUSED" },
                                     idle_reason: None,
                                     time: 0.0,
+                                    since: live
+                                        .filter(|_| autoplay)
+                                        .map(|lag| Instant::now() + lag),
+                                    rate: 1.0,
                                 });
+                            }
+                            "SET_PLAYBACK_RATE" => {
+                                let me = media.as_mut().unwrap();
+                                assert_eq!(p["mediaSessionId"], me.session);
+                                let live_now = me.since.is_some();
+                                me.freeze();
+                                me.rate = p["playbackRate"].as_f64().unwrap();
+                                if live_now {
+                                    me.since = Some(Instant::now());
+                                }
                             }
                             "PAUSE" | "PLAY" | "STOP" => {
                                 let me = media.as_mut().unwrap();
                                 assert_eq!(p["mediaSessionId"], me.session);
+                                me.freeze();
+                                if kind == "PLAY" {
+                                    me.since = live.map(|lag| Instant::now() + lag);
+                                }
                                 me.state = match kind {
                                     "PAUSE" => "PAUSED",
                                     "PLAY" => "PLAYING",
@@ -334,8 +388,14 @@ async fn serve(
             c = ctl.recv() => {
                 let Some(me) = media.as_mut() else { continue };
                 match c.unwrap() {
-                    Ctl::At(t) => me.time = t,
+                    Ctl::At(t) => {
+                        me.time = t;
+                        if me.since.is_some() {
+                            me.since = Some(Instant::now());
+                        }
+                    }
                     Ctl::Finish => {
+                        me.since = None;
                         me.time = LENGTH;
                         me.state = "IDLE";
                         me.idle_reason = Some("FINISHED");
@@ -363,7 +423,9 @@ fn media_status(media: &Option<Playing>, request: Value) -> Value {
             let mut s = json!({
                 "mediaSessionId": m.session,
                 "playerState": m.state,
-                "currentTime": m.time,
+                "currentTime": m.now(),
+                "playbackRate": m.rate,
+                "supportedMediaCommands": 15 | 8192,
                 "media": {"contentId": m.content_id, "duration": LENGTH},
             });
             if let Some(r) = m.idle_reason {
@@ -1014,4 +1076,128 @@ async fn a_chromecast_that_wont_start_the_receiver_plays_audio() {
         .await;
     assert_eq!(load["type"], "LOAD", "{load}");
     assert_eq!(load["media"]["metadata"]["title"], "Two");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn chromecasts_in_a_sync_group_play_in_step() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path().join("music");
+    let track = m.join("A/Album/01 Long.flac");
+    std::fs::create_dir_all(track.parent().unwrap()).unwrap();
+    let ok = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=330:duration=30", "-ac", "2"])
+        .args([
+            "-metadata",
+            "title=Long",
+            "-metadata",
+            "artist=A",
+            "-metadata",
+            "album=Album",
+        ])
+        .arg(&track)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    let server = start_server(&m);
+    let http = server.http;
+    for _ in 0..100 {
+        if get(http, "/api/v1/server").await["library"]["tracks"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    // two TVs: B takes 400 ms longer to start than A
+    let mut a = Fake::start_live("127.0.0.1", Duration::from_millis(0)).await;
+    let mut b = Fake::start_live("127.0.0.2", Duration::from_millis(400)).await;
+    let hosts = json!([
+        format!("127.0.0.1:{}", a.port),
+        format!("127.0.0.2:{}", b.port)
+    ])
+    .to_string();
+    pref(http, "chromecastHosts", &hosts).await;
+    pref(http, "bridgeChromecast", "1").await;
+    let players = cast_players(http, 2).await;
+    let id = |name: &str| {
+        players
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, id)| id.clone())
+            .unwrap()
+    };
+    let (ida, idb) = (id("127.0.0.1"), id("127.0.0.2"));
+    command(http, &idb, json!({"command": "sync", "with": ida})).await;
+    command(
+        http,
+        &ida,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+
+    // a synced start: both load paused, then both are told to play at the same moment
+    let la = a.expect_type(NS_MEDIA, "LOAD").await;
+    let lb = b.expect_type(NS_MEDIA, "LOAD").await;
+    assert_eq!(la["autoplay"], false, "{la}");
+    assert_eq!(lb["autoplay"], false, "{lb}");
+    let pa = a.expect_type(NS_MEDIA, "PLAY").await;
+    let pb = b.expect_type(NS_MEDIA, "PLAY").await;
+    let gap = pa["at"].as_i64().unwrap() - pb["at"].as_i64().unwrap();
+    assert!(gap.abs() < 60, "PLAY {gap} ms apart");
+
+    // B is behind: it plays faster until it has caught up, then at the normal rate
+    let fast = b
+        .expect_within(Duration::from_secs(10), "B faster", |v| {
+            v["type"] == "SET_PLAYBACK_RATE" && v["playbackRate"].as_f64().unwrap() > 1.0
+        })
+        .await;
+    let normal = b
+        .expect_within(Duration::from_secs(15), "B back to normal", |v| {
+            v["type"] == "SET_PLAYBACK_RATE" && v["playbackRate"] == 1.0
+        })
+        .await;
+    assert!(normal["at"].as_u64() > fast["at"].as_u64());
+    // A, ahead, was never sped up
+    while let Ok(v) = a.log.try_recv() {
+        assert!(
+            !(v["type"] == "SET_PLAYBACK_RATE" && v["playbackRate"].as_f64().unwrap() > 1.0),
+            "A sped up: {v}"
+        );
+    }
+    // and the server sees them within a few tens of milliseconds of each other
+    let elapsed = |p: &Value| p["elapsed"].as_f64().unwrap_or(0.0);
+    let pa = get(
+        http,
+        &format!("/api/v1/players/{}", ida.replace(':', "%3A")),
+    )
+    .await;
+    let pb = get(
+        http,
+        &format!("/api/v1/players/{}", idb.replace(':', "%3A")),
+    )
+    .await;
+    assert!(
+        (elapsed(&pa) - elapsed(&pb)).abs() < 0.15,
+        "A at {} s, B at {} s",
+        elapsed(&pa),
+        elapsed(&pb)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_players_audio_delay_is_a_setting() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    let settings = format!("/api/v1/players/{id}/settings");
+    assert_eq!(
+        get(http, &settings.replace(':', "%3A")).await["play_delay"],
+        0
+    );
+    let (code, s) = patch(http, &settings, json!({"play_delay": 180})).await;
+    assert_eq!(code, 200, "{s}");
+    assert_eq!(s["play_delay"], 180);
+    let (code, _) = patch(http, &settings, json!({"play_delay": 1001})).await;
+    assert_eq!(code, 400);
 }

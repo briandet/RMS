@@ -127,6 +127,9 @@ function startCast() {
   const context = framework.CastReceiverContext.getInstance();
   const player = context.getPlayerManager();
   player.setMediaElement(media);
+  // RMS keeps the TV in step with its sync group by playing a little faster or slower
+  const C = framework.messages.Command;
+  player.setSupportedMediaCommands(C.ALL_BASIC_MEDIA | (C.PLAYBACK_RATE || 8192), true);
   player.setMessageInterceptor(framework.messages.MessageType.LOAD, (req) => {
     applySettings(req.customData && req.customData.rms);
     return req;

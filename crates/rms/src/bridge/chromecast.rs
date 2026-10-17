@@ -19,6 +19,17 @@
 //! other visualiser TVs join it.  Where each track starts in the stream turns the device's
 //! position into the track it plays and how far into it.
 //!
+//! The driver keeps time like a Squeezebox (an *accurate* renderer, see [`super`]), so a
+//! Chromecast plays in step with the players it is synced with.  Its clock is its own
+//! ([`CastClock`]); the device's position on it comes from the `MEDIA_STATUS` answers to a
+//! `GET_STATUS` a second, each taken as true halfway between asking and hearing back.  A
+//! synced start (`Resume` at a moment) sends `PLAY` that much earlier than the moment as
+//! the device takes to start, which is learned from how it started before.  A sync
+//! adjustment plays a little faster or slower (`SET_PLAYBACK_RATE`, 5% or 10%) until the
+//! difference is made up, rather than skipping or pausing; receivers that can't change
+//! the rate are left as they are.  What the device's sound takes to come out after the
+//! position it reports (a TV's speakers, a soundbar) is the player's `playDelay`.
+//!
 //! With the visualiser set to be drawn on the TV (`tv`) and RMS's receiver app set up
 //! (`visualizerReceiverApp`), the driver launches that app instead of the Default Media
 //! Receiver.  It plays the same audio stream as an ordinary track, draws the visuals with
@@ -26,6 +37,7 @@
 //! visualiser settings go with each `LOAD` (`customData.rms`), and the app reports how it
 //! draws on its own namespace ([`NS_VIZ`]).
 
+use super::cast_clock::CastClock;
 use super::devices::{self, Device, DriverIo, Protocol};
 use super::{mac_for, FromRenderer, Identity, ToRenderer};
 use crate::server::Server;
@@ -63,6 +75,12 @@ const SENDER: &str = "sender-0";
 const RECEIVER: &str = "receiver-0";
 /// The Default Media Receiver.
 const APP_ID: &str = "CC1AD845";
+/// `supportedMediaCommands`: the receiver changes the playback rate.
+const PLAYBACK_RATE: u64 = 8192;
+/// What the device takes from `PLAY` to playing, until it has been seen (seconds): rather
+/// too little than too much, since a player ahead of the others makes them skip.
+const START_LATENCY: f64 = 0.15;
+
 /// What RMS's receiver app says (how fast it draws, what failed).
 const NS_VIZ: &str = "urn:x-cast:net.rms.visualizer";
 
@@ -260,7 +278,7 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
         model_name: c.model_name.clone(),
         formats: vec!["flc".into(), "mp3".into(), "aac".into()],
         max_sample_rate: 96_000,
-        accurate: false,
+        accurate: true,
     };
     let server2 = server.clone();
     let name = c.name.clone();
@@ -524,6 +542,22 @@ struct Cast {
     sent_volume: Option<(u8, bool)>,
     /// Playing the group's visualiser stream.
     viz: Option<Viz>,
+    /// Where the device's playback is, on the clock the player reports.
+    clock: CastClock,
+    /// What the device takes from `PLAY` to playing (seconds), as last seen.
+    start_latency: f64,
+    /// A synced start: `PLAY` then.
+    start_at: Option<tokio::time::Instant>,
+    /// When (clock seconds) the `PLAY` of a synced start went, to see how long it took.
+    play_sent: Option<f64>,
+    /// A sync adjustment: playing at `rate` until then.
+    adjusting: Option<tokio::time::Instant>,
+    /// The playback rate the device was told.
+    rate: f64,
+    /// The receiver changes the playback rate (as its status says).
+    rate_ok: bool,
+    /// The last `GET_STATUS`: its requestId, and when it went (clock seconds).
+    status_asked: Option<(i64, f64)>,
 }
 
 /// The visualiser stream the device plays.
@@ -569,11 +603,22 @@ impl Cast {
             volume: None,
             sent_volume: None,
             viz: None,
+            clock: CastClock::new(),
+            start_latency: START_LATENCY,
+            start_at: None,
+            play_sent: None,
+            adjusting: None,
+            rate: 1.0,
+            rate_ok: false,
+            status_asked: None,
         }
     }
 
     /// Relay until the device goes away or the bridge ends.
     async fn run(mut self) -> anyhow::Result<()> {
+        // the player's clock, before anything else (see `super::run`)
+        let jiffies = self.clock.jiffies(Instant::now());
+        self.report(FromRenderer::Clock { jiffies }).await?;
         self.send(RECEIVER, NS_CONNECTION, json!({"type": "CONNECT"}))
             .await?;
         self.request(RECEIVER, NS_RECEIVER, json!({"type": "GET_STATUS"}))
@@ -584,7 +629,14 @@ impl Cast {
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
+            let timer = [self.start_at, self.adjusting].into_iter().flatten().min();
             tokio::select! {
+                _ = async {
+                    match timer {
+                        Some(t) => tokio::time::sleep_until(t).await,
+                        None => std::future::pending().await,
+                    }
+                } => self.on_timer().await?,
                 n = self.tls.read_buf(&mut buf) => {
                     anyhow::ensure!(n? > 0, "the device closed the connection");
                     heard = Instant::now();
@@ -619,8 +671,11 @@ impl Cast {
                         .filter(|m| m.started && !m.paused)
                         .and_then(|m| m.session);
                     if let Some(id) = playing {
-                        self.media_request(json!({"type": "GET_STATUS", "mediaSessionId": id}))
+                        let sent = self.clock.secs(Instant::now());
+                        let request = self
+                            .media_request(json!({"type": "GET_STATUS", "mediaSessionId": id}))
                             .await?;
+                        self.status_asked = request.map(|r| (r, sent));
                     }
                 }
             }
@@ -637,6 +692,7 @@ impl Cast {
                 ..
             } => {
                 self.next = None;
+                self.start_at = None;
                 self.leave_viz();
                 let (mode, receiver) = self.visualizer_mode();
                 let relaunch = receiver.is_some() != (self.want_app != APP_ID);
@@ -660,19 +716,41 @@ impl Cast {
                     self.next = Some(self.item(&url, &format, true));
                 }
             }
-            ToRenderer::Pause => self.play(false).await?,
-            ToRenderer::Resume { .. } => self.play(true).await?,
+            ToRenderer::Pause => {
+                self.start_at = None;
+                self.end_adjustment().await?;
+                self.play(false).await?
+            }
+            ToRenderer::Resume { at: None } => {
+                self.start_at = None;
+                self.play(true).await?
+            }
+            // a synced start: as much before the moment as the device takes to start
+            ToRenderer::Resume { at: Some(at) } => {
+                let now = Instant::now();
+                let moment = CastClock::instant_of(at, self.clock.jiffies(now), now);
+                let play = moment
+                    .checked_sub(Duration::from_secs_f64(self.start_latency))
+                    .unwrap_or(now);
+                if play <= now {
+                    self.synced_play().await?;
+                } else {
+                    self.start_at = Some(tokio::time::Instant::from_std(play));
+                }
+            }
+            ToRenderer::Hold { ms } => self.adjust(-f64::from(ms) / 1000.0).await?,
+            ToRenderer::Skip { ms } => self.adjust(f64::from(ms) / 1000.0).await?,
             ToRenderer::Stop => {
                 self.queued = None;
                 self.next = None;
+                self.start_at = None;
+                self.adjusting = None;
                 self.leave_viz();
                 if let Some(id) = self.media.take().and_then(|m| m.session) {
                     self.media_request(json!({"type": "STOP", "mediaSessionId": id}))
                         .await?;
                 }
             }
-            // (only for renderers with their own clock)
-            ToRenderer::Hold { .. } | ToRenderer::Skip { .. } => {}
             ToRenderer::Volume { volume, muted } => {
                 self.volume = Some((volume, muted));
                 self.apply_volume().await?;
@@ -816,7 +894,7 @@ impl Cast {
 
     /// The device is `at` seconds into its visualiser stream: the reports for the track
     /// that is (a track started, how far into it).
-    fn viz_progress(&mut self, at: f64, reports: &mut Vec<FromRenderer>) {
+    fn viz_progress(&mut self, at: f64, jiffies: u32, reports: &mut Vec<FromRenderer>) {
         // the song the sync group plays, as the server has it
         let group_song = self
             .server
@@ -845,7 +923,7 @@ impl Cast {
         reports.push(FromRenderer::Progress {
             elapsed: (t - start).max(0.0),
             duration: v.songs[i].1,
-            jiffies: None,
+            jiffies: Some(jiffies),
         });
         // the playing track is all fetched: the next one can come.  Only once the group
         // plays it (its master's start counted): asked for earlier, by a TV of the group
@@ -975,6 +1053,14 @@ impl Cast {
 
     async fn on_media_status(&mut self, payload: &Value) -> anyhow::Result<()> {
         let request = payload["requestId"].as_i64();
+        // when the status was true: halfway through our GET_STATUS, or just now
+        let now = Instant::now();
+        let received = self.clock.secs(now);
+        let sent = match self.status_asked {
+            Some((id, at)) if request == Some(id) => at,
+            _ => received - 0.02,
+        };
+        let jiffies = self.clock.jiffies(now);
         for st in payload["status"].as_array().into_iter().flatten() {
             let Some(m) = self.media.as_mut() else {
                 return Ok(());
@@ -989,7 +1075,25 @@ impl Cast {
             if let Some(d) = st["media"]["duration"].as_f64().filter(|d| *d > 0.0) {
                 m.duration = Some(d);
             }
-            let elapsed = st["currentTime"].as_f64();
+            if let Some(c) = st["supportedMediaCommands"].as_u64() {
+                self.rate_ok = c & PLAYBACK_RATE != 0;
+            }
+            // where it is, on the player's clock
+            let state = st["playerState"].as_str().unwrap_or_default();
+            let elapsed = st["currentTime"].as_f64().map(|pos| {
+                let rate = match state {
+                    "PLAYING" => st["playbackRate"].as_f64().unwrap_or(self.rate),
+                    _ => 0.0,
+                };
+                self.clock.observe(pos, rate, sent, received);
+                self.clock.position(received).unwrap_or(pos)
+            });
+            if self.clock.samples() >= 3 {
+                self.learn_start();
+            }
+            let Some(m) = self.media.as_mut() else {
+                return Ok(());
+            };
             let mut reports = Vec::new();
             let viz = self.viz.is_some();
             match st["playerState"].as_str().unwrap_or_default() {
@@ -1041,14 +1145,14 @@ impl Cast {
                 if viz {
                     // Started goes before the Resumed/Paused of this status
                     let mut v = Vec::new();
-                    self.viz_progress(elapsed, &mut v);
+                    self.viz_progress(elapsed, jiffies, &mut v);
                     v.extend(reports);
                     reports = v;
                 } else {
                     reports.push(FromRenderer::Progress {
                         elapsed,
                         duration: progress.0,
-                        jiffies: None,
+                        jiffies: Some(jiffies),
                     });
                 }
             }
@@ -1103,6 +1207,11 @@ impl Cast {
         }
         debug!("chromecast {}: load {}", self.mac, item.url);
         let request = self.request(&app.transport, NS_MEDIA, load).await?;
+        // a new media session: from its start, at the normal rate
+        self.clock.reset();
+        self.rate = 1.0;
+        self.adjusting = None;
+        self.play_sent = None;
         self.media = Some(Media {
             item,
             request,
@@ -1126,7 +1235,103 @@ impl Cast {
         };
         let kind = if play { "PLAY" } else { "PAUSE" };
         self.media_request(json!({"type": kind, "mediaSessionId": id}))
-            .await
+            .await?;
+        Ok(())
+    }
+
+    /// How long the device took to start after the `PLAY` of a synced start, for the next
+    /// one (once its position has been seen).
+    fn learn_start(&mut self) {
+        let (Some(sent), Some(origin)) = (self.play_sent, self.clock.origin()) else {
+            return;
+        };
+        self.play_sent = None;
+        let took = origin - sent;
+        if (0.0..2.0).contains(&took) {
+            self.start_latency = (self.start_latency + took) / 2.0;
+            debug!(
+                "chromecast {}: started {:.0} ms after PLAY (now taken as {:.0} ms)",
+                self.mac,
+                took * 1000.0,
+                self.start_latency * 1000.0
+            );
+        }
+    }
+
+    /// The `PLAY` of a synced start: how long the device then takes is learned.
+    async fn synced_play(&mut self) -> anyhow::Result<()> {
+        self.start_at = None;
+        // (from the start of a track: a resume's position isn't where it started)
+        if self.media.as_ref().is_some_and(|m| !m.started) && self.viz.is_none() {
+            self.play_sent = Some(self.clock.secs(Instant::now()));
+        }
+        self.play(true).await
+    }
+
+    async fn on_timer(&mut self) -> anyhow::Result<()> {
+        let now = tokio::time::Instant::now();
+        if self.start_at.is_some_and(|t| t <= now) {
+            self.synced_play().await?;
+        }
+        if self.adjusting.is_some_and(|t| t <= now) {
+            self.end_adjustment().await?;
+        }
+        Ok(())
+    }
+
+    /// A sync adjustment: `secs` to make up (positive: this player is behind).  It plays
+    /// a little faster or slower until then; the latest adjustment replaces one under way,
+    /// since the server measures what is left of it.
+    async fn adjust(&mut self, secs: f64) -> anyhow::Result<()> {
+        let playing = self
+            .media
+            .as_ref()
+            .is_some_and(|m| m.started && !m.paused && m.session.is_some());
+        if !playing || secs == 0.0 {
+            return Ok(());
+        }
+        if !self.rate_ok {
+            debug!(
+                "chromecast {}: can't change the playback rate: {:.0} ms out of sync",
+                self.mac,
+                secs * 1000.0
+            );
+            return Ok(());
+        }
+        // (before the rate changes the line the start is reckoned from)
+        self.learn_start();
+        let step = if secs.abs() > 1.0 { 0.10 } else { 0.05 };
+        let rate = 1.0 + step * secs.signum();
+        let over = secs.abs() / step;
+        debug!(
+            "chromecast {}: sync: {:+.0} ms at {rate} over {over:.1} s",
+            self.mac,
+            secs * 1000.0
+        );
+        self.set_rate(rate).await?;
+        self.adjusting = Some(tokio::time::Instant::now() + Duration::from_secs_f64(over));
+        Ok(())
+    }
+
+    async fn end_adjustment(&mut self) -> anyhow::Result<()> {
+        if self.adjusting.take().is_some() || self.rate != 1.0 {
+            self.set_rate(1.0).await?;
+        }
+        Ok(())
+    }
+
+    async fn set_rate(&mut self, rate: f64) -> anyhow::Result<()> {
+        let Some(id) = self.media.as_ref().and_then(|m| m.session) else {
+            return Ok(());
+        };
+        self.rate = rate;
+        let now = self.clock.secs(Instant::now());
+        self.clock.set_rate(rate, now);
+        self.media_request(
+            json!({"type": "SET_PLAYBACK_RATE", "mediaSessionId": id, "playbackRate": rate}),
+        )
+        .await?;
+        Ok(())
     }
 
     async fn apply_volume(&mut self) -> anyhow::Result<()> {
@@ -1183,11 +1388,12 @@ impl Cast {
             .map_err(|_| anyhow::anyhow!("the player is gone"))
     }
 
-    async fn media_request(&mut self, payload: Value) -> anyhow::Result<()> {
-        if let Some(app) = self.app.clone() {
-            self.request(&app.transport, NS_MEDIA, payload).await?;
-        }
-        Ok(())
+    /// A request to the media session's app, if it runs; returns its requestId.
+    async fn media_request(&mut self, payload: Value) -> anyhow::Result<Option<i64>> {
+        let Some(app) = self.app.clone() else {
+            return Ok(None);
+        };
+        Ok(Some(self.request(&app.transport, NS_MEDIA, payload).await?))
     }
 
     /// Send a request (with a new requestId, which it returns).

@@ -348,6 +348,7 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
     PlayerSettings {
         transition_type: prefs.get_i64("transitionType"),
         transition_duration: prefs.get_i64("transitionDuration"),
+        play_delay: prefs.get_i64("playDelay"),
         replay_gain_mode: prefs.get_i64("replayGainMode"),
         max_bitrate: prefs.get_i64("maxBitrate"),
         digital_volume_control: prefs.get_bool("digitalVolumeControl"),
@@ -497,6 +498,9 @@ pub async fn update_player_settings(
     }
     if let Some(v) = patch.replay_gain_mode {
         changes.push(("replayGainMode", within(v, 0, 3, "replay_gain_mode")?));
+    }
+    if let Some(v) = patch.play_delay {
+        changes.push(("playDelay", within(v, 0, 1000, "play_delay")?));
     }
     if let Some(v) = patch.max_bitrate {
         changes.push(("maxBitrate", within(v, 0, 10_000, "max_bitrate")?));

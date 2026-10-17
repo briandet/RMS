@@ -880,6 +880,7 @@ events.
 ```json
 {
   "transition_type": 1, "transition_duration": 5, "replay_gain_mode": 0, "max_bitrate": 0,
+  "play_delay": 0,
   "digital_volume_control": true,
   "dont_stop_the_music": {"value": "0", "options": [{"value": "0", "label": "Disabled"}, "…"]},
   "adventurous": 15, "scrobble_to": ["alice"],
@@ -905,6 +906,8 @@ events.
   `value`s.
 * `display` is there for players with a screen (Squeezebox 2/3, Transporter, Boom); the
   automatic brightness ranges only for a Boom.
+* `play_delay`: milliseconds (0–1000) the player's sound comes out later than it says (TV
+  speakers, a soundbar, Bluetooth), so it lines up with the players it is synced with.
 * `visualizer` (a choice of `auto`, `1` the video from the server, `tv` drawn on the TV by
   RMS's receiver app, and `0` off) is there for Chromecasts.  `auto` is the video for a
   Chromecast with a screen.  `tv` plays plain audio until `visualizer_receiver_app` is

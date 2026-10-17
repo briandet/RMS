@@ -106,6 +106,14 @@ export function render(node, { ctx }) {
       oninput: (e) => { durOut.textContent = `${e.target.value} s`; },
       onchange: (e) => setPref({ transition_duration: +e.target.value }) });
 
+    // how much later the player's sound comes out than it says, for sync
+    const delayId = fieldId();
+    const delayOut = h('output', { for: delayId }, `${pref.play_delay ?? 0} ms`);
+    const delay = h('input', { id: delayId, type: 'range', class: 'range', min: 0, max: 1000, step: 10, value: pref.play_delay ?? 0,
+      disabled: pref.play_delay === undefined,
+      oninput: (e) => { delayOut.textContent = `${e.target.value} ms`; },
+      onchange: (e) => setPref({ play_delay: +e.target.value }) });
+
     // Don't Stop The Music: the server lists the choices with their labels
     const dstmField = pref.dont_stop_the_music?.options?.length
       ? choiceField('Don’t Stop The Music', pref.dont_stop_the_music, (v) => setPref({ dont_stop_the_music: v }),
@@ -133,6 +141,8 @@ export function render(node, { ctx }) {
         'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
       selectField('Replay gain', REPLAY_GAIN, pref.replay_gain_mode, (v) => setPref({ replay_gain_mode: v })),
       selectField('Maximum bitrate', BITRATES, pref.max_bitrate, (v) => setPref({ max_bitrate: v }), 'Higher bitrates are transcoded down when the player or network needs it.'),
+      h('div', { class: 'field' }, h('label', { for: delayId }, 'Audio delay'), h('div', { class: 'inline-row' }, delay, delayOut),
+        h('p', { class: 'muted small' }, 'How much later this player’s sound comes out than it says: a TV’s speakers, a soundbar, Bluetooth. If it plays out of step with the players it’s synced with, raise it until they line up.')),
       h('div', { class: 'field check' },
         h('input', { id: digitalId, type: 'checkbox', checked: !!pref.digital_volume_control, disabled: pref.digital_volume_control === undefined,
           onchange: (e) => setPref({ digital_volume_control: e.target.checked }) }),

@@ -177,7 +177,16 @@ The script builds a release binary (the web UI is built in), installs it as
   it on the network; where multicast discovery can't see them (other subnets, Docker without
   host networking), list them in the prefs `upnpRenderers` (description URLs),
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
-  pairing) are not supported; sync with these players is loose (they buffer by themselves).
+  pairing) are not supported.  **Chromecasts keep time** like the browser: the driver
+  reads where the device is from its status a second (taken as true halfway between
+  asking and hearing back, the median of the last few), starts it at the moment the server
+  names (sending `PLAY` as much earlier as the device was seen to take to start), and makes
+  up a difference by playing 5% or 10% faster or slower for a few seconds
+  (`SET_PLAYBACK_RATE`) rather than skipping or pausing, so a group of Chromecasts,
+  Squeezeboxes and browsers plays in step.  Each player's *Audio delay* (Settings → Player,
+  the `playDelay` pref) is how much later its sound comes out than it says, for TV
+  speakers and soundbars.  Sync with UPnP and AirPlay players stays loose (they buffer by
+  themselves).
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.
