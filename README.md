@@ -184,9 +184,9 @@ The script builds a release binary (the web UI is built in), installs it as
   receiver app plays it on **the same Web Audio player as the browser's**
   (`web/web-audio-player.js`): the server's messages go to it as they are, and it starts
   at the exact moment, skips or waits to the sample, and plays the next track without a
-  gap.  The driver lines the app's clock up with its own NTP-style: a ping a second, each
-  answer taken as true halfway through its round trip, and the quickest of the recent
-  answers trusted.  Moments it sends are put on the app's clock, and the app's play points
+  gap.  The driver lines the app's clock up with its own NTP-style: eight pings in a row when
+  the app starts (a synced start waits for them), then one a second, each answer taken as
+  true halfway through its round trip, and the quickest of the recent answers trusted.  Moments it sends are put on the app's clock, and the app's play points
   on ours.  Otherwise (and for the server's visualiser video) the app plays through Cast's
   own media handling: the driver asks where playback is a second, starts it at the moment
   the server names (sending `PLAY` as much earlier as the device was seen to take to
@@ -227,7 +227,8 @@ The script builds a release binary (the web UI is built in), installs it as
   again when there's room), and *Automatic* under Settings → Player draws on the TV
   unless even the smallest is too much (or it has no WebGL 2); then it shows the video
   from the server where pmviz is installed, else the cover, from the next track.  The
-  preset time applies too.  On a speaker (no screen) it only plays.  The app is RMS's own unless Settings →
+  preset time applies too.  On a speaker (no screen) it only plays.  The app is RMS's own (app ID `8745C385`,
+  serving `https://rustydc.github.io/RMS/receiver/`) unless Settings →
   TV visualiser → Receiver app ID (`visualizerReceiverApp`) names another; for your own
   copy:
   1. Publish the receiver: GitHub Pages builds and serves it from the repository

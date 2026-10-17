@@ -378,8 +378,7 @@ function playerSettingsOut(p) {
     scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
   };
   if (p.model === 'chromecast') {
-    const tv = settings.visualizer_receiver_app ? 'Drawn on the TV' : 'Drawn on the TV (no receiver app set up)';
-    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (drawn on the TV)'], ['1', 'Video from the server'], ['tv', tv], ['0', 'Off (the cover)']].map(([value, label]) => ({ value, label })) };
+    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (drawn on the TV)'], ['1', 'Video from the server'], ['tv', 'Drawn on the TV'], ['0', 'Off (the cover)']].map(([value, label]) => ({ value, label })) };
   }
   if (SCREEN_MODELS.has(p.model)) {
     r.display = Object.fromEntries(Object.entries(DISPLAY_CHOICES).map(([k, pairs]) => [k, choice(pairs, s[k])]));

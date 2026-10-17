@@ -130,12 +130,13 @@ pub fn set_too_slow(server: &Server, mac: &slimproto::MacAddress) {
 /// What the receiver app is told with each track, so it knows what it's talking to.
 pub const RECEIVER_PROTOCOL: u32 = 3;
 
-/// RMS's own Cast receiver app (the page in `receiver/`, registered in the Google Cast
-/// developer console), which Chromecasts play in unless the settings name another.
-pub const DEFAULT_RECEIVER_APP: Option<&str> = None;
+/// RMS's own Cast receiver app (the page in `receiver/` at
+/// https://rustydc.github.io/RMS/receiver/, registered in the Google Cast developer
+/// console), which Chromecasts play in unless the settings name another.
+pub const DEFAULT_RECEIVER_APP: &str = "8745C385";
 
 /// The Cast receiver app Chromecasts play in: `visualizerReceiverApp`, or RMS's own.
-pub fn receiver_app(server: &Server) -> Option<String> {
+pub fn receiver_app(server: &Server) -> String {
     let id = server
         .prefs
         .server
@@ -143,9 +144,9 @@ pub fn receiver_app(server: &Server) -> Option<String> {
         .trim()
         .to_ascii_uppercase();
     if valid_app_id(&id) {
-        return Some(id);
+        return id;
     }
-    DEFAULT_RECEIVER_APP.map(str::to_string)
+    DEFAULT_RECEIVER_APP.to_string()
 }
 
 /// A Cast app id: 8 hex digits.

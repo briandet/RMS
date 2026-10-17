@@ -866,7 +866,7 @@ read only, the choices (`visualizer_size`, `visualizer_render_size`, `visualizer
 set to one of their options' `value`s and the ranges (`visualizer_quality`, the encoder's
 QP / CRF; `visualizer_preset_seconds`) to a number within them.
 `visualizer_receiver_app` is the Cast receiver app Chromecasts play in (8 hex digits), or
-empty for RMS's own.  The frame rate, drawing size and preset time apply to Chromecasts
+empty for RMS's own (`8745C385`).  The frame rate, drawing size and preset time apply to Chromecasts
 that draw the visualiser themselves too.  Changes apply from the next track.  Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and

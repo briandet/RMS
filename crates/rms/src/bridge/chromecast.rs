@@ -63,6 +63,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// Answers to `PING`s asked one after another when the receiver app starts: the quickest
 /// of them lines the clocks up, even when some take longer.
 const LINK_FIRST: usize = 8;
+/// How long a receiver that's ready waits for those answers before playing all the same.
+const LINK_WAIT: Duration = Duration::from_secs(2);
 const PING_EVERY: Duration = Duration::from_secs(5);
 /// A device silent for this long is gone.
 const SILENCE: Duration = Duration::from_secs(30);
@@ -553,6 +555,8 @@ struct Cast {
     engine_active: bool,
     /// How the receiver's clock lines up with ours.
     link: ClockLink,
+    /// Since when the receiver's `ready` waits for the clocks to line up.
+    ready_held: Option<Instant>,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -627,6 +631,7 @@ impl Cast {
             engine: None,
             hello_asked: None,
             engine_active: false,
+            ready_held: None,
             link: ClockLink::new(),
             launching: None,
             queued: None,
@@ -711,6 +716,10 @@ impl Cast {
                     }
                     // the receiver app's clock (and, for Cast's media, the position heard)
                     self.ping().await?;
+                    if self.ready_held.is_some_and(|t| t.elapsed() >= LINK_WAIT) {
+                        self.ready_held = None;
+                        self.report(FromRenderer::Ready).await?;
+                    }
                     // an app that doesn't say what it can do has only Cast's media
                     if self.hello_asked.is_some_and(|t| t.elapsed() > HELLO_TIMEOUT) {
                         self.on_hello(&json!({"engine": false})).await?;
@@ -735,6 +744,7 @@ impl Cast {
                 | ToRenderer::Skip { .. } => return self.render_command(&cmd).await,
                 ToRenderer::Stop => {
                     self.engine_active = false;
+                    self.ready_held = None;
                     self.queued = None;
                     return self.render_command(&cmd).await;
                 }
@@ -752,11 +762,7 @@ impl Cast {
                 self.next = None;
                 self.start_at = None;
                 self.leave_viz();
-                let Some(app) = crate::viz::receiver_app(&self.server) else {
-                    let message =
-                        "no Cast receiver app: set one in Settings → TV visualiser".into();
-                    return self.report(FromRenderer::Error { message }).await;
-                };
+                let app = crate::viz::receiver_app(&self.server);
                 if app != self.want_app {
                     self.launching = None;
                     self.want_app = app;
@@ -1022,11 +1028,16 @@ impl Cast {
             (NS_RECEIVER, "LAUNCH_ERROR") => {
                 self.launching = None;
                 if self.queued.take().is_some() {
-                    // while it isn't published, only devices added in the Cast developer
-                    // console start the app
+                    // RMS's own app is published; another, while it isn't, starts only on
+                    // devices added in the Cast developer console
+                    let hint = if self.want_app == crate::viz::DEFAULT_RECEIVER_APP {
+                        ""
+                    } else {
+                        ": is it published, or this device's serial number added in the Cast \
+                         console?"
+                    };
                     let message = format!(
-                        "the device wouldn't start the receiver app {} ({}): is it \
-                         published, or this device's serial number added in the Cast console?",
+                        "the device wouldn't start the receiver app {} ({}){hint}",
                         self.want_app, payload["reason"]
                     );
                     self.report(FromRenderer::Error { message }).await?;
@@ -1038,6 +1049,8 @@ impl Cast {
                 // a few answers straight away, so the clocks line up before the first start
                 if self.ping.is_none() && self.link.len() < LINK_FIRST {
                     self.ping().await?;
+                } else if self.link.len() >= LINK_FIRST && self.ready_held.take().is_some() {
+                    self.report(FromRenderer::Ready).await?;
                 }
             }
             (NS_VIZ, "HELLO") => self.on_hello(&payload).await?,
@@ -1099,6 +1112,7 @@ impl Cast {
                 self.sent_volume = None;
                 self.engine = None;
                 self.engine_active = false;
+                self.ready_held = None;
                 self.link.reset();
                 self.apply_volume().await?;
                 // what it can do (the queued track waits for the answer), and the time
@@ -1120,6 +1134,7 @@ impl Cast {
         self.next = None;
         self.engine = None;
         self.hello_asked = None;
+        self.ready_held = None;
         if std::mem::take(&mut self.engine_active) {
             return self.report(FromRenderer::Ended).await;
         }
@@ -1487,6 +1502,11 @@ impl Cast {
         match &mut msg {
             // (the player's clock is ours)
             FromRenderer::Clock { .. } => return Ok(()),
+            // a synced start is a moment of its clock: not before the clocks line up
+            FromRenderer::Ready if self.link.len() < LINK_FIRST => {
+                self.ready_held = Some(Instant::now());
+                return Ok(());
+            }
             FromRenderer::Progress { jiffies, .. } => {
                 *jiffies = jiffies.zip(self.link.offset()).map(|(j, offset)| {
                     let ours = f64::from(j) - offset;
@@ -1513,6 +1533,7 @@ impl Cast {
         let mut msg = json!({"cmd": cmd, "track": track});
         if !preload {
             self.engine_active = true;
+            self.ready_held = None;
             self.media = None;
             if let Some(rms) = item.custom.as_ref().map(|c| c["rms"].clone()) {
                 msg["visual"] = rms["visualizer"].clone();
