@@ -1133,7 +1133,7 @@
         "options": [
           {
             "value": "",
-            "label": "The video size"
+            "label": "Automatic"
           },
           {
             "value": "1600x900",
@@ -1242,7 +1242,7 @@
         "options": [
           {
             "value": "",
-            "label": "The video size"
+            "label": "Automatic"
           },
           {
             "value": "1600x900",
@@ -1354,7 +1354,8 @@
         ]
       },
       "adventurous": 15,
-      "scrobble_to": []
+      "scrobble_to": [],
+      "play_delay": 0
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (squeezebox settings)": {
@@ -1575,7 +1576,8 @@
             }
           ]
         }
-      }
+      },
+      "play_delay": 0
     }
   },
   "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (change player settings)": {
@@ -1632,7 +1634,8 @@
         ]
       },
       "adventurous": 15,
-      "scrobble_to": []
+      "scrobble_to": [],
+      "play_delay": 0
     }
   },
   "PATCH /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (change display settings)": {
@@ -1853,7 +1856,8 @@
             }
           ]
         }
-      }
+      },
+      "play_delay": 0
     }
   },
   "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (no display)": {

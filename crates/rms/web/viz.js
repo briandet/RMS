@@ -12,6 +12,23 @@ export const ASSETS = 'https://rustydc.github.io/RMS/receiver/';
 /** Samples analysed each frame (the newest of them go to projectM). */
 const FFT = 2048;
 
+/**
+ * Drawing sizes for `adaptive`, as parts of the largest (the canvas on screen, within
+ * `maxPixels`): at 1920×1080, 1080p, 900p, 720p, 540p, 360p.
+ */
+const LADDER = [1, 5 / 6, 2 / 3, 1 / 2, 1 / 3];
+/** The frame rate is judged over this long (ms). */
+const WINDOW = 5000;
+/** Below this part of the target frame rate, twice running, it draws smaller. */
+const SLOWER = 0.85;
+/** At or above this part of it for a minute, it tries larger. */
+const FASTER = 0.97;
+const FASTER_WINDOWS = 12;
+/** A size it had to leave isn't tried again for this long (ms). */
+const RETRY_AFTER = 10 * 60 * 1000;
+/** Below this part of it at the smallest size, it can't keep up at all. */
+const TOO_SLOW = 0.75;
+
 const scripts = new Map();
 
 /** Load pmweb.js from `base` once; resolves to its module factory. */
@@ -47,8 +64,12 @@ let canvasIds = 0;
  * Options: `base` (where projectM and the presets are), `presetSeconds`, `fps` (0: the
  * screen's rate), `size` ('1280x720': draw at that size, never larger than the canvas on
  * screen; empty: the canvas's size on screen, times `scale`), `scale` (0.25–1),
- * `maxPixels` (a cap on what `size` empty draws, for heavy presets on big screens);
- * `onPreset(name)`, `onStats({fps, size, preset})` every 15 seconds, and `onError(message)`.
+ * `maxPixels` (a cap on what `size` empty draws, for heavy presets on big screens),
+ * `adaptive` (with `size` empty: draw smaller when the frame rate falls short of `fps`,
+ * larger again when there's room, starting at `level` of LADDER); `onPreset(name)`,
+ * `onStats({fps, size, preset})` every 15 seconds, `onSize(size)` when `adaptive`
+ * changes it, `onTooSlow({fps, size})` once if even the smallest is too much, and
+ * `onError(message)`.
  */
 export class Visualiser {
   constructor(canvas, options = {}) {
@@ -59,6 +80,7 @@ export class Visualiser {
     this.pm = null;
     this.ready = false;
     this.stopped = false;
+    this.paused = false;
     this.presets = [];
     this.order = [];
     this.pos = -1;
@@ -73,6 +95,13 @@ export class Visualiser {
     this.fps = 0;
     this.raf = 0;
     this.pcm = 0;
+    // adaptive: where on LADDER, and how the frame rate has been
+    this.level = Math.min(LADDER.length - 1, Math.max(0, this.options.level || 0));
+    this.window = { frames: 0, at: performance.now() };
+    this.slow = 0;
+    this.fast = 0;
+    this.leftAt = {};
+    this.toldSlow = false;
   }
 
   /** Load projectM, the presets and the textures, and start drawing. */
@@ -112,7 +141,13 @@ export class Visualiser {
 
   /** Change options (see the constructor). */
   setOptions(o) {
-    Object.assign(this.options, o || {});
+    o = o || {};
+    if ('adaptive' in o && !!o.adaptive !== !!this.options.adaptive) {
+      this.level = o.adaptive ? Math.min(LADDER.length - 1, Math.max(0, o.level ?? this.options.level ?? 0)) : 0;
+      this.window = { frames: 0, at: performance.now() };
+      this.slow = this.fast = 0;
+    }
+    Object.assign(this.options, o);
     if (!this.ready) return;
     this.pm._pm_preset_seconds(this.options.presetSeconds);
     this.pm._pm_fps(this.options.fps || 60);
@@ -164,6 +199,11 @@ export class Visualiser {
     }
   }
 
+  /** Stop drawing for a while (the canvas keeps its last frame), or start again. */
+  setPaused(paused) {
+    this.paused = !!paused;
+  }
+
   /** Stop drawing and let go of the GPU. */
   stop() {
     this.stopped = true;
@@ -191,7 +231,8 @@ export class Visualiser {
       w *= k;
       h *= k;
     } else {
-      const s = Math.min(1, Math.max(0.25, this.options.scale || 1));
+      let s = Math.min(1, Math.max(0.25, this.options.scale || 1));
+      if (this.options.adaptive) s = LADDER[this.level];
       w = sw * s;
       h = sh * s;
       const k = Math.min(1, Math.sqrt(this.options.maxPixels / (w * h)));
@@ -236,6 +277,12 @@ export class Visualiser {
   frame(t) {
     if (this.stopped) return;
     this.raf = requestAnimationFrame((t2) => this.frame(t2));
+    if (this.paused) {
+      this.frames = 0;
+      this.statsAt = performance.now();
+      this.window = { frames: 0, at: this.statsAt };
+      return;
+    }
     const fps = this.options.fps;
     if (fps && t - this.lastDraw < 1000 / fps - 4) return;
     this.lastDraw = t;
@@ -244,6 +291,12 @@ export class Visualiser {
     this.pm._pm_render();
     this.frames++;
     const now = performance.now();
+    this.window.frames++;
+    if (now - this.window.at >= WINDOW) {
+      const rate = (this.window.frames * 1000) / (now - this.window.at);
+      this.window = { frames: 0, at: now };
+      this.adapt(rate, now);
+    }
     if (now - this.statsAt >= 15000) {
       this.fps = Math.round(this.frames * 1000 / (now - this.statsAt));
       this.frames = 0;
@@ -254,6 +307,36 @@ export class Visualiser {
     }
   }
 }
+
+// (Visualiser, continued) how big to draw, from how fast it draws
+Visualiser.prototype.adapt = function adapt(rate, now) {
+  if (!this.options.adaptive || /^\d+x\d+$/.test(this.options.size || '')) return;
+  const target = this.options.fps || 60;
+  const size = () => `${this.canvas.width}x${this.canvas.height}`;
+  if (rate < target * SLOWER) {
+    this.fast = 0;
+    if (++this.slow < 2) return;
+    this.slow = 0;
+    if (this.level < LADDER.length - 1) {
+      this.leftAt[this.level] = now;
+      this.level += 1;
+      this.resize();
+      this.options.onSize?.(size());
+    } else if (rate < target * TOO_SLOW && !this.toldSlow) {
+      this.toldSlow = true;
+      this.options.onTooSlow?.({ fps: Math.round(rate), size: size() });
+    }
+    return;
+  }
+  this.slow = 0;
+  if (rate < target * FASTER || ++this.fast < FASTER_WINDOWS) return;
+  this.fast = 0;
+  const up = this.level - 1;
+  if (up < 0 || now - (this.leftAt[up] ?? -Infinity) < RETRY_AFTER) return;
+  this.level = up;
+  this.resize();
+  this.options.onSize?.(size());
+};
 
 // ------------------------------------------------------------------ track info
 

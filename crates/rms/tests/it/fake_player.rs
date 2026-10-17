@@ -176,6 +176,51 @@ fn a_next_track_that_cannot_be_opened_is_skipped() {
     assert_eq!(field(&st, "playlist_cur_index").as_deref(), Some("2"));
 }
 
+/// A next track that opens but sends no audio at all (a Spotify track that librespot cannot
+/// load, here an empty file) is skipped too, after the player has been told to stream it.
+#[test]
+fn a_next_track_without_audio_is_skipped() {
+    let (music, files) = make_music();
+    let server = start_server(music.path());
+    let mut p = FakePlayer::connect(server.slim);
+    p.expect(b"setd", Duration::from_secs(5));
+    p.expect(b"audg", Duration::from_secs(5));
+    p.send(b"SETD", b"\0Kitchen\0");
+
+    let dir = music.path().to_str().unwrap();
+    cli(
+        server.cli,
+        &format!("{} playlist play {}", MAC_S, dir.replace(' ', "%20")),
+    );
+    let strm = p.expect_strm(b's', Duration::from_secs(5));
+    fetch_stream(server.http, &strm);
+    p.stat(b"STMc", 0);
+    p.stat(b"STMs", 0);
+    p.send(b"DSCO", &[0]);
+    std::thread::sleep(Duration::from_millis(300));
+
+    // track 2 is streamed while track 1 plays, and turns out empty
+    std::fs::write(&files[1], b"").unwrap();
+    p.stat(b"STMd", 3000);
+    let strm2 = p.expect_strm(b's', Duration::from_secs(5));
+    assert!(fetch_stream(server.http, &strm2).is_empty());
+    p.stat(b"STMc", 3000);
+    p.send(b"DSCO", &[0]);
+    p.stat(b"STMd", 3000);
+
+    // track 3 follows while track 1 still plays out
+    let strm3 = p.expect_strm(b's', Duration::from_secs(5));
+    assert_eq!(
+        fetch_stream(server.http, &strm3),
+        std::fs::read(&files[2]).unwrap()
+    );
+    p.stat(b"STMc", 3500);
+    p.stat(b"STMs", 0);
+    std::thread::sleep(Duration::from_millis(300));
+    let st = cli(server.cli, &format!("{} status - 1", MAC_S));
+    assert_eq!(field(&st, "playlist_cur_index").as_deref(), Some("2"));
+}
+
 #[test]
 fn cometd_and_cli_notifications() {
     let (music, _files) = make_music();

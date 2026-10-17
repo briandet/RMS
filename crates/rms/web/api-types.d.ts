@@ -1069,8 +1069,9 @@ visualizer_quality: Range,
  */
 visualizer_preset_seconds: Range, 
 /**
- * The Cast app id of RMS's receiver app (drawn on the TV), or empty: registered in the
- * Google Cast developer console for `https://<owner>.github.io/<repo>/receiver/`.
+ * The Cast receiver app Chromecasts play in (8 hex digits), or empty for RMS's own:
+ * registered in the Google Cast developer console for
+ * `https://<owner>.github.io/<repo>/receiver/`.
  */
 visualizer_receiver_app: string, };
 
@@ -1123,7 +1124,12 @@ display?: DisplaySettings,
  * For Chromecasts: the TV visualiser (`auto`: the video for devices with a screen, `1`
  * the video from the server, `tv` drawn on the TV by RMS's receiver app, `0` off).
  */
-visualizer?: Choice, };
+visualizer?: Choice, 
+/**
+ * Milliseconds the player's sound comes out later than it says (`playDelay`: TV
+ * speakers, a soundbar), so synced players line up; 0–1000.
+ */
+play_delay: number, };
 
 export type DisplaySettings = { 
 /**
@@ -1131,7 +1137,7 @@ export type DisplaySettings = {
  */
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
-export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, visualizer?: string, };
+export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, play_delay?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, visualizer?: string, };
 
 export type ToRenderer = { "type": "load", url: string, format: string, 
 /**

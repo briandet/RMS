@@ -97,19 +97,44 @@ pub fn setting(server: &Server, mac: &slimproto::MacAddress) -> Option<Mode> {
 /// automatic is the video for devices with a screen.
 pub fn mode(server: &Server, mac: &slimproto::MacAddress) -> Mode {
     setting(server, mac).unwrap_or_else(|| match screen(mac) {
-        Some(Some(true)) => Mode::Video,
+        // drawn on the TV, unless it was seen not to keep up: then the server's video
+        // where pmviz is installed, else the cover
+        Some(Some(true)) if too_slow(server, mac) => match config(server) {
+            Ok(_) => Mode::Video,
+            Err(_) => Mode::Off,
+        },
+        Some(Some(true)) => Mode::Tv,
         _ => Mode::Off,
     })
 }
 
-/// What the receiver app is told with each track, so it knows what it's talking to.
-pub const RECEIVER_PROTOCOL: u32 = 1;
-/// What the receiver draws at when "Draw at" is the video size: a Chromecast's GPU is a
-/// phone's, far slower than the server's.
-pub const RECEIVER_DEFAULT_SIZE: &str = "1280x720";
+/// The Chromecast playing as `mac` was seen not to keep up drawing the visualiser (or
+/// can't draw at all), so automatic shows something else (`visualizerAuto`; changing the
+/// player's `visualizer` setting clears it).
+pub fn too_slow(server: &Server, mac: &slimproto::MacAddress) -> bool {
+    server
+        .prefs
+        .player(&mac.to_string())
+        .get_str("visualizerAuto")
+        == "slow"
+}
 
-/// The app id of RMS's Cast receiver (`visualizerReceiverApp`: registered in the Google
-/// Cast developer console for the page in `receiver/`), when one is set up.
+/// Note that the Chromecast playing as `mac` doesn't keep up drawing the visualiser.
+pub fn set_too_slow(server: &Server, mac: &slimproto::MacAddress) {
+    server
+        .prefs
+        .player(&mac.to_string())
+        .set("visualizerAuto", serde_json::json!("slow"));
+}
+
+/// What the receiver app is told with each track, so it knows what it's talking to.
+pub const RECEIVER_PROTOCOL: u32 = 3;
+
+/// RMS's own Cast receiver app (the page in `receiver/`, registered in the Google Cast
+/// developer console), which Chromecasts play in unless the settings name another.
+pub const DEFAULT_RECEIVER_APP: Option<&str> = None;
+
+/// The Cast receiver app Chromecasts play in: `visualizerReceiverApp`, or RMS's own.
 pub fn receiver_app(server: &Server) -> Option<String> {
     let id = server
         .prefs
@@ -117,7 +142,10 @@ pub fn receiver_app(server: &Server) -> Option<String> {
         .get_str("visualizerReceiverApp")
         .trim()
         .to_ascii_uppercase();
-    valid_app_id(&id).then_some(id)
+    if valid_app_id(&id) {
+        return Some(id);
+    }
+    DEFAULT_RECEIVER_APP.map(str::to_string)
 }
 
 /// A Cast app id: 8 hex digits.
@@ -128,9 +156,10 @@ pub fn valid_app_id(id: &str) -> bool {
 /// The visualiser settings the receiver app gets with each track.
 pub fn receiver_settings(server: &Server) -> serde_json::Value {
     let prefs = &server.prefs.server;
+    // empty: as large as the TV keeps up with
     let render = Some(prefs.get_str("visualizerRenderSize"))
         .filter(|s| valid_size(s))
-        .unwrap_or_else(|| RECEIVER_DEFAULT_SIZE.into());
+        .unwrap_or_default();
     serde_json::json!({
         "version": RECEIVER_PROTOCOL,
         "presetSeconds": preset_seconds(prefs),

@@ -286,11 +286,17 @@ pub fn encode(
         .name("spotify-audio".into())
         .spawn(move || {
             let mut flac = flac.then(FlacEncoder::new);
-            if let Some(enc) = &flac {
-                if tx.blocking_send(enc.header()).is_err() {
-                    return;
+            // The header goes out with the first audio: a track that fails before any (it
+            // cannot be loaded) sends nothing at all, which is what tells a failed stream from
+            // a short track.
+            let mut header = flac.as_ref().map(FlacEncoder::header);
+            let with_header = |header: &mut Option<Vec<u8>>, bytes: Vec<u8>| match header.take() {
+                Some(mut h) => {
+                    h.extend(bytes);
+                    h
                 }
-            }
+                None => bytes,
+            };
             while let Ok(samples) = sync_rx.recv() {
                 let bytes = match &mut flac {
                     Some(enc) => {
@@ -300,14 +306,16 @@ pub fn encode(
                     }
                     None => pcm_bytes(&samples),
                 };
-                if !bytes.is_empty() && tx.blocking_send(bytes).is_err() {
+                if !bytes.is_empty() && tx.blocking_send(with_header(&mut header, bytes)).is_err() {
                     return;
                 }
             }
             if let Some(enc) = &mut flac {
                 let mut out = Vec::new();
                 enc.finish(&mut out);
-                let _ = tx.blocking_send(out);
+                if !out.is_empty() {
+                    let _ = tx.blocking_send(with_header(&mut header, out));
+                }
             }
         })
         .map_err(std::io::Error::other)?;
@@ -542,6 +550,37 @@ mod tests {
             v.push(((t * 660.0 * std::f64::consts::TAU).sin() * 9000.0) as i16);
         }
         v
+    }
+
+    fn collect(mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
+        let mut all = Vec::new();
+        while let Some(b) = rx.blocking_recv() {
+            all.extend(b);
+        }
+        all
+    }
+
+    #[test]
+    fn a_track_without_audio_sends_nothing() {
+        for flac in [true, false] {
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(1);
+            drop(tx);
+            assert!(
+                collect(encode(rx, flac).unwrap()).is_empty(),
+                "flac: {flac}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flac_header_comes_with_the_first_audio() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<i16>>(1);
+        let out = encode(rx, true).unwrap();
+        tx.send(tone()).unwrap();
+        drop(tx);
+        let all = collect(out);
+        assert_eq!(&all[..4], b"fLaC");
+        assert!(all.len() > 42, "header and audio");
     }
 
     #[test]

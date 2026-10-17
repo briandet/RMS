@@ -1811,9 +1811,11 @@ impl Controller {
         error_disconnect: bool,
     ) {
         let mut url = String::new();
+        let mut failed_index = None;
         if let Some(s) = self.queue.front_mut() {
             s.status = SongStatus::Failed;
             url = s.track.url.clone();
+            failed_index = Some(s.index);
         }
         if self.queue.len() > 1 {
             self.queue.pop_front();
@@ -1836,10 +1838,14 @@ impl Controller {
             }
         }
         self.consecutive_errors += 1;
+        // Unlike Lyrion 9.2, the next track is the one after the failed song, which has left
+        // the queue: counting from the song still playing would pick the failed one again, up
+        // to once per playlist entry before giving up.
         self.event(
             Event::StreamingFailed,
             EvParams {
                 error_disconnect,
+                error_index: failed_index,
                 ..Default::default()
             },
         );

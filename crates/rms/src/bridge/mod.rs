@@ -18,6 +18,7 @@
 
 pub mod airplay;
 pub mod browser;
+mod cast_clock;
 pub mod chromecast;
 pub mod devices;
 pub mod upnp;

@@ -177,7 +177,24 @@ The script builds a release binary (the web UI is built in), installs it as
   it on the network; where multicast discovery can't see them (other subnets, Docker without
   host networking), list them in the prefs `upnpRenderers` (description URLs),
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
-  pairing) are not supported; sync with these players is loose (they buffer by themselves).
+  pairing) are not supported.  **Chromecasts play in RMS's own Cast receiver app**
+  (below), which shows the playing track's cover and title, or the visualiser.
+  **Chromecasts keep time** like the browser, so a group of Chromecasts, Squeezeboxes and
+  browsers plays in step.  Where the TV can decode the audio itself (WebCodecs), the
+  receiver app plays it on **the same Web Audio player as the browser's**
+  (`web/web-audio-player.js`): the server's messages go to it as they are, and it starts
+  at the exact moment, skips or waits to the sample, and plays the next track without a
+  gap.  The driver lines the app's clock up with its own NTP-style: a ping a second, each
+  answer taken as true halfway through its round trip, and the quickest of the recent
+  answers trusted.  Moments it sends are put on the app's clock, and the app's play points
+  on ours.  Otherwise (and for the server's visualiser video) the app plays through Cast's
+  own media handling: the driver asks where playback is a second, starts it at the moment
+  the server names (sending `PLAY` as much earlier as the device was seen to take to
+  start), and makes up a difference by playing 5% or 10% faster or slower for a few
+  seconds (`SET_PLAYBACK_RATE`).  Chromecasts get FLAC whatever the file.  Each player's *Audio delay* (Settings → Player,
+  the `playDelay` pref) is how much later its sound comes out than it says, for TV
+  speakers and soundbars.  Sync with UPnP and AirPlay players stays loose (they buffer by
+  themselves).
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.
@@ -196,32 +213,37 @@ The script builds a release binary (the web UI is built in), installs it as
   QP / CRF, 30 by default: each +6 halves the stream, for Wi-Fi), and `visualizerCommand`,
   `visualizerPresets`, `visualizerTextures` for where things are (by default
   `/usr/local/lib/rms/pmviz` and `/usr/local/share/rms/projectm`).  The visuals start a
-  second or two after the music would, and a TV shows the first track's title only (the
-  Default Media Receiver takes no updates).
-* **Visualiser drawn on the TV** (Chromecasts, not in Lyrion): instead of the video, a
-  Chromecast can draw the visuals itself with RMS's own Cast receiver app
-  ([`receiver/`](receiver/README.md)), which runs projectM in the browser.  The TV fetches
-  the audio only, the server's GPU isn't used, and the TV shows each track's cover, title,
-  artist and album: large when a track starts or pauses, then small in a corner.  It
-  depends on the TV's GPU: a Chromecast's is a phone's, so it draws at 1280×720 unless
-  Settings → TV visualiser → Draw at says smaller.  The frame rate and preset time settings
-  apply too.  To set it up:
-  1. Publish the receiver: GitHub Pages builds and serves it from this repository
+  second or two after the music would; the receiver app is told each track as the stream
+  reaches it, for its track info.
+* **RMS's Cast receiver** (Chromecasts, not in Lyrion): every Chromecast plays in RMS's own
+  receiver app ([`receiver/`](receiver/README.md)), a page on GitHub Pages.  It shows the
+  playing track's cover, title, artist and album, large when a track starts or pauses and
+  then small in a corner, over one of: the cover, blurred (*Off* under Settings → Player →
+  TV visualiser), the server's visualiser video (above), or **MilkDrop drawn on the TV**
+  (*Drawn on the TV*) by projectM in the browser, which needs only the audio and not the
+  server's GPU.  A Chromecast's GPU is a phone's: with Settings → TV visualiser → Draw at
+  on *Automatic* it draws as large as it keeps up with at the frame rate setting (from
+  720p, up to its screen and 1080p, smaller when the frame rate falls short and larger
+  again when there's room), and *Automatic* under Settings → Player draws on the TV
+  unless even the smallest is too much (or it has no WebGL 2); then it shows the video
+  from the server where pmviz is installed, else the cover, from the next track.  The
+  preset time applies too.  On a speaker (no screen) it only plays.  The app is RMS's own unless Settings →
+  TV visualiser → Receiver app ID (`visualizerReceiverApp`) names another; for your own
+  copy:
+  1. Publish the receiver: GitHub Pages builds and serves it from the repository
      (Settings → Pages → Source: GitHub Actions; the *Receiver site* workflow runs on
      pushes to `main`), at `https://<owner>.github.io/<repo>/receiver/`.  One receiver
      serves any number of RMS servers.
   2. Register it in the [Google Cast developer console](https://cast.google.com/publish)
-     (a one-time US$5): Add new application → Custom Receiver, with that URL.  Leave
-     Guest Mode and Google Cast for Audio off.
+     (a one-time US$5): Add new application → Custom Receiver, with that URL, and
+     Google Cast for Audio on (for speakers).  Guest Mode isn't needed.
   3. While it's unpublished, add each Chromecast's serial number there (Devices), and
      restart the Chromecast.  Publishing it removes that step.
-  4. Enter its application ID in Settings → TV visualiser → Receiver app ID
-     (`visualizerReceiverApp`), and set the Chromecast to *Drawn on the TV* under
-     Settings → Player (`visualizer` = `tv`).
+  4. Enter its application ID in Settings → TV visualiser → Receiver app ID.
 
-  A device that won't start the app (one not added in step 3) plays plain audio instead,
-  and the log says why.  The log also gets the TV's frame rate every 15 seconds
-  (`the TV draws at … fps`), to see whether its GPU keeps up.
+  A device that won't start the app (one not added in step 3) stops with an error that
+  says why.  The log gets the TV's frame rate every 15 seconds while it draws (`the TV
+  draws at … fps`), to see whether its GPU keeps up.
 * **Visualiser in the browser** (not in Lyrion): with "Play in this browser" on and in sync
   (Settings → This browser), Now Playing has a Visualiser button (✦) while this browser is
   the selected player or in its sync group.  It draws the same MilkDrop presets with

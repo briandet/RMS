@@ -22,8 +22,10 @@ cp -r "$web" "$site/demo"
 cp -r "$web/pmweb.js" "$web/pmweb.wasm" "$web/manifest.json" "$web/presets" "$web/textures" \
     "$site/receiver/"
 cp "$here/index.html" "$here/receiver.js" "$site/receiver/"
-# the drawing and the track info, shared with the web UI
-cp "$here/../crates/rms/web/viz.js" "$site/receiver/"
+# the drawing, the track info and the Web Audio player, shared with the web UI
+for f in viz.js web-audio-player.js pcm-output.js pcm-worklet.js decoders.js demux.js; do
+    cp "$here/../crates/rms/web/$f" "$site/receiver/"
+done
 cat > "$site/index.html" <<'HTML'
 <!doctype html><meta charset="utf-8"><title>RMS</title>
 <meta http-equiv="refresh" content="0; url=demo/">

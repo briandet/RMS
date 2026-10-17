@@ -169,7 +169,7 @@ const settings = {
   effnet: false, effnet_status: 'off', effnet_analyzed: 0, effnet_pending: 0,
   visualizer_available: true, visualizer_encoder: 'h264_vaapi',
   visualizer_size: { value: '1920x1080', options: [['1920x1080', '1080p (1920×1080)'], ['1600x900', '900p (1600×900)'], ['1280x720', '720p (1280×720)']].map(([value, label]) => ({ value, label })) },
-  visualizer_render_size: { value: '', options: [['', 'The video size'], ['1600x900', '1600×900'], ['1280x720', '1280×720'], ['960x540', '960×540']].map(([value, label]) => ({ value, label })) },
+  visualizer_render_size: { value: '', options: [['', 'Automatic'], ['1600x900', '1600×900'], ['1280x720', '1280×720'], ['960x540', '960×540']].map(([value, label]) => ({ value, label })) },
   visualizer_fps: { value: '30', options: ['24', '30', '60'].map((value) => ({ value, label: value })) },
   visualizer_quality: { value: 30, min: 18, max: 45 },
   visualizer_preset_seconds: { value: 30, min: 5, max: 600 },
@@ -204,7 +204,7 @@ function makePlayer(i) {
     ip: `192.168.1.${20 + i}`, connected: i !== 5, power: i !== 4,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),
-    settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0' },
+    settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0', play_delay: 0 },
     syncGroup: null,
   };
   if (SCREEN_MODELS.has(model)) {
@@ -372,14 +372,14 @@ function playerOut(p) {
 function playerSettingsOut(p) {
   const s = p.settings;
   const r = {
-    transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode,
+    transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode, play_delay: s.play_delay ?? 0,
     max_bitrate: s.max_bitrate, digital_volume_control: s.digital_volume_control,
     dont_stop_the_music: choice(DSTM, s.dont_stop_the_music), adventurous: s.adventurous ?? 15,
     scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
   };
   if (p.model === 'chromecast') {
-    const tv = settings.visualizer_receiver_app ? 'Drawn on the TV' : 'Drawn on the TV (set up the receiver app first)';
-    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (video: it has a screen)'], ['1', 'Video from the server'], ['tv', tv], ['0', 'Off']].map(([value, label]) => ({ value, label })) };
+    const tv = settings.visualizer_receiver_app ? 'Drawn on the TV' : 'Drawn on the TV (no receiver app set up)';
+    r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (drawn on the TV)'], ['1', 'Video from the server'], ['tv', tv], ['0', 'Off (the cover)']].map(([value, label]) => ({ value, label })) };
   }
   if (SCREEN_MODELS.has(p.model)) {
     r.display = Object.fromEntries(Object.entries(DISPLAY_CHOICES).map(([k, pairs]) => [k, choice(pairs, s[k])]));
@@ -396,6 +396,10 @@ function patchPlayerSettings(p, b) {
   for (const [k, v] of Object.entries(b)) {
     if (k === 'transition_type') { if (!(v >= 0 && v <= 4)) throw bad('transition_type must be 0–4'); s[k] = v; }
     else if (['transition_duration', 'replay_gain_mode', 'max_bitrate'].includes(k)) s[k] = +v;
+    else if (k === 'play_delay') {
+      if (!(v >= 0 && v <= 1000)) throw bad('play_delay must be 0–1000');
+      s[k] = +v;
+    }
     else if (k === 'digital_volume_control') s[k] = !!v;
     else if (k === 'visualizer') {
       if (p.model !== 'chromecast') throw bad('this player has no visualizer');
