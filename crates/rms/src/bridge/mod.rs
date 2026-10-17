@@ -181,7 +181,8 @@ pub enum FromRenderer {
     /// A track (the loaded or the preloaded one) started playing.
     Started,
     /// Seconds into the current track, and its length when known.  An accurate renderer
-    /// gives the moment of its clock this is true at (`jiffies`, now).
+    /// gives the moment of its clock this is true at (`jiffies`), which may be a little past:
+    /// its clock itself is [`FromRenderer::Clock`].
     Progress {
         elapsed: f64,
         #[serde(default)]
@@ -405,18 +406,22 @@ pub async fn run(
                     return Ok(());
                 };
                 debug!("{}: the device reports {msg:?}", identity.name);
-                // an accurate renderer's report is true at its clock's `jiffies`: keep ours
-                // in step, so the status message carries exactly that moment
-                if let FromRenderer::Clock { jiffies }
-                | FromRenderer::Progress { jiffies: Some(jiffies), .. } = &msg
-                {
-                    if identity.accurate {
-                        offset = jiffies.wrapping_sub(local());
+                // an accurate renderer's clock, now: ours keeps in step with it.  A progress
+                // report is true at its `jiffies`, a moment already past (by however long the
+                // report took to come), so its status message carries exactly that moment,
+                // but our clock doesn't move for it: the status messages after it would be
+                // early by that much, and the server would think the player late
+                let mut jiffies = None;
+                match &msg {
+                    FromRenderer::Clock { jiffies: j } if identity.accurate => {
+                        offset = j.wrapping_sub(local());
                     }
+                    FromRenderer::Progress { jiffies: j, .. } if identity.accurate => jiffies = *j,
+                    _ => {}
                 }
                 let progress = matches!(msg, FromRenderer::Progress { .. });
                 let ev = on_renderer(&mut pb, msg);
-                let jiffies = local().wrapping_add(offset);
+                let jiffies = jiffies.unwrap_or_else(|| local().wrapping_add(offset));
                 for e in &ev {
                     stat(&mut sock, *e, &pb, jiffies, 0).await?;
                 }

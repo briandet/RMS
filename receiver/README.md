@@ -16,7 +16,8 @@ On a speaker (no screen) it only plays.
 
 GitHub Pages serves it at `https://<owner>.github.io/<repo>/receiver/`. The *Receiver site*
 workflow builds and publishes it on pushes to `main`, along with the projectM browser demo
-at `/demo/`. One registered app serves every RMS server: each server sends its stream URLs
+at `/demo/`. One registered app (RMS's is `8745C385`, registered for
+`https://rustydc.github.io/RMS/receiver/`) serves every RMS server: each server sends its stream URLs
 and settings with each track. The main README covers registering it in the Cast developer
 console.
 

@@ -359,12 +359,12 @@ pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings 
             .map(|a| a.user)
             .collect(),
         display: display_settings(p),
-        visualizer: visualizer_choice(server, p, crate::viz::receiver_app(server).is_some()),
+        visualizer: visualizer_choice(server, p),
     }
 }
 
 /// A Chromecast's visualiser setting, with what automatic means for it.
-fn visualizer_choice(server: &Server, p: &Player, receiver: bool) -> Option<Choice> {
+fn visualizer_choice(server: &Server, p: &Player) -> Option<Choice> {
     let screen = crate::viz::screen(&p.id)?;
     let value = match p.prefs.get("visualizer") {
         None | Some(Value::Null) => "auto".to_string(),
@@ -381,17 +381,12 @@ fn visualizer_choice(server: &Server, p: &Player, receiver: bool) -> Option<Choi
         Some(false) => "Automatic (off: no screen)",
         None => "Automatic (off until it plays and says it has a screen)",
     };
-    let tv = if receiver {
-        "Drawn on the TV"
-    } else {
-        "Drawn on the TV (no receiver app set up)"
-    };
     Some(choice(
         value,
         [
             ("auto".to_string(), auto.to_string()),
             ("1".to_string(), "Video from the server".to_string()),
-            ("tv".to_string(), tv.to_string()),
+            ("tv".to_string(), "Drawn on the TV".to_string()),
             ("0".to_string(), "Off (the cover)".to_string()),
         ],
     ))

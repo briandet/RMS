@@ -103,6 +103,8 @@ const NS_RECEIVER: &str = "urn:x-cast:com.google.cast.receiver";
 const TRANSPORT: &str = "web-7";
 /// A receiver app the fake device won't start (an unpublished app, this device not added).
 const REFUSED_APP: &str = "DEADBEEF";
+/// RMS's own receiver app, as `viz::DEFAULT_RECEIVER_APP` names it.
+const RMS_APP: &str = "8745C385";
 /// The receiver app the tests' servers play in.
 const TEST_APP: &str = "1A2B3C4D";
 const NS_VIZ: &str = "urn:x-cast:net.rms.visualizer";
@@ -1237,38 +1239,21 @@ async fn a_chromecast_that_wont_start_the_receiver_stops() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_chromecast_needs_a_receiver_app() {
+async fn a_chromecast_plays_in_rmss_own_receiver_unless_told_otherwise() {
     need_ffmpeg!();
     let dir = tempfile::tempdir().unwrap();
     let (server, mut dev, id) = one_cast(dir.path()).await;
     let http = server.http;
-    // none set (and no built-in one in the tests)
     pref(http, "visualizerReceiverApp", "").await;
-    let s = get(
-        http,
-        &format!("/api/v1/players/{id}/settings").replace(':', "%3A"),
-    )
-    .await;
-    let tv = s["visualizer"]["options"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|o| o["value"] == "tv");
-    assert_eq!(
-        tv.unwrap()["label"],
-        "Drawn on the TV (no receiver app set up)"
-    );
     command(
         http,
         &id,
         json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
     )
     .await;
-    wait_player(http, &id, "stopped", |p| p["mode"] == "stop").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    while let Ok(v) = dev.log.try_recv() {
-        assert!(v["type"] != "LAUNCH" && v["type"] != "LOAD", "{v}");
-    }
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], RMS_APP);
+    dev.expect_type(NS_MEDIA, "LOAD").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
