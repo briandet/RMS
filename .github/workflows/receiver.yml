@@ -10,12 +10,22 @@ on:
     paths:
       - receiver/**
       - crates/rms/web/viz.js
+      - crates/rms/web/web-audio-player.js
+      - crates/rms/web/pcm-output.js
+      - crates/rms/web/pcm-worklet.js
+      - crates/rms/web/decoders.js
+      - crates/rms/web/demux.js
       - tools/projectm-viz/web/**
       - .github/workflows/receiver.yml
   pull_request:
     paths:
       - receiver/**
       - crates/rms/web/viz.js
+      - crates/rms/web/web-audio-player.js
+      - crates/rms/web/pcm-output.js
+      - crates/rms/web/pcm-worklet.js
+      - crates/rms/web/decoders.js
+      - crates/rms/web/demux.js
       - tools/projectm-viz/web/**
       - .github/workflows/receiver.yml
   workflow_dispatch:

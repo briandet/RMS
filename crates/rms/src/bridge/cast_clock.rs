@@ -152,9 +152,74 @@ impl CastClock {
     }
 }
 
+/// Answers kept for the clock link.
+const LINK_WINDOW: usize = 20;
+
+/// How another clock (a receiver's `performance.now()`, in milliseconds) lines up with
+/// ours, from answers to pings: each answer carries that clock's reading, taken as true
+/// halfway between our asking and hearing back, the way NTP does.  The answer with the
+/// shortest round trip of the recent ones says it best: the less time the messages took,
+/// the less room there was for them to take longer one way than the other.
+pub struct ClockLink {
+    /// (round trip, other clock minus ours), in milliseconds.
+    samples: VecDeque<(f64, f64)>,
+}
+
+impl ClockLink {
+    pub fn new() -> ClockLink {
+        ClockLink {
+            samples: VecDeque::new(),
+        }
+    }
+
+    /// An answer: asked at `sent`, heard back at `received` (seconds of our clock), the
+    /// other clock reading `remote` milliseconds.
+    pub fn add(&mut self, sent: f64, received: f64, remote: f64) {
+        let round_trip = (received - sent) * 1000.0;
+        if !(0.0..1000.0).contains(&round_trip) {
+            return;
+        }
+        let offset = remote - (sent + received) / 2.0 * 1000.0;
+        self.samples.push_back((round_trip, offset));
+        if self.samples.len() > LINK_WINDOW {
+            self.samples.pop_front();
+        }
+    }
+
+    /// The other clock minus ours (milliseconds), once an answer has come.
+    pub fn offset(&self) -> Option<f64> {
+        self.samples
+            .iter()
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|s| s.1)
+    }
+
+    pub fn reset(&mut self) {
+        self.samples.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quickest_answer_lines_the_clocks_up() {
+        let mut l = ClockLink::new();
+        assert_eq!(l.offset(), None);
+        // the other clock is 5000 ms ahead; messages take 5 ms each way, but some answers
+        // take 80 ms longer to come back
+        for i in 0..10 {
+            let sent = 1.0 + i as f64;
+            let slow = if i % 2 == 0 { 0.08 } else { 0.0 };
+            let remote = (sent + 0.005) * 1000.0 + 5000.0;
+            l.add(sent, sent + 0.010 + slow, remote);
+        }
+        assert!(close(l.offset().unwrap(), 5000.0, 0.5), "{:?}", l.offset());
+        // an answer that took a second says nothing
+        l.add(20.0, 21.5, 0.0);
+        assert!(close(l.offset().unwrap(), 5000.0, 0.5));
+    }
 
     fn close(a: f64, b: f64, tol: f64) -> bool {
         (a - b).abs() <= tol

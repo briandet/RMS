@@ -133,16 +133,23 @@ impl Fake {
 
     /// A device at `ip` (devices are told apart by address).
     async fn start_on(ip: &str) -> Fake {
-        Fake::start_with(ip, None).await
+        Fake::start_with(ip, None, None).await
     }
 
     /// A device whose position runs in real time while it plays, `lag` after it's told
     /// to (a device slow to start), and which changes its playback rate when asked.
     async fn start_live(ip: &str, lag: Duration) -> Fake {
-        Fake::start_with(ip, Some(lag)).await
+        Fake::start_with(ip, Some(lag), None).await
     }
 
-    async fn start_with(ip: &str, live: Option<Duration>) -> Fake {
+    /// A device whose receiver app plays on Web Audio, like RMS's (the server's messages
+    /// in RENDER, its reports in REPORT): its clock reads `offset` ms more than the tests'
+    /// (`stamp`), and it starts playing `lag` after the moment it's told.
+    async fn start_engine(ip: &str, offset: f64, lag: Duration) -> Fake {
+        Fake::start_with(ip, None, Some(EngineOpts { offset, lag })).await
+    }
+
+    async fn start_with(ip: &str, live: Option<Duration>, engine: Option<EngineOpts>) -> Fake {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let cert = rcgen::generate_simple_self_signed(vec!["chromecast.local".into()]).unwrap();
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into());
@@ -164,7 +171,7 @@ impl Fake {
                 let Ok(tls) = acceptor.accept(sock).await else {
                     continue;
                 };
-                serve(tls, &log_tx, &mut ctl_rx, live).await;
+                serve(tls, &log_tx, &mut ctl_rx, live, engine).await;
                 let _ = log_tx.send(json!({"closed": true}));
             }
         });
@@ -229,8 +236,30 @@ impl Playing {
 
 /// Milliseconds since the tests began, for when the fake devices heard what.
 fn stamp() -> u64 {
+    stamp_ms() as u64
+}
+
+fn stamp_ms() -> f64 {
     static START: std::sync::LazyLock<Instant> = std::sync::LazyLock::new(Instant::now);
-    START.elapsed().as_millis() as u64
+    START.elapsed().as_secs_f64() * 1000.0
+}
+
+#[derive(Clone, Copy)]
+struct EngineOpts {
+    /// Its clock less the tests' (ms).
+    offset: f64,
+    /// It starts playing this long after the moment it's told.
+    lag: Duration,
+}
+
+/// The fake receiver's Web Audio player.
+#[derive(Default)]
+struct Engine {
+    /// The moment (tests' ms) the track's start was heard, or will be.
+    origin: Option<f64>,
+    /// Told to start at this moment (tests' ms).
+    start_at: Option<f64>,
+    started: bool,
 }
 
 async fn serve(
@@ -238,7 +267,12 @@ async fn serve(
     log: &mpsc::UnboundedSender<Value>,
     ctl: &mut mpsc::UnboundedReceiver<Ctl>,
     live: Option<Duration>,
+    engine_opts: Option<EngineOpts>,
 ) {
+    let mut engine = Engine::default();
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    let mut ticks = 0u64;
+    let offset = engine_opts.map_or(0.0, |e| e.offset);
     let mut launched: Option<String> = None;
     let mut volume = json!({"level": 1.0, "muted": false});
     let mut media: Option<Playing> = None;
@@ -266,18 +300,67 @@ async fn serve(
                 };
                 let mut out = Vec::new();
                 match (m.namespace.as_str(), p["type"].as_str().unwrap()) {
+                    (NS_VIZ, "HELLO") => out.push(reply(
+                        NS_VIZ,
+                        json!({"type": "HELLO", "version": 3, "engine": engine_opts.is_some()}),
+                    )),
+                    (NS_VIZ, "RENDER") => {
+                        let cmd = &p["cmd"];
+                        let now = stamp_ms();
+                        match cmd["type"].as_str().unwrap_or_default() {
+                            "load" => {
+                                engine = Engine::default();
+                                // the player fetches the stream itself
+                                let url = cmd["url"].as_str().unwrap().to_string();
+                                let fetch_log = log.clone();
+                                tokio::spawn(async move {
+                                    let Ok(r) = reqwest::get(&url).await else {
+                                        return;
+                                    };
+                                    let Ok(body) = r.bytes().await else { return };
+                                    let head = String::from_utf8_lossy(&body[..body.len().min(4)]);
+                                    let _ = fetch_log
+                                        .send(json!({"fetched": head, "bytes": body.len()}));
+                                });
+                                if cmd["autostart"] == true {
+                                    engine.start_at = Some(now);
+                                } else {
+                                    out.push(reply(
+                                        NS_VIZ,
+                                        json!({"type": "REPORT", "msg": {"type": "ready"}}),
+                                    ));
+                                }
+                            }
+                            "resume" => {
+                                engine.start_at =
+                                    Some(cmd["at"].as_f64().map_or(now, |at| at - offset));
+                            }
+                            "pause" | "stop" => engine = Engine::default(),
+                            "skip" => {
+                                if let Some(o) = engine.origin.as_mut() {
+                                    *o -= cmd["ms"].as_f64().unwrap();
+                                }
+                            }
+                            "hold" => {
+                                if let Some(o) = engine.origin.as_mut() {
+                                    *o += cmd["ms"].as_f64().unwrap();
+                                }
+                            }
+                            _ => {} // preload
+                        }
+                    }
                     (NS_VIZ, "PING") => {
-                        // the receiver app: where playback is (a device that isn't live
-                        // only moves when the test says)
-                        let (position, playing, rate) =
-                            media.as_ref().map_or((0.0, false, 1.0), |m| {
-                                (m.now(), m.state == "PLAYING" && m.since.is_some(), m.rate)
-                            });
-                        out.push(reply(
-                            NS_VIZ,
-                            json!({"type": "PONG", "id": p["id"], "position": position,
-                                   "playing": playing, "rate": rate}),
-                        ));
+                        // the receiver app: its clock, and for a live device where Cast's
+                        // media plays (one that isn't live only moves when the test says,
+                        // so the driver goes by its statuses)
+                        let mut pong =
+                            json!({"type": "PONG", "id": p["id"], "t": stamp_ms() + offset});
+                        if let (Some(m), Some(_)) = (media.as_ref(), live) {
+                            pong["position"] = json!(m.now());
+                            pong["playing"] = json!(m.state == "PLAYING" && m.since.is_some());
+                            pong["rate"] = json!(m.rate);
+                        }
+                        out.push(reply(NS_VIZ, pong));
                     }
                     (_, "PING") => out.push(reply(&m.namespace, json!({"type": "PONG"}))),
                     (NS_RECEIVER, "LAUNCH") if p["appId"] == REFUSED_APP => {
@@ -319,13 +402,23 @@ async fn serve(
                                 let url = p["media"]["contentId"].as_str().unwrap().to_string();
                                 let fetch_log = log.clone();
                                 let fetch_url = url.clone();
+                                // (asked for before the LOAD is answered, as a device does:
+                                // the server may line up the next track as soon as this one
+                                // starts)
+                                let asked = tokio::time::timeout(
+                                    Duration::from_secs(2),
+                                    reqwest::get(&url),
+                                )
+                                .await;
                                 tokio::spawn(async move {
-                                    let body = reqwest::get(&fetch_url)
-                                        .await
-                                        .unwrap()
-                                        .bytes()
-                                        .await
-                                        .unwrap();
+                                    let res = match asked {
+                                        Ok(Ok(r)) => r,
+                                        _ => match reqwest::get(&fetch_url).await {
+                                            Ok(r) => r,
+                                            Err(_) => return,
+                                        },
+                                    };
+                                    let Ok(body) = res.bytes().await else { return };
                                     let head = String::from_utf8_lossy(&body[..body.len().min(4)]);
                                     let boxes =
                                         String::from_utf8_lossy(&body[..body.len().min(64)])
@@ -401,6 +494,38 @@ async fn serve(
                 Ok(n) if n > 0 => buf.extend_from_slice(&chunk[..n]),
                 _ => return,
             },
+            // the Web Audio player: starts when it was told (and its lag), and says where it is
+            _ = tick.tick(), if engine_opts.is_some() => {
+                ticks += 1;
+                let lag = engine_opts.unwrap().lag.as_secs_f64() * 1000.0;
+                let now = stamp_ms();
+                let mut reports = Vec::new();
+                if let Some(at) = engine.start_at {
+                    if now >= at + lag {
+                        engine.start_at = None;
+                        engine.origin = Some(at + lag);
+                        if !engine.started {
+                            engine.started = true;
+                            reports.push(json!({"type": "started"}));
+                        }
+                    }
+                }
+                if let (Some(origin), true) = (engine.origin, ticks.is_multiple_of(5)) {
+                    reports.push(json!({"type": "progress", "elapsed": (now - origin) / 1000.0,
+                                        "jiffies": ((now + offset) as u64) as u32}));
+                }
+                for r in reports {
+                    let m = CastMessage {
+                        source: TRANSPORT.into(),
+                        destination: "*".into(),
+                        namespace: NS_VIZ.into(),
+                        payload: json!({"type": "REPORT", "msg": r}).to_string(),
+                    };
+                    if tls.write_all(&encode(&m)).await.is_err() {
+                        return;
+                    }
+                }
+            }
             c = ctl.recv() => {
                 // (the test is over)
                 let Some(c) = c else { return };
@@ -1035,7 +1160,7 @@ async fn a_chromecast_draws_the_visualiser_itself() {
     assert_eq!(load["media"]["metadata"]["title"], "One");
     assert_eq!(load["media"]["metadata"]["artist"], "A");
     let rms = &load["customData"]["rms"];
-    assert_eq!(rms["version"], 2, "{load}");
+    assert_eq!(rms["version"], 3, "{load}");
     assert_eq!(rms["visualizer"], "draw");
     assert_eq!(rms["presetSeconds"], 20);
     assert_eq!(rms["fps"], 30);
@@ -1253,4 +1378,124 @@ async fn a_players_audio_delay_is_a_setting() {
     assert_eq!(s["play_delay"], 180);
     let (code, _) = patch(http, &settings, json!({"play_delay": 1001})).await;
     assert_eq!(code, 400);
+}
+
+/// A server with one 30-second track.
+async fn long_track_server(dir: &std::path::Path) -> Server {
+    let m = dir.join("music");
+    let track = m.join("A/Album/01 Long.flac");
+    std::fs::create_dir_all(track.parent().unwrap()).unwrap();
+    let ok = std::process::Command::new("ffmpeg")
+        .args(["-hide_banner", "-loglevel", "error", "-f", "lavfi"])
+        .args(["-i", "sine=frequency=330:duration=30", "-ac", "2"])
+        .args([
+            "-metadata",
+            "title=Long",
+            "-metadata",
+            "artist=A",
+            "-metadata",
+            "album=Album",
+        ])
+        .arg(&track)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    let server = start_server(&m);
+    for _ in 0..100 {
+        if get(server.http, "/api/v1/server").await["library"]["tracks"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    server
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn chromecasts_on_web_audio_start_together_and_stay_in_step() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let server = long_track_server(dir.path()).await;
+    let http = server.http;
+    // two receivers on Web Audio, with clocks far apart; B starts 300 ms late
+    let mut a = Fake::start_engine("127.0.0.1", 100_000.0, Duration::ZERO).await;
+    let mut b = Fake::start_engine("127.0.0.2", 5_000.0, Duration::from_millis(300)).await;
+    let hosts = json!([
+        format!("127.0.0.1:{}", a.port),
+        format!("127.0.0.2:{}", b.port)
+    ])
+    .to_string();
+    pref(http, "chromecastHosts", &hosts).await;
+    pref(http, "visualizerReceiverApp", TEST_APP).await;
+    pref(http, "bridgeChromecast", "1").await;
+    let players = cast_players(http, 2).await;
+    let id = |name: &str| {
+        players
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, id)| id.clone())
+            .unwrap()
+    };
+    let (ida, idb) = (id("127.0.0.1"), id("127.0.0.2"));
+    command(http, &idb, json!({"command": "sync", "with": ida})).await;
+    command(
+        http,
+        &ida,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+
+    // the server's own messages go to each receiver's player: load paused...
+    let is =
+        |kind: &'static str| move |v: &Value| v["type"] == "RENDER" && v["cmd"]["type"] == kind;
+    let la = a.expect("A's load", is("load")).await;
+    let lb = b.expect("B's load", is("load")).await;
+    for l in [&la, &lb] {
+        assert_eq!(l["cmd"]["autostart"], false, "{l}");
+        assert!(l["cmd"]["url"].as_str().unwrap().contains("/stream"), "{l}");
+        assert_eq!(l["track"]["title"], "Long");
+    }
+    // ...then start at one moment, each on its own clock
+    let ra = a.expect("A's start", is("resume")).await;
+    let rb = b.expect("B's start", is("resume")).await;
+    let moment_a = ra["cmd"]["at"].as_f64().expect("a moment") - 100_000.0;
+    let moment_b = rb["cmd"]["at"].as_f64().expect("a moment") - 5_000.0;
+    assert!(
+        (moment_a - moment_b).abs() < 15.0,
+        "A at {moment_a} ms, B at {moment_b} ms"
+    );
+    assert!(
+        moment_a > ra["at"].as_f64().unwrap(),
+        "the moment is ahead: {ra}"
+    );
+
+    // B, 300 ms late, is told to skip that much (to the sample, on Web Audio)
+    let skip = b
+        .expect_within(Duration::from_secs(10), "B's skip", is("skip"))
+        .await;
+    let ms = skip["cmd"]["ms"].as_f64().unwrap();
+    assert!((250.0..350.0).contains(&ms), "skip {ms} ms");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    while let Ok(v) = a.log.try_recv() {
+        assert!(
+            !(is("skip")(&v) && v["cmd"]["ms"].as_f64().unwrap() >= 50.0),
+            "A skipped: {v}"
+        );
+    }
+    let elapsed = |p: &Value| p["elapsed"].as_f64().unwrap_or(0.0);
+    let pa = get(
+        http,
+        &format!("/api/v1/players/{}", ida.replace(':', "%3A")),
+    )
+    .await;
+    let pb = get(
+        http,
+        &format!("/api/v1/players/{}", idb.replace(':', "%3A")),
+    )
+    .await;
+    assert!(
+        (elapsed(&pa) - elapsed(&pb)).abs() < 0.06,
+        "A at {} s, B at {} s",
+        elapsed(&pa),
+        elapsed(&pb)
+    );
 }

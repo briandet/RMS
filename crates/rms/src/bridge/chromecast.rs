@@ -36,7 +36,7 @@
 //! skipping or pausing.  What the device's sound takes to come out after that (a TV's
 //! speakers, a soundbar) is the player's `playDelay`.
 
-use super::cast_clock::CastClock;
+use super::cast_clock::{CastClock, ClockLink};
 use super::devices::{self, Device, DriverIo, Protocol};
 use super::{mac_for, FromRenderer, Identity, ToRenderer};
 use crate::server::Server;
@@ -74,6 +74,10 @@ const SENDER: &str = "sender-0";
 const RECEIVER: &str = "receiver-0";
 /// `supportedMediaCommands`: the receiver changes the playback rate.
 const PLAYBACK_RATE: u64 = 8192;
+/// How long the receiver app may take to say what it can do before it's taken to have
+/// only Cast's media handling.
+const HELLO_TIMEOUT: Duration = Duration::from_secs(3);
+
 /// Sync adjustments smaller than this (seconds) are left alone: no one hears them, and
 /// they're within what the position can be known to.
 const MIN_ADJUST: f64 = 0.025;
@@ -276,7 +280,9 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
         name: c.name.clone(),
         model: "chromecast".into(),
         model_name: c.model_name.clone(),
-        formats: vec!["flc".into(), "mp3".into(), "aac".into()],
+        // FLAC whatever the file: the receiver's Web Audio player decodes it (and Cast's
+        // own media handling plays it too)
+        formats: vec!["flc".into()],
         max_sample_rate: 96_000,
         accurate: true,
     };
@@ -536,6 +542,14 @@ struct Cast {
     ping: Option<(i64, f64)>,
     /// The receiver answers `PING`s (so its own positions are used).
     pongs: bool,
+    /// The receiver app plays on Web Audio (as its `HELLO` said; `None`: not yet asked).
+    engine: Option<bool>,
+    /// When the `HELLO` went, while its answer is awaited.
+    hello_asked: Option<Instant>,
+    /// The track plays on the receiver's Web Audio player (the server's messages go to it).
+    engine_active: bool,
+    /// How the receiver's clock lines up with ours.
+    link: ClockLink,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -607,6 +621,10 @@ impl Cast {
             outbox: Vec::new(),
             ping: None,
             pongs: false,
+            engine: None,
+            hello_asked: None,
+            engine_active: false,
+            link: ClockLink::new(),
             launching: None,
             queued: None,
             media: None,
@@ -687,15 +705,12 @@ impl Cast {
                             .media_request(json!({"type": "GET_STATUS", "mediaSessionId": id}))
                             .await?;
                         self.status_asked = request.map(|r| (r, sent));
-                        // and the receiver itself, which answers with the position heard
-                        if let Some(app) = self.app.clone() {
-                            let id = self.next_request;
-                            self.next_request += 1;
-                            let sent = self.clock.secs(Instant::now());
-                            self.send(&app.transport, NS_VIZ, json!({"type": "PING", "id": id}))
-                                .await?;
-                            self.ping = Some((id, sent));
-                        }
+                    }
+                    // the receiver app's clock (and, for Cast's media, the position heard)
+                    self.ping().await?;
+                    // an app that doesn't say what it can do has only Cast's media
+                    if self.hello_asked.is_some_and(|t| t.elapsed() > HELLO_TIMEOUT) {
+                        self.on_hello(&json!({"engine": false})).await?;
                     }
                 }
             }
@@ -704,6 +719,26 @@ impl Cast {
 
     async fn on_command(&mut self, cmd: ToRenderer) -> anyhow::Result<()> {
         debug!("chromecast {}: {cmd:?}", self.mac);
+        // the receiver's Web Audio player takes the server's messages as they are
+        if self.engine_active {
+            match &cmd {
+                ToRenderer::Preload { url, format, .. } => {
+                    let item = self.item(url, format, true);
+                    return self.engine_load(item, true).await;
+                }
+                ToRenderer::Pause
+                | ToRenderer::Resume { .. }
+                | ToRenderer::Hold { .. }
+                | ToRenderer::Skip { .. } => return self.render_command(&cmd).await,
+                ToRenderer::Stop => {
+                    self.engine_active = false;
+                    self.queued = None;
+                    return self.render_command(&cmd).await;
+                }
+                // (a new track decides again; the volume is the device's)
+                ToRenderer::Load { .. } | ToRenderer::Volume { .. } => {}
+            }
+        }
         match cmd {
             ToRenderer::Load {
                 url,
@@ -793,6 +828,11 @@ impl Cast {
     /// Load `item`, launching the media receiver app first if it isn't running.
     async fn load_or_launch(&mut self, item: Item) -> anyhow::Result<()> {
         if self.app.as_ref().is_some_and(|a| a.id == self.want_app) {
+            if self.engine.is_none() {
+                // what the app can do comes first
+                self.queued = Some(item);
+                return Ok(());
+            }
             return self.load(item).await;
         }
         // (the other receiver app gives way to this one without a report)
@@ -991,6 +1031,8 @@ impl Cast {
             }
             (NS_MEDIA, "MEDIA_STATUS") => self.on_media_status(&payload).await?,
             (NS_VIZ, "PONG") => self.on_pong(&payload),
+            (NS_VIZ, "HELLO") => self.on_hello(&payload).await?,
+            (NS_VIZ, "REPORT") => self.on_engine_report(&payload).await?,
             (NS_VIZ, "STATS") => info!(
                 "chromecast {}: the TV draws at {} fps ({}), preset {}",
                 self.mac, payload["fps"], payload["size"], payload["preset"]
@@ -1037,14 +1079,20 @@ impl Cast {
                 );
                 self.send(&app.transport, NS_CONNECTION, json!({"type": "CONNECT"}))
                     .await?;
+                let transport = app.transport.clone();
                 self.app = Some(app);
                 self.pongs = false;
                 self.launching = None;
                 self.sent_volume = None;
+                self.engine = None;
+                self.engine_active = false;
+                self.link.reset();
                 self.apply_volume().await?;
-                if let Some(item) = self.queued.take() {
-                    self.load(item).await?;
-                }
+                // what it can do (the queued track waits for the answer), and the time
+                self.hello_asked = Some(Instant::now());
+                self.send(&transport, NS_VIZ, json!({"type": "HELLO"}))
+                    .await?;
+                self.ping().await?;
             }
             Some(_) => {}
             None if self.app.is_some() => self.app_gone().await?,
@@ -1057,6 +1105,11 @@ impl Cast {
     async fn app_gone(&mut self) -> anyhow::Result<()> {
         self.app = None;
         self.next = None;
+        self.engine = None;
+        self.hello_asked = None;
+        if std::mem::take(&mut self.engine_active) {
+            return self.report(FromRenderer::Ended).await;
+        }
         if self.media.take().is_some_and(|m| m.started) {
             self.report(FromRenderer::Ended).await?;
         }
@@ -1193,7 +1246,15 @@ impl Cast {
     async fn finished(&mut self) -> anyhow::Result<()> {
         self.media = None;
         match self.next.take() {
-            Some(item) => self.load(item).await,
+            Some(mut item) => {
+                // (read when the next track was asked for, the server may not have had it)
+                if item.metadata.is_none() {
+                    let now = streaming(&self.server, &self.mac, &self.io.base_url);
+                    (item.metadata, item.duration) =
+                        now.map_or((None, None), |(m, d)| (Some(m), d));
+                }
+                self.load(item).await
+            }
             None => self.report(FromRenderer::Ended).await,
         }
     }
@@ -1202,6 +1263,13 @@ impl Cast {
         let Some(app) = self.app.clone() else {
             return Ok(());
         };
+        // audio on the receiver's Web Audio player, where it has one
+        if self.engine == Some(true) && item.format != "mp4v" {
+            return self.engine_load(item, false).await;
+        }
+        if std::mem::take(&mut self.engine_active) {
+            self.render(json!({"cmd": {"type": "stop"}})).await?;
+        }
         let content_type = content_type(&item.format);
         let mut media = json!({
             "contentId": item.url,
@@ -1267,10 +1335,16 @@ impl Cast {
             return;
         }
         self.ping = None;
+        let received = self.clock.secs(Instant::now());
+        if let Some(t) = p["t"].as_f64() {
+            self.link.add(sent, received, t);
+        }
+        if self.engine_active {
+            return;
+        }
         let Some(pos) = p["position"].as_f64() else {
             return;
         };
-        let received = self.clock.secs(Instant::now());
         let rate = match p["playing"].as_bool() {
             Some(true) => p["rate"].as_f64().unwrap_or(self.rate),
             _ => 0.0,
@@ -1280,6 +1354,116 @@ impl Cast {
         if self.clock.samples() >= 3 {
             self.learn_start();
         }
+    }
+
+    /// Ask the receiver app the time.
+    async fn ping(&mut self) -> anyhow::Result<()> {
+        let Some(app) = self.app.clone() else {
+            return Ok(());
+        };
+        let id = self.next_request;
+        self.next_request += 1;
+        let sent = self.clock.secs(Instant::now());
+        self.send(&app.transport, NS_VIZ, json!({"type": "PING", "id": id}))
+            .await?;
+        self.ping = Some((id, sent));
+        Ok(())
+    }
+
+    /// What the receiver app can do: play on Web Audio (protocol 3), or only Cast's media.
+    async fn on_hello(&mut self, p: &Value) -> anyhow::Result<()> {
+        if self.hello_asked.take().is_none() {
+            return Ok(());
+        }
+        let engine = p["engine"] == true && p["version"].as_u64().is_some_and(|v| v >= 3);
+        debug!(
+            "chromecast {}: the receiver plays on {}",
+            self.mac,
+            if engine {
+                "Web Audio"
+            } else {
+                "Cast's media element"
+            }
+        );
+        self.engine = Some(engine);
+        if let Some(item) = self.queued.take() {
+            self.load(item).await?;
+        }
+        Ok(())
+    }
+
+    /// A message for the receiver's Web Audio player.
+    async fn render(&mut self, mut msg: Value) -> anyhow::Result<()> {
+        let Some(app) = self.app.clone() else {
+            return Ok(());
+        };
+        msg["type"] = json!("RENDER");
+        self.send(&app.transport, NS_VIZ, msg).await
+    }
+
+    /// The server's command for the receiver's Web Audio player, its moment (our clock's
+    /// jiffies) put on the receiver's clock.
+    async fn render_command(&mut self, cmd: &ToRenderer) -> anyhow::Result<()> {
+        let mut cmd = serde_json::to_value(cmd)?;
+        if let Some(at) = cmd["at"].as_u64() {
+            let now = Instant::now();
+            let moment = CastClock::instant_of(at as u32, self.clock.jiffies(now), now);
+            cmd["at"] = match self.link.offset() {
+                Some(offset) => {
+                    let ms = self.clock.secs(moment) * 1000.0 + offset;
+                    json!((ms.round().max(0.0) as u64) as u32)
+                }
+                // (not lined up yet: now, and sync adjustments do the rest)
+                None => Value::Null,
+            };
+        }
+        self.render(json!({ "cmd": cmd })).await
+    }
+
+    /// What the receiver's Web Audio player says, its moments put on our clock.
+    async fn on_engine_report(&mut self, p: &Value) -> anyhow::Result<()> {
+        if !self.engine_active {
+            return Ok(());
+        }
+        let Ok(mut msg) = serde_json::from_value::<FromRenderer>(p["msg"].clone()) else {
+            return Ok(());
+        };
+        match &mut msg {
+            // (the player's clock is ours)
+            FromRenderer::Clock { .. } => return Ok(()),
+            FromRenderer::Progress { jiffies, .. } => {
+                *jiffies = jiffies.zip(self.link.offset()).map(|(j, offset)| {
+                    let ours = f64::from(j) - offset;
+                    (ours.round().max(0.0) as u64) as u32
+                });
+                if jiffies.is_none() {
+                    // not lined up yet: as of now
+                    *jiffies = Some(self.clock.jiffies(Instant::now()));
+                }
+            }
+            _ => {}
+        }
+        self.report(msg).await
+    }
+
+    /// Load `item` on the receiver's Web Audio player.
+    async fn engine_load(&mut self, item: Item, preload: bool) -> anyhow::Result<()> {
+        let track = track_info(&item.metadata, item.duration);
+        let cmd = if preload {
+            json!({"type": "preload", "url": item.url, "format": item.format})
+        } else {
+            json!({"type": "load", "url": item.url, "format": item.format, "autostart": item.autoplay})
+        };
+        let mut msg = json!({"cmd": cmd, "track": track});
+        if !preload {
+            self.engine_active = true;
+            self.media = None;
+            if let Some(rms) = item.custom.as_ref().map(|c| c["rms"].clone()) {
+                msg["visual"] = rms["visualizer"].clone();
+                msg["rms"] = rms;
+            }
+        }
+        self.render(msg).await
     }
 
     /// How long the device took to start after the `PLAY` of a synced start, for the next
@@ -1485,6 +1669,18 @@ fn streaming(server: &Server, mac: &MacAddress, base_url: &str) -> Option<(Value
         meta["images"] = json!([{ "url": art }]);
     }
     Some((meta, t.duration))
+}
+
+/// The track info the receiver shows, from a track's Cast metadata.
+fn track_info(meta: &Option<Value>, duration: Option<f64>) -> Value {
+    let m = meta.clone().unwrap_or(Value::Null);
+    json!({
+        "title": m["title"],
+        "artist": m["artist"],
+        "album": m["albumName"],
+        "art": m["images"][0]["url"],
+        "duration": duration,
+    })
 }
 
 /// The MIME type a Cast receiver expects for an LMS format code.

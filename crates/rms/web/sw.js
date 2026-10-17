@@ -3,9 +3,9 @@
 // from the cache when the server can't be reached; the API, streams and artwork are never
 // cached.
 
-const CACHE = 'rms-shell-v9';
+const CACHE = 'rms-shell-v10';
 const SHELL = [
-  './', 'index.html', 'style.css', 'app.js', 'api.js', 'store.js', 'util.js', 'browser-player.js', 'pcm-worklet.js', 'pcm-output.js', 'decoders.js', 'demux.js', 'spectrum.js', 'viz.js',
+  './', 'index.html', 'style.css', 'app.js', 'api.js', 'store.js', 'util.js', 'browser-player.js', 'web-audio-player.js', 'pcm-worklet.js', 'pcm-output.js', 'decoders.js', 'demux.js', 'spectrum.js', 'viz.js',
   'views/common.js', 'views/library.js', 'views/menu.js', 'views/nowplaying.js', 'views/queue.js',
   'views/search.js', 'views/sortable.js', 'views/settings.js', 'views/tags.js', 'views/track.js', 'views/table.js',
   'views/visualiser.js',

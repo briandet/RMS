@@ -179,14 +179,19 @@ The script builds a release binary (the web UI is built in), installs it as
   `chromecastHosts` and `airplayHosts` (`host[:port]`).  AirPlay 2-only devices (needing
   pairing) are not supported.  **Chromecasts play in RMS's own Cast receiver app**
   (below), which shows the playing track's cover and title, or the visualiser.
-  **Chromecasts keep time** like the browser: the driver asks the receiver app where
-  playback is a second (it answers with the position heard, less what the audio takes to
-  leave the browser; taken as true halfway between asking and hearing back, the median of
-  the last few), starts it at the moment the server
-  names (sending `PLAY` as much earlier as the device was seen to take to start), and makes
-  up a difference by playing 5% or 10% faster or slower for a few seconds
-  (`SET_PLAYBACK_RATE`) rather than skipping or pausing, so a group of Chromecasts,
-  Squeezeboxes and browsers plays in step.  Each player's *Audio delay* (Settings → Player,
+  **Chromecasts keep time** like the browser, so a group of Chromecasts, Squeezeboxes and
+  browsers plays in step.  Where the TV can decode the audio itself (WebCodecs), the
+  receiver app plays it on **the same Web Audio player as the browser's**
+  (`web/web-audio-player.js`): the server's messages go to it as they are, and it starts
+  at the exact moment, skips or waits to the sample, and plays the next track without a
+  gap.  The driver lines the app's clock up with its own NTP-style: a ping a second, each
+  answer taken as true halfway through its round trip, and the quickest of the recent
+  answers trusted.  Moments it sends are put on the app's clock, and the app's play points
+  on ours.  Otherwise (and for the server's visualiser video) the app plays through Cast's
+  own media handling: the driver asks where playback is a second, starts it at the moment
+  the server names (sending `PLAY` as much earlier as the device was seen to take to
+  start), and makes up a difference by playing 5% or 10% faster or slower for a few
+  seconds (`SET_PLAYBACK_RATE`).  Chromecasts get FLAC whatever the file.  Each player's *Audio delay* (Settings → Player,
   the `playDelay` pref) is how much later its sound comes out than it says, for TV
   speakers and soundbars.  Sync with UPnP and AirPlay players stays loose (they buffer by
   themselves).

@@ -103,7 +103,7 @@ pub fn mode(server: &Server, mac: &slimproto::MacAddress) -> Mode {
 }
 
 /// What the receiver app is told with each track, so it knows what it's talking to.
-pub const RECEIVER_PROTOCOL: u32 = 2;
+pub const RECEIVER_PROTOCOL: u32 = 3;
 /// What the receiver draws at when "Draw at" is the video size: a Chromecast's GPU is a
 /// phone's, far slower than the server's.
 pub const RECEIVER_DEFAULT_SIZE: &str = "1280x720";

@@ -2,6 +2,9 @@
 
 Every Chromecast plays for RMS in this page (or in the app the settings name instead). It
 plays what RMS loads: an audio stream from the server, or the server's visualiser video.
+Audio plays on Web Audio where the TV can decode it (WebCodecs), with the same player as
+the web UI's browser player, so it keeps time to the sample and is gapless. Otherwise
+(and for the video) it plays through Cast's media handling.
 It shows the playing track's cover, title, artist and album over one of three things,
 as RMS says with each track:
 - `draw`: MilkDrop presets drawn to the audio with projectM, built to WebAssembly in
@@ -25,18 +28,28 @@ console.
 - **Settings.** The `LOAD`'s `customData.rms` carries the server's visualiser settings:
 
   ```json
-  {"version": 2, "visualizer": "draw", "presetSeconds": 30, "fps": 30,
+  {"version": 3, "visualizer": "draw", "presetSeconds": 30, "fps": 30,
    "renderSize": "1280x720"}
   ```
 
   `version` is the protocol, raised when a change needs a newer receiver. A receiver that
   gets a newer version reports it as an error.
 - **Its own namespace,** `urn:x-cast:net.rms.visualizer`:
-  - RMS sends `{"type": "PING", "id": 7}` a second; the page answers at once with
-    `{"type": "PONG", "id": 7, "position": 12.345, "rate": 1, "playing": true}`. The
-    position is the one being heard: the media's, less what the audio still takes to
-    leave the browser (Web Audio's output latency, once the audio goes through it). RMS
-    takes it as true halfway between asking and hearing back, to keep the TV in sync.
+  - RMS first sends `{"type": "HELLO"}`; the page answers `{"type": "HELLO", "version": 3,
+    "engine": true, "decodes": ["flc", "ops"]}`. `engine` means it plays audio on Web Audio.
+  - Then RMS sends the server's renderer messages as they are, in
+    `{"type": "RENDER", "cmd": {...}}`: `load` (with `url`, `format`, `autostart`), `preload`,
+    `pause`, `resume` (with `at`, a moment of this page's clock), `hold`, `skip`, `stop`. A
+    load also carries `visual`, `rms` (the settings) and `track` (the track info), and a
+    preload carries `track`. The player's reports come back in `{"type": "REPORT",
+    "msg": {...}}`: `ready`, `started`, `progress` (with `jiffies` of this page's clock),
+    `fetched`, `paused`, `resumed`, `ended`, `error`.
+  - RMS sends `{"type": "PING", "id": 7}` a second. The page answers at once with
+    `{"type": "PONG", "id": 7, "t": 123456.7, "position": 12.345, "rate": 1, "playing": true}`.
+    `t` is its clock (`performance.now()`): RMS takes it as true halfway between asking
+    and hearing back, and the quickest answers line the clocks up. `position` (for Cast's
+    media handling) is the one being heard: the media's, less what the audio still takes
+    to leave the browser.
   - In the visualiser video, RMS sends `{"type": "TRACK", "title", "artist", "album",
     "art", "duration", "start"}` as each track begins (`start`: where in the stream), for
     the track info.
@@ -51,8 +64,12 @@ The drawing (`Visualiser`) and the track info (`TrackOverlay`) live in
 `crates/rms/web/viz.js`, shared with the web UI's visualiser. `build.sh` copies it in
 next to `receiver.js`.
 
-- CAF (the Cast receiver framework) plays into the page's own `<video crossorigin>`
-  element, audio and video alike (it's shown only for the server's video).
+- **Web Audio:** `web-audio-player.js` with its modules (`decoders.js`, `demux.js`,
+  `pcm-output.js`, `pcm-worklet.js`), copied in from the web UI. It fetches and decodes the
+  stream itself and plays it in an AudioWorklet. The visuals tap its output.
+- **Otherwise,** CAF (the Cast receiver framework) plays into the page's own
+  `<video crossorigin>` element, audio and video alike (it's shown only for the server's
+  video).
 - Once Web Audio is running, the element is routed through two analyser nodes. Each frame,
   projectM gets the samples played since the last frame. Until Web Audio is running, the
   element plays as usual.
