@@ -51,8 +51,8 @@ The drawing (`Visualiser`) and the track info (`TrackOverlay`) live in
 `crates/rms/web/viz.js`, shared with the web UI's visualiser. `build.sh` copies it in
 next to `receiver.js`.
 
-- CAF (the Cast receiver framework) plays into the page's own `<audio crossorigin>`
-  element.
+- CAF (the Cast receiver framework) plays into the page's own `<video crossorigin>`
+  element, audio and video alike (it's shown only for the server's video).
 - Once Web Audio is running, the element is routed through two analyser nodes. Each frame,
   projectM gets the samples played since the last frame. Until Web Audio is running, the
   element plays as usual.
