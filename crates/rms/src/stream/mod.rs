@@ -19,7 +19,7 @@ use bytes::Bytes;
 use slimproto::server::{Format, ServerFrame, StrmHeader, TransitionType};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// What the HTTP stream handler should send to the player.
 #[derive(Debug, Clone)]
@@ -59,6 +59,35 @@ impl StreamSpec {
     pub fn content_type(&self) -> Option<&'static str> {
         mime_for_format(&self.format)
     }
+}
+
+/// A WAV header for a stream of raw little-endian samples (`pcm`), from `wav=<rate>,<bits>,
+/// <channels>` (as the `strm` gave them), for a device that can't take samples bare.  Its
+/// lengths say "as long as it goes", as streamed WAV does.
+pub fn wav_header(spec: &str) -> Option<Vec<u8>> {
+    let mut it = spec.split(',').map(|v| v.trim().parse::<u32>().ok());
+    let (rate, bits, channels) = (it.next()??, it.next()??, it.next()??);
+    if !(8_000..=384_000).contains(&rate)
+        || !matches!(bits, 16 | 24 | 32)
+        || !(1..=8).contains(&channels)
+    {
+        return None;
+    }
+    let align = channels * bits / 8;
+    let mut h = Vec::with_capacity(44);
+    h.extend(b"RIFF");
+    h.extend(u32::MAX.to_le_bytes());
+    h.extend(b"WAVEfmt ");
+    h.extend(16u32.to_le_bytes());
+    h.extend(1u16.to_le_bytes()); // integer PCM
+    h.extend((channels as u16).to_le_bytes());
+    h.extend(rate.to_le_bytes());
+    h.extend((rate * align).to_le_bytes());
+    h.extend((align as u16).to_le_bytes());
+    h.extend((bits as u16).to_le_bytes());
+    h.extend(b"data");
+    h.extend((u32::MAX - 36).to_le_bytes());
+    Some(h)
 }
 
 /// `%Slim::Music::Info::types` (first MIME per type).
@@ -163,6 +192,14 @@ pub fn supported_formats(players: &[Arc<Player>]) -> Vec<String> {
         formats.retain(|f| caps.contains(f));
     }
     if formats.is_empty() {
+        let each: Vec<String> = players
+            .iter()
+            .map(|p| format!("{}: {}", p.id, p.state.lock().caps.formats.join(",")))
+            .collect();
+        warn!(
+            "no format every player in the group takes ({}): trying mp3",
+            each.join("; ")
+        );
         formats.push("mp3".into());
     }
     formats
@@ -828,6 +865,25 @@ pub fn capabilities_summary(c: &Capabilities) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_samples_get_a_streaming_wav_header() {
+        let h = wav_header("48000,24,2").unwrap();
+        assert_eq!(h.len(), 44);
+        assert_eq!(&h[..4], b"RIFF");
+        assert_eq!(&h[8..16], b"WAVEfmt ");
+        let u16_at = |i: usize| u16::from_le_bytes([h[i], h[i + 1]]);
+        let u32_at = |i: usize| u32::from_le_bytes(h[i..i + 4].try_into().unwrap());
+        assert_eq!(u16_at(22), 2); // channels
+        assert_eq!(u32_at(24), 48_000);
+        assert_eq!(u32_at(28), 48_000 * 6); // bytes a second
+        assert_eq!(u16_at(32), 6); // a frame
+        assert_eq!(u16_at(34), 24);
+        assert_eq!(&h[36..40], b"data");
+        for bad in ["", "44100", "44100,12,2", "44100,16,0", "x,16,2", "1,16,2"] {
+            assert!(wav_header(bad).is_none(), "{bad}");
+        }
+    }
 
     #[test]
     fn passthrough_rules() {

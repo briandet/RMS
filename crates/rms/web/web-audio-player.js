@@ -189,6 +189,12 @@ export function createWebAudioPlayer(options) {
 
   /** Fetch track `t`'s audio, decode it and send the samples to the worklet. */
   async function fetchTrack(t, url, format, pcm, signal) {
+    // (anything else would play as noise: a sync group with no format every player takes)
+    if (format !== 'flc' && format !== 'ops' && format !== 'pcm') {
+      const decodes = [...await decodableFormats(), 'pcm'];
+      if (!signal.aborted) report({ type: 'error', message: `can't play ${format}: this browser plays ${decodes.join(', ')}` });
+      return;
+    }
     let res;
     try {
       res = await fetch(absolute(url), { signal });
@@ -211,9 +217,9 @@ export function createWebAudioPlayer(options) {
       }
     };
     const fail = (e) => { if (!signal.aborted) report({ type: 'error', message: e.message || String(e) }); };
-    const decoder = format === 'flc' || format === 'ops'
-      ? codecDecoder(format, sr, deliver, fail)
-      : pcmDecoder(pcm || { bits: 16, rate: 44100, channels: 2, little_endian: true }, sr, deliver);
+    const decoder = format === 'pcm'
+      ? pcmDecoder(pcm || { bits: 16, rate: 44100, channels: 2, little_endian: true }, sr, deliver)
+      : codecDecoder(format, sr, deliver, fail);
     const reader = res.body.getReader();
     try {
       for (;;) {

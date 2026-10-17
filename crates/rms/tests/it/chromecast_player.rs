@@ -1564,3 +1564,83 @@ async fn automatic_draws_on_the_tv_until_it_cant_keep_up() {
     assert_eq!(code, 200, "{s}");
     assert_eq!(auto_label(&s), "Automatic (drawn on the TV)");
 }
+
+/// A browser that can't decode FLAC (no WebCodecs, as on a page that isn't https) synced
+/// with a Chromecast: both get raw samples, the Chromecast's in a WAV header, for Cast's
+/// media handling.  (With no format both take, the browser played MP3 as raw samples: hiss.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_without_flac_and_a_chromecast_share_raw_samples() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, cast) = one_cast(dir.path()).await;
+    let http = server.http;
+
+    let url = format!(
+        "ws://127.0.0.1:{http}/api/v1/browser-player?id=phone&name=Phone&formats=pcm&rate=44100&clock=1"
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    // the next message of type `want`
+    async fn next(
+        ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+        want: &str,
+    ) -> Value {
+        loop {
+            let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
+                .await
+                .unwrap_or_else(|_| panic!("no {want}"))
+                .expect("socket open")
+                .unwrap();
+            if let Message::Text(t) = msg {
+                let v: Value = serde_json::from_str(&t).unwrap();
+                if v["type"] == want {
+                    return v;
+                }
+            }
+        }
+    }
+    let phone = next(&mut ws, "welcome").await["player"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ws.send(Message::Text(
+        json!({"type": "clock", "jiffies": 1000}).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    let path = format!("/api/v1/players/{}", phone.replace(':', "%3A"));
+    for _ in 0..100 {
+        let path = path.clone();
+        let (code, body) = tokio::task::spawn_blocking(move || http_json(http, "GET", &path, None))
+            .await
+            .unwrap();
+        if code == 200 && serde_json::from_str::<Value>(&body).unwrap()["connected"] == true {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    command(http, &phone, json!({"command": "sync", "with": cast})).await;
+    command(
+        http,
+        &cast,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+
+    let load = next(&mut ws, "load").await;
+    assert_eq!(load["format"], "pcm", "{load}");
+    let cast_load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    let media = &cast_load["media"];
+    assert_eq!(media["contentType"], "audio/wav", "{cast_load}");
+    assert!(
+        media["contentId"]
+            .as_str()
+            .unwrap()
+            .contains("&wav=44100,16,2"),
+        "{cast_load}"
+    );
+    let fetched = dev.expect("the stream", |v| v["fetched"].is_string()).await;
+    assert_eq!(fetched["fetched"], "RIFF", "{fetched}");
+}
