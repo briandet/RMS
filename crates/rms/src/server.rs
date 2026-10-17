@@ -107,7 +107,7 @@ impl Server {
                         .to_string()
                 })
                 .collect();
-            prefs.server.set("mediadirs", json!(dirs));
+            prefs.music_dirs_given(dirs);
         }
         if let Some(pd) = &config.playlist_dir {
             prefs.server.set("playlistdir", json!(pd.to_string_lossy()));

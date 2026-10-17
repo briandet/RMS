@@ -14,7 +14,8 @@ pub struct Config {
     #[arg(long, env = "RMS_DATA_DIR", default_value = "./data")]
     pub data_dir: PathBuf,
 
-    /// Music folder(s) to scan.  Can be repeated.  Overrides the saved preference when given.
+    /// Music folder(s) to scan.  Can be repeated.  Sets the saved folders on the first start
+    /// and whenever it changes; a change in the settings lasts until then.
     #[arg(long = "music", env = "RMS_MUSIC_DIR", value_delimiter = ',')]
     pub music_dirs: Vec<PathBuf>,
 

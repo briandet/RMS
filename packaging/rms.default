@@ -1,7 +1,8 @@
 # RMS settings, read by the systemd service (see `rms --help` for all of them).
 # Apply changes with:  sudo systemctl restart rms
 
-# Music folders, comma-separated.  The rms user needs read access.
+# Music folders, comma-separated.  The rms user needs read access.  Applied on the first
+# start and when changed here; folders changed in the web UI stay through restarts.
 RMS_MUSIC_DIR=/srv/music
 
 # Where saved playlists go (also add it to ReadWritePaths, see rms.service).

@@ -39,7 +39,7 @@ tracks and HLS radio.  Without it RMS still streams files the player can decode 
 
 | Flag | Env | Default | |
 |---|---|---|---|
-| `--music <dir>[,<dir>…]` | `RMS_MUSIC_DIR` | saved pref | music folders to scan |
+| `--music <dir>[,<dir>…]` | `RMS_MUSIC_DIR` | saved pref | music folders to scan: set on the first start and whenever this changes, so folders changed in the web UI stay through restarts |
 | `--playlist-dir <dir>` | `RMS_PLAYLIST_DIR` | | where saved playlists are written |
 | `--data-dir <dir>` | `RMS_DATA_DIR` | `./data` | prefs, database, artwork cache |
 | `--http-port <n>` | `RMS_HTTP_PORT` | 9000 | web UI, JSON-RPC, Cometd, streaming |
