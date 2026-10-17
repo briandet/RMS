@@ -59,6 +59,7 @@ export class Visualiser {
     this.pm = null;
     this.ready = false;
     this.stopped = false;
+    this.paused = false;
     this.presets = [];
     this.order = [];
     this.pos = -1;
@@ -164,6 +165,11 @@ export class Visualiser {
     }
   }
 
+  /** Stop drawing for a while (the canvas keeps its last frame), or start again. */
+  setPaused(paused) {
+    this.paused = !!paused;
+  }
+
   /** Stop drawing and let go of the GPU. */
   stop() {
     this.stopped = true;
@@ -236,6 +242,11 @@ export class Visualiser {
   frame(t) {
     if (this.stopped) return;
     this.raf = requestAnimationFrame((t2) => this.frame(t2));
+    if (this.paused) {
+      this.frames = 0;
+      this.statsAt = performance.now();
+      return;
+    }
     const fps = this.options.fps;
     if (fps && t - this.lastDraw < 1000 / fps - 4) return;
     this.lastDraw = t;

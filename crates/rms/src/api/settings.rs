@@ -380,7 +380,7 @@ fn visualizer_choice(p: &Player, receiver: bool) -> Option<Choice> {
     let tv = if receiver {
         "Drawn on the TV"
     } else {
-        "Drawn on the TV (set up the receiver app first)"
+        "Drawn on the TV (no receiver app set up)"
     };
     Some(choice(
         value,
@@ -388,7 +388,7 @@ fn visualizer_choice(p: &Player, receiver: bool) -> Option<Choice> {
             ("auto".to_string(), auto.to_string()),
             ("1".to_string(), "Video from the server".to_string()),
             ("tv".to_string(), tv.to_string()),
-            ("0".to_string(), "Off".to_string()),
+            ("0".to_string(), "Off (the cover)".to_string()),
         ],
     ))
 }

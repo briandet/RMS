@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RMS Visualiser</title>
+<title>RMS Receiver</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600&display=swap">
 <style>
-  /* RMS's Cast receiver: projectM fills the screen, the playing track sits in the lower
-     left (viz.js's TrackOverlay).  TVs crop their edges, so everything stays inside a 5%
-     margin. */
+  /* RMS's Cast receiver: what a Chromecast shows while it plays for RMS.  projectM's
+     visuals, the server's visualiser video, or the cover (blurred, behind) fill the
+     screen; the playing track sits in the lower left (viz.js's TrackOverlay).  TVs crop
+     their edges, so everything stays inside a 5% margin. */
   :root {
     --stage: #05060a;
     --fg: #f2f3fb;
@@ -20,8 +21,17 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--stage); }
   body { color: var(--fg); font-family: var(--sans); cursor: none; }
   .stage { position: fixed; inset: 0; --rms-safe-x: 5vw; --rms-safe-y: 5vh; }
-  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  #media { display: none; }
+  #canvas, #media, .backdrop { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #media { object-fit: contain; background: var(--stage); visibility: hidden; }
+  body.video #media { visibility: visible; }
+  body:not(.draw) #canvas { visibility: hidden; }
+
+  /* the now-playing screen: the cover, blurred and dimmed, behind the track */
+  .backdrop {
+    background: center / cover no-repeat; filter: blur(48px) brightness(0.45) saturate(1.2);
+    transform: scale(1.15); opacity: 0; transition: opacity 1s ease;
+  }
+  body.cover .backdrop { opacity: 1; }
 
   /* nothing playing yet */
   .idle {
@@ -36,21 +46,22 @@
     position: absolute; right: 5vw; top: 5vh; font-size: 16px; color: var(--dim);
     font-variant-numeric: tabular-nums; text-align: right; white-space: pre-line;
   }
-  @media (prefers-reduced-motion: reduce) { .idle { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .idle, .backdrop { transition: none; } }
 </style>
 </head>
-<body>
+<body class="draw">
 <div class="stage" id="stage">
+  <div class="backdrop" id="backdrop"></div>
   <canvas id="canvas"></canvas>
+  <video id="media" crossorigin="anonymous" playsinline></video>
   <div class="idle">
     <div>
       <div class="name">RMS</div>
-      <div class="hint" id="idle-hint">Starting the visualiser…</div>
+      <div class="hint" id="idle-hint">Starting…</div>
     </div>
   </div>
   <div class="debug" id="debug" hidden></div>
 </div>
-<audio id="media" crossorigin="anonymous"></audio>
 
 <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 <script type="module" src="receiver.js"></script>

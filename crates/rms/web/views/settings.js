@@ -123,7 +123,7 @@ export function render(node, { ctx }) {
     // Chromecasts: the TV visualiser
     const vizField = pref.visualizer?.options?.length
       ? choiceField('TV visualiser', pref.visualizer, (v) => setPref({ visualizer: v }),
-        'MilkDrop visuals drawn to the music instead of audio alone: as video from the server, or drawn on the TV by RMS’s receiver app (see TV visualiser below). Applies from the next track you start.')
+        'MilkDrop visuals drawn to the music: drawn on the TV, or as video from the server (see TV visualiser below). Off shows the track’s cover. Applies from the next track you start.')
       : null;
 
     const digitalId = fieldId();
@@ -777,7 +777,7 @@ export function render(node, { ctx }) {
       return;
     }
     if (!alive) return;
-    const about = h('p', { class: 'muted small' }, 'Chromecasts with a screen can show MilkDrop visuals drawn to the music by projectM, in one of two ways, chosen for each Chromecast under Player: as video drawn and encoded on the server (a sync group’s TVs share one stream), or drawn on the TV by RMS’s receiver app, which needs only the audio. Changes apply from the next track you start.');
+    const about = h('p', { class: 'muted small' }, 'Chromecasts play in RMS’s receiver app, which shows the playing track’s cover and title. With a screen they can also show MilkDrop visuals drawn to the music by projectM, in one of two ways, chosen for each Chromecast under Player: drawn on the TV, which needs only the audio, or as video drawn and encoded on the server (a sync group’s TVs share one stream). Changes apply from the next track you start.');
     const choice = (label, key, help) => choiceField(label, st[key], (v) => saveServer({ [key]: v }), help);
     const slider = (label, key, unit, help) => {
       const r = st[key];
@@ -810,14 +810,14 @@ export function render(node, { ctx }) {
       renderViz();
       renderPlayer();
     } }, h('label', { for: appId }, 'Receiver app ID'),
-    h('p', { class: 'muted small' }, 'Register the receiver app in the ',
+    h('p', { class: 'muted small' }, 'The Cast app Chromecasts play in. Empty: RMS’s own. For your own copy, register https://<you>.github.io/RMS/receiver/ in the ',
       h('a', { href: 'https://cast.google.com/publish', target: '_blank', rel: 'noopener' }, 'Google Cast developer console'),
-      ' as a Custom Receiver with the URL https://rustydc.github.io/RMS/receiver/, and enter its app ID here. Until the app is published, add each Chromecast’s serial number there too. Leave it empty if it isn’t set up.'),
+      ' as a Custom Receiver (with Google Cast for audio on, for speakers) and enter its app ID here. Until an app is published, only Chromecasts whose serial numbers are added there can start it.'),
     h('div', { class: 'inline-row' }, appInput, h('button', { class: 'btn', type: 'submit' }, 'Save')));
 
     vizSection.replaceChildren(head, about,
+      sub('Cast receiver'), appForm,
       sub('Video from the server'), ...video,
-      sub('Drawn on the TV'), appForm,
       sub('Both ways'),
       choice('Frames a second', 'visualizer_fps', '60 is smoother, but the video is about twice as big (30 is safer over Wi-Fi), and a TV drawing it itself may not keep up.'),
       choice('Draw at', 'visualizer_render_size', 'Drawing smaller and scaling up is lighter on the GPU (and makes a smaller video); MilkDrop’s soft visuals scale up well. A TV drawing it itself draws at 1280×720 when this is the video size.'),

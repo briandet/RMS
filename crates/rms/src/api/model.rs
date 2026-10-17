@@ -1625,8 +1625,9 @@ pub struct ServerSettings {
     pub visualizer_quality: Range,
     /// Seconds each preset shows.
     pub visualizer_preset_seconds: Range,
-    /// The Cast app id of RMS's receiver app (drawn on the TV), or empty: registered in the
-    /// Google Cast developer console for `https://<owner>.github.io/<repo>/receiver/`.
+    /// The Cast receiver app Chromecasts play in (8 hex digits), or empty for RMS's own:
+    /// registered in the Google Cast developer console for
+    /// `https://<owner>.github.io/<repo>/receiver/`.
     pub visualizer_receiver_app: String,
 }
 

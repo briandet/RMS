@@ -103,13 +103,16 @@ pub fn mode(server: &Server, mac: &slimproto::MacAddress) -> Mode {
 }
 
 /// What the receiver app is told with each track, so it knows what it's talking to.
-pub const RECEIVER_PROTOCOL: u32 = 1;
+pub const RECEIVER_PROTOCOL: u32 = 2;
 /// What the receiver draws at when "Draw at" is the video size: a Chromecast's GPU is a
 /// phone's, far slower than the server's.
 pub const RECEIVER_DEFAULT_SIZE: &str = "1280x720";
 
-/// The app id of RMS's Cast receiver (`visualizerReceiverApp`: registered in the Google
-/// Cast developer console for the page in `receiver/`), when one is set up.
+/// RMS's own Cast receiver app (the page in `receiver/`, registered in the Google Cast
+/// developer console), which Chromecasts play in unless the settings name another.
+pub const DEFAULT_RECEIVER_APP: Option<&str> = None;
+
+/// The Cast receiver app Chromecasts play in: `visualizerReceiverApp`, or RMS's own.
 pub fn receiver_app(server: &Server) -> Option<String> {
     let id = server
         .prefs
@@ -117,7 +120,10 @@ pub fn receiver_app(server: &Server) -> Option<String> {
         .get_str("visualizerReceiverApp")
         .trim()
         .to_ascii_uppercase();
-    valid_app_id(&id).then_some(id)
+    if valid_app_id(&id) {
+        return Some(id);
+    }
+    DEFAULT_RECEIVER_APP.map(str::to_string)
 }
 
 /// A Cast app id: 8 hex digits.
