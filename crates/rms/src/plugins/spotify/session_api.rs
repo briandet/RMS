@@ -5,8 +5,9 @@
 //! rate-limited by Spotify to the point of being unusable, and a per-user app is too much
 //! to ask.  The session needs nothing beyond signing in, so [`Spotify::api`] falls back to
 //! [`session_get`] when the Web API fails.  Results have the Web API's JSON shape (only the
-//! fields this plugin reads), so the menus work unchanged.  Not available this way: search,
-//! saved albums, followed artists, recently played, top tracks/artists, new releases.
+//! fields this plugin reads), so the menus work unchanged.  Saved albums and followed artists
+//! come from the collection service the apps sync with.  Not available this way: search,
+//! recently played, top tracks/artists, new releases.
 
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
@@ -48,6 +49,19 @@ pub async fn session_get(session: &Session, path: &str) -> Result<Value, String>
             page(tracks(session, &ids).await?, |t| json!({ "track": t }))
         }
         ["me", "playlists"] => playlists(session).await,
+        ["me", "albums"] => {
+            let ids: Vec<String> = collection(session, "collection")
+                .await?
+                .into_iter()
+                .filter(|u| u.starts_with("spotify:album:"))
+                .collect();
+            page(albums(session, &ids).await?, |a| json!({ "album": a }))
+        }
+        ["me", "following"] => {
+            let ids = collection(session, "artist").await?;
+            let items = artists(session, &ids).await?;
+            Ok(json!({ "artists": { "items": items, "next": null } }))
+        }
         ["artists", id, "top-tracks"] => {
             let a = artist(session, id).await?;
             let country = session.country();
@@ -213,6 +227,37 @@ async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Value>, String
     Ok(out)
 }
 
+/// An artist's pictures: its portraits, or failing those the portrait group or its
+/// biography's (where Spotify keeps them for many artists).
+fn artist_images(a: &Artist) -> Value {
+    let bios = a
+        .biographies
+        .iter()
+        .flat_map(|b| std::iter::once(&b.portraits).chain(b.portrait_group.iter()));
+    [&a.portraits, &a.portrait_group]
+        .into_iter()
+        .chain(bios)
+        .find(|i| !i.is_empty())
+        .map_or_else(|| json!([]), images)
+}
+
+async fn artists(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
+    let mut out = Vec::with_capacity(uris.len());
+    for (u, bytes) in batch(session, uris, ExtensionKind::ARTIST_V4).await? {
+        let Ok(msg) = librespot_protocol::metadata::Artist::parse_from_bytes(&bytes) else {
+            continue;
+        };
+        if let Ok(a) = Artist::parse(&msg, &uri(&u)?) {
+            out.push(json!({
+                "id": id_of(&a.id),
+                "name": a.name,
+                "images": artist_images(&a),
+            }));
+        }
+    }
+    Ok(out)
+}
+
 async fn album(session: &Session, id: &str) -> Result<Value, String> {
     let a = Album::get(session, &uri(&format!("spotify:album:{id}"))?)
         .await
@@ -268,6 +313,97 @@ async fn context_tracks(session: &Session, context: &str) -> Result<Vec<String>,
     Ok(ids)
 }
 
+/// Pages of a collection set, at most.
+const COLLECTION_PAGES: usize = 20;
+
+/// The URIs in one of the user's collection sets, as the apps sync them: `collection` (liked
+/// tracks and saved albums) or `artist` (followed artists).  Newest first.
+async fn collection(session: &Session, set: &str) -> Result<Vec<String>, String> {
+    let mut headers = axum::http::HeaderMap::new();
+    let proto = axum::http::HeaderValue::from_static("application/vnd.collection-v2.spotify.proto");
+    headers.insert(axum::http::header::CONTENT_TYPE, proto.clone());
+    headers.insert(axum::http::header::ACCEPT, proto);
+    let user = session.username();
+    let mut uris = Vec::new();
+    let mut token = String::new();
+    for _ in 0..COLLECTION_PAGES {
+        let body = collection_page_request(&user, set, &token);
+        let bytes = session
+            .spclient()
+            .request(
+                &axum::http::Method::POST,
+                "/collection/v2/paging",
+                Some(headers.clone()),
+                Some(&body),
+            )
+            .await
+            .map_err(|e| format!("Spotify collection {set}: {e}"))?;
+        let (page, next) =
+            collection_page(&bytes).map_err(|e| format!("Spotify collection {set}: {e}"))?;
+        uris.extend(page);
+        if next.is_empty() {
+            break;
+        }
+        token = next;
+    }
+    Ok(uris)
+}
+
+/// Items per collection page.
+const COLLECTION_PAGE: i32 = 300;
+
+/// A `collection2v2.PageRequest` (librespot-protocol does not compile that proto).
+fn collection_page_request(user: &str, set: &str, token: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut os = protobuf::CodedOutputStream::vec(&mut out);
+    let written = (|| {
+        os.write_string(1, user)?;
+        os.write_string(2, set)?;
+        if !token.is_empty() {
+            os.write_string(3, token)?;
+        }
+        os.write_int32(4, COLLECTION_PAGE)?;
+        os.flush()
+    })();
+    drop(os);
+    debug_assert!(written.is_ok(), "writing to a Vec cannot fail");
+    out
+}
+
+/// A `collection2v2.PageResponse`: the URIs of its items that are not removed, and the token
+/// of the next page (empty on the last).
+fn collection_page(bytes: &[u8]) -> protobuf::Result<(Vec<String>, String)> {
+    let mut is = protobuf::CodedInputStream::from_bytes(bytes);
+    let (mut uris, mut next) = (Vec::new(), String::new());
+    while let Some(tag) = is.read_raw_tag_or_eof()? {
+        match tag >> 3 {
+            1 => {
+                let item = is.read_bytes()?;
+                let mut it = protobuf::CodedInputStream::from_bytes(&item);
+                let (mut uri, mut removed) = (String::new(), false);
+                while let Some(t) = it.read_raw_tag_or_eof()? {
+                    match t >> 3 {
+                        1 => uri = it.read_string()?,
+                        3 => removed = it.read_bool()?,
+                        _ => it.skip_field(wire_type(t)?)?,
+                    }
+                }
+                if !removed && !uri.is_empty() {
+                    uris.push(uri);
+                }
+            }
+            2 => next = is.read_string()?,
+            _ => is.skip_field(wire_type(tag)?)?,
+        }
+    }
+    Ok((uris, next))
+}
+
+fn wire_type(tag: u32) -> protobuf::Result<protobuf::rt::WireType> {
+    protobuf::rt::WireType::new(tag & 7)
+        .ok_or_else(|| protobuf::Error::from(std::io::Error::other("bad wire type")))
+}
+
 /// The user's playlists (rootlist), folders flattened.
 async fn playlists(session: &Session) -> Result<Value, String> {
     let bytes = session
@@ -316,4 +452,84 @@ async fn playlists(session: &Session) -> Result<Value, String> {
         })
         .collect::<Vec<_>>();
     page(items, |p| p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protobuf::CodedOutputStream;
+
+    fn encode(f: impl FnOnce(&mut CodedOutputStream) -> protobuf::Result<()>) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut os = CodedOutputStream::vec(&mut out);
+        f(&mut os).unwrap();
+        os.flush().unwrap();
+        drop(os);
+        out
+    }
+
+    /// A `CollectionItem` as Spotify sends it.
+    fn item(uri: &str, added_at: i32, removed: bool) -> Vec<u8> {
+        encode(|os| {
+            os.write_string(1, uri)?;
+            os.write_int32(2, added_at)?;
+            if removed {
+                os.write_bool(3, true)?;
+            }
+            os.write_string(4, "spotify:context:unknown-field")
+        })
+    }
+
+    #[test]
+    fn collection_pages_skip_removed_items_and_carry_the_next_token() {
+        let bytes = encode(|os| {
+            os.write_bytes(1, &item("spotify:artist:a", 3, false))?;
+            os.write_bytes(1, &item("spotify:artist:gone", 2, true))?;
+            os.write_bytes(1, &item("spotify:album:b", 1, false))?;
+            os.write_string(2, "next-page")?;
+            os.write_string(3, "sync-token")
+        });
+        let (uris, next) = collection_page(&bytes).unwrap();
+        assert_eq!(uris, ["spotify:artist:a", "spotify:album:b"]);
+        assert_eq!(next, "next-page");
+
+        let (uris, next) = collection_page(&[]).unwrap();
+        assert!(uris.is_empty() && next.is_empty());
+    }
+
+    #[test]
+    fn collection_page_requests_carry_user_set_token_and_limit() {
+        let fields = |bytes: &[u8]| {
+            let mut is = protobuf::CodedInputStream::from_bytes(bytes);
+            let mut f = Vec::new();
+            while let Some(tag) = is.read_raw_tag_or_eof().unwrap() {
+                f.push(match tag >> 3 {
+                    4 => (4, is.read_int32().unwrap().to_string()),
+                    n => (n, is.read_string().unwrap()),
+                });
+            }
+            f
+        };
+        assert_eq!(
+            fields(&collection_page_request("me", "artist", "")),
+            [
+                (1, "me".into()),
+                (2, "artist".into()),
+                (4, COLLECTION_PAGE.to_string())
+            ]
+        );
+        assert_eq!(
+            fields(&collection_page_request("me", "collection", "t")),
+            [
+                (1, "me".to_string()),
+                (2, "collection".into()),
+                (3, "t".into()),
+                (4, COLLECTION_PAGE.to_string())
+            ]
+        );
+        assert!(
+            collection_page(b"\xff").is_err(),
+            "garbage is an error, not a panic"
+        );
+    }
 }
