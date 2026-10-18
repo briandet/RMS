@@ -204,7 +204,7 @@ function makePlayer(i) {
     ip: `192.168.1.${20 + i}`, connected: i !== 5, power: i !== 4,
     mode: 'stop', queue: [], index: 0, elapsedBase: 0, startedAt: 0,
     volume: 40, muted: false, shuffle: 0, repeat: 0, timestamp: Date.now(),
-    settings: { transition_type: 0, transition_duration: 5, replay_gain_mode: 0, max_bitrate: 0, digital_volume_control: true, dont_stop_the_music: '0', play_delay: 0 },
+    settings: { max_bitrate: 0, digital_volume_control: true, play_delay: 0 },
     syncGroup: null,
   };
   if (SCREEN_MODELS.has(model)) {
@@ -267,6 +267,11 @@ function matches(text, q) {
   return words.every((w) => t.includes(w));
 }
 const choice = (pairs, value) => ({ value: String(value), options: pairs.map(([v, label]) => ({ value: v, label })) });
+// playback: the same for every player
+Object.assign(settings, {
+  transition_type: 0, transition_duration: 5, replay_gain_mode: 0,
+  dont_stop_the_music: choice(DSTM, '0'), adventurous: 15, scrobble_to: [],
+});
 const letter = (s) => (s[0] || '').toUpperCase();
 
 const artistOut = (a) => ({ id: a.id, name: a.name, ...(a.portrait ? { portrait: a.portrait } : {}), letter: letter(a.name) });
@@ -372,10 +377,7 @@ function playerOut(p) {
 function playerSettingsOut(p) {
   const s = p.settings;
   const r = {
-    transition_type: s.transition_type, transition_duration: s.transition_duration, replay_gain_mode: s.replay_gain_mode, play_delay: s.play_delay ?? 0,
-    max_bitrate: s.max_bitrate, digital_volume_control: s.digital_volume_control,
-    dont_stop_the_music: choice(DSTM, s.dont_stop_the_music), adventurous: s.adventurous ?? 15,
-    scrobble_to: s.scrobble_to ?? settings.listenbrainz_accounts.filter((a) => a.default).map((a) => a.user),
+    play_delay: s.play_delay ?? 0, max_bitrate: s.max_bitrate, digital_volume_control: s.digital_volume_control,
   };
   if (p.model === 'chromecast') {
     r.visualizer = { value: s.visualizer ?? 'auto', options: [['auto', 'Automatic (drawn on the TV)'], ['1', 'Video from the server'], ['tv', 'Drawn on the TV'], ['0', 'Off (the cover)']].map(([value, label]) => ({ value, label })) };
@@ -393,8 +395,7 @@ function playerSettingsOut(p) {
 function patchPlayerSettings(p, b) {
   const s = p.settings;
   for (const [k, v] of Object.entries(b)) {
-    if (k === 'transition_type') { if (!(v >= 0 && v <= 4)) throw bad('transition_type must be 0–4'); s[k] = v; }
-    else if (['transition_duration', 'replay_gain_mode', 'max_bitrate'].includes(k)) s[k] = +v;
+    if (k === 'max_bitrate') s[k] = +v;
     else if (k === 'play_delay') {
       if (!(v >= 0 && v <= 1000)) throw bad('play_delay must be 0–1000');
       s[k] = +v;
@@ -405,10 +406,7 @@ function patchPlayerSettings(p, b) {
       if (!['auto', '1', 'tv', '0'].includes(v)) throw bad(`${v} is not a valid visualizer`);
       s[k] = v;
     }
-    else if (k === 'dont_stop_the_music') {
-      if (!DSTM.some(([x]) => x === v)) throw bad(`unknown dont_stop_the_music ${v}`);
-      s[k] = v;
-    } else if (k in DISPLAY_CHOICES || k.startsWith('auto_brightness')) {
+    else if (k in DISPLAY_CHOICES || k.startsWith('auto_brightness')) {
       if (!(k in s)) throw bad(`this player has no ${k}`);
       if (k in DISPLAY_CHOICES && !DISPLAY_CHOICES[k].some(([x]) => x === String(v))) throw bad(`unknown ${k} ${v}`);
       s[k] = k in DISPLAY_CHOICES ? String(v) : +v;
@@ -427,6 +425,16 @@ function patchServerSettings(b) {
       if (id && !/^[0-9A-F]{8}$/.test(id)) throw bad('visualizer_receiver_app: a Cast app id is 8 hex digits, like 1A2B3C4D');
       settings[k] = id;
       continue;
+    }
+    if (k === 'transition_type' && !(v >= 0 && v <= 4)) throw bad('transition_type must be 0–4');
+    if (k === 'dont_stop_the_music') {
+      if (!DSTM.some(([x]) => x === v)) throw bad(`${v} is not a valid dont_stop_the_music`);
+      settings[k] = choice(DSTM, v);
+      continue;
+    }
+    if (k === 'scrobble_to') {
+      const u = v.find((x) => !settings.listenbrainz_accounts.some((a) => a.user === x));
+      if (u) throw bad(`scrobble_to: no ListenBrainz account ${u}`);
     }
     if (k.startsWith('visualizer_')) {
       const c = settings[k];

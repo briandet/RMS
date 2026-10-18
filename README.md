@@ -120,7 +120,10 @@ The script builds a release binary (the web UI is built in), installs it as
 * **Playback controller**: a port of `Slim::Player::StreamingController` including its
   full event × state transition table: gapless track hand-off on `STMd`, end-of-stream
   handling, rebuffering on output underrun, retry of failed radio streams, crossfade /
-  fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.
+  fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.  Unlike Lyrion,
+  transitions, replay gain, Don't Stop The Music, Adventurous and who to scrobble to are the
+  same for every player (Settings → Playback; a client changing them for one player changes
+  them for all).
 * **Synchronisation**: sync groups share one controller and playlist; synchronized start
   with `strm u` at a common player-clock time and continuous drift correction with
   `skipAhead` / `pauseFor` from accurate play points.  A transcoded, proxied or Spotify
@@ -321,8 +324,8 @@ The script builds a release binary (the web UI is built in), installs it as
 
 **Don't Stop The Music** keeps a player going when its queue runs out, as in Lyrion: when
 fewer than two songs follow the one playing (and repeat is off), it adds more.  Choose what
-per player under Settings in the web UI, Squeezer, the Touch/Radio or the player's own
-menus:
+(for every player) under Settings → Playback in the web UI, or in Squeezer, the Touch/Radio
+or a player's own menus:
 
 * **Similar Songs**: songs like the last ones in the queue, picked from your library by
   how they sound (see below), shared genres and artists, era, and play history (artists you played around the same

@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info};
 
 pub const PREF: &str = "listenbrainz";
-/// Player pref: percent of a mix to discover (0–40).
+/// Percent of a mix to discover (0–40); the same for every player.
 pub const ADVENTUROUS: &str = "adventurous";
 pub const DEFAULT_ADVENTUROUS: i64 = 15;
 pub const MAX_ADVENTUROUS: i64 = 40;
@@ -51,21 +51,22 @@ pub fn enabled(server: &Server) -> bool {
     server.prefs.server.get_bool(PREF)
 }
 
-/// The player's Adventurous setting, in percent.
-pub fn adventurous(p: &Player) -> i64 {
-    if p.prefs.exists(ADVENTUROUS) {
-        p.prefs.get_i64(ADVENTUROUS).clamp(0, MAX_ADVENTUROUS)
+/// The Adventurous setting, in percent.
+pub fn adventurous(server: &Server) -> i64 {
+    let prefs = &server.prefs.server;
+    if prefs.exists(ADVENTUROUS) {
+        prefs.get_i64(ADVENTUROUS).clamp(0, MAX_ADVENTUROUS)
     } else {
         DEFAULT_ADVENTUROUS
     }
 }
 
 /// How many of `n` songs of a mix for `p` to discover.
-pub fn share(server: &Server, p: &Player, n: usize) -> usize {
+pub fn share(server: &Server, n: usize) -> usize {
     if !enabled(server) {
         return 0;
     }
-    ((n as f64) * adventurous(p) as f64 / 100.0).round() as usize
+    ((n as f64) * adventurous(server) as f64 / 100.0).round() as usize
 }
 
 /// Something proposed, before it is found playable.
@@ -99,11 +100,7 @@ pub async fn explore(
         .await
         .unwrap_or_default();
     // with a ListenBrainz account: what it recommends for its user, too
-    let user = player.and_then(|p| {
-        super::scrobble::player_accounts(server, p)
-            .into_iter()
-            .next()
-    });
+    let user = player.and_then(|_| super::scrobble::scrobble_to(server).into_iter().next());
     if recs.is_empty() && artists.is_empty() && user.is_none() {
         debug!("discovery: no MusicBrainz ids for the seeds");
         return Vec::new();

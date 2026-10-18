@@ -1176,7 +1176,57 @@
         "min": 5,
         "max": 600
       },
-      "visualizer_receiver_app": ""
+      "visualizer_receiver_app": "",
+      "transition_type": 0,
+      "transition_duration": 10,
+      "replay_gain_mode": 0,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      },
+      "adventurous": 15,
+      "scrobble_to": []
     }
   },
   "PATCH /api/v1/settings (change settings)": {
@@ -1285,7 +1335,57 @@
         "min": 5,
         "max": 600
       },
-      "visualizer_receiver_app": ""
+      "visualizer_receiver_app": "",
+      "transition_type": 0,
+      "transition_duration": 10,
+      "replay_gain_mode": 0,
+      "dont_stop_the_music": {
+        "value": "0",
+        "options": [
+          {
+            "value": "0",
+            "label": "Disabled"
+          },
+          {
+            "value": "Example FM",
+            "label": "Example FM"
+          },
+          {
+            "value": "First Light",
+            "label": "First Light"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
+            "label": "Random Album"
+          },
+          {
+            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
+            "label": "Random Album (limited to current genres)"
+          },
+          {
+            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
+            "label": "Random Artist"
+          },
+          {
+            "value": "PLUGIN_RANDOM_YEAR_ITEM",
+            "label": "Random Year"
+          },
+          {
+            "value": "RMS_DSTM_SIMILAR",
+            "label": "Similar Songs"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TRACK",
+            "label": "Song Mix"
+          },
+          {
+            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
+            "label": "Song Mix (limited to current genres)"
+          }
+        ]
+      },
+      "adventurous": 15,
+      "scrobble_to": []
     }
   },
   "PATCH /api/v1/settings (bad bitrate)": {
@@ -1297,122 +1397,22 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `radio_direct`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet`, `visualizer_size`, `visualizer_render_size`, `visualizer_fps`, `visualizer_quality`, `visualizer_preset_seconds`, `visualizer_receiver_app` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `radio_direct`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet`, `visualizer_size`, `visualizer_render_size`, `visualizer_fps`, `visualizer_quality`, `visualizer_preset_seconds`, `visualizer_receiver_app`, `transition_type`, `transition_duration`, `replay_gain_mode`, `dont_stop_the_music`, `adventurous`, `scrobble_to` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {
     "status": 200,
     "body": {
-      "transition_type": 0,
-      "transition_duration": 10,
-      "replay_gain_mode": 0,
       "max_bitrate": 0,
       "digital_volume_control": true,
-      "dont_stop_the_music": {
-        "value": "0",
-        "options": [
-          {
-            "value": "0",
-            "label": "Disabled"
-          },
-          {
-            "value": "Example FM",
-            "label": "Example FM"
-          },
-          {
-            "value": "First Light",
-            "label": "First Light"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
-            "label": "Random Album"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
-            "label": "Random Album (limited to current genres)"
-          },
-          {
-            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
-            "label": "Random Artist"
-          },
-          {
-            "value": "PLUGIN_RANDOM_YEAR_ITEM",
-            "label": "Random Year"
-          },
-          {
-            "value": "RMS_DSTM_SIMILAR",
-            "label": "Similar Songs"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TRACK",
-            "label": "Song Mix"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
-            "label": "Song Mix (limited to current genres)"
-          }
-        ]
-      },
-      "adventurous": 15,
-      "scrobble_to": [],
       "play_delay": 0
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (squeezebox settings)": {
     "status": 200,
     "body": {
-      "transition_type": 0,
-      "transition_duration": 10,
-      "replay_gain_mode": 0,
       "max_bitrate": 0,
       "digital_volume_control": true,
-      "dont_stop_the_music": {
-        "value": "0",
-        "options": [
-          {
-            "value": "0",
-            "label": "Disabled"
-          },
-          {
-            "value": "Example FM",
-            "label": "Example FM"
-          },
-          {
-            "value": "First Light",
-            "label": "First Light"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
-            "label": "Random Album"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
-            "label": "Random Album (limited to current genres)"
-          },
-          {
-            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
-            "label": "Random Artist"
-          },
-          {
-            "value": "PLUGIN_RANDOM_YEAR_ITEM",
-            "label": "Random Year"
-          },
-          {
-            "value": "RMS_DSTM_SIMILAR",
-            "label": "Similar Songs"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TRACK",
-            "label": "Song Mix"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
-            "label": "Song Mix (limited to current genres)"
-          }
-        ]
-      },
-      "adventurous": 15,
-      "scrobble_to": [],
       "display": {
         "playing_mode": {
           "value": "5",
@@ -1583,11 +1583,121 @@
   "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (change player settings)": {
     "status": 200,
     "body": {
+      "max_bitrate": 320,
+      "digital_volume_control": true,
+      "play_delay": 120
+    }
+  },
+  "PATCH /api/v1/settings (change playback settings)": {
+    "status": 200,
+    "body": {
+      "library_name": "Test Library",
+      "media_dirs": [
+        "/<music>"
+      ],
+      "watch_folders": false,
+      "upnp_players": false,
+      "chromecast_players": false,
+      "airplay_players": false,
+      "radio_direct": false,
+      "art_folder": "",
+      "online_artist_images": false,
+      "spotify_client_id": "",
+      "spotify_bitrate": 320,
+      "spotify_normalisation": false,
+      "musicbrainz": false,
+      "acoustid_key": "",
+      "musicbrainz_identified": 0,
+      "musicbrainz_pending": 5,
+      "albums_matched": 0,
+      "albums_uncertain": 0,
+      "albums_pending": 3,
+      "edit_files": false,
+      "edit_files_blocked": "Changing music files is off (setting edit_files).",
+      "file_name_template": "{album_artist}/{album}[ ({year})]/[{disc}-]{track:02} {title}",
+      "listenbrainz": false,
+      "discovered": 0,
+      "discovered_played": 0,
+      "discovered_rejected": 0,
+      "listenbrainz_accounts": [],
+      "scrobble_spotify": false,
+      "scrobble_pending": 0,
+      "effnet": false,
+      "effnet_status": "off",
+      "effnet_analyzed": 0,
+      "effnet_pending": 5,
+      "visualizer_available": false,
+      "visualizer_error": "the pmviz helper isn't installed (see tools/projectm-viz)",
+      "visualizer_encoder": "",
+      "visualizer_size": {
+        "value": "1920x1080",
+        "options": [
+          {
+            "value": "1920x1080",
+            "label": "1080p (1920×1080)"
+          },
+          {
+            "value": "1600x900",
+            "label": "900p (1600×900)"
+          },
+          {
+            "value": "1280x720",
+            "label": "720p (1280×720)"
+          }
+        ]
+      },
+      "visualizer_render_size": {
+        "value": "",
+        "options": [
+          {
+            "value": "",
+            "label": "Automatic"
+          },
+          {
+            "value": "1600x900",
+            "label": "1600×900"
+          },
+          {
+            "value": "1280x720",
+            "label": "1280×720"
+          },
+          {
+            "value": "960x540",
+            "label": "960×540"
+          }
+        ]
+      },
+      "visualizer_fps": {
+        "value": "30",
+        "options": [
+          {
+            "value": "24",
+            "label": "24"
+          },
+          {
+            "value": "30",
+            "label": "30"
+          },
+          {
+            "value": "60",
+            "label": "60"
+          }
+        ]
+      },
+      "visualizer_quality": {
+        "value": 30,
+        "min": 18,
+        "max": 45
+      },
+      "visualizer_preset_seconds": {
+        "value": 30,
+        "min": 5,
+        "max": 600
+      },
+      "visualizer_receiver_app": "",
       "transition_type": 1,
       "transition_duration": 5,
       "replay_gain_mode": 0,
-      "max_bitrate": 0,
-      "digital_volume_control": true,
       "dont_stop_the_music": {
         "value": "0",
         "options": [
@@ -1634,65 +1744,14 @@
         ]
       },
       "adventurous": 15,
-      "scrobble_to": [],
-      "play_delay": 0
+      "scrobble_to": []
     }
   },
   "PATCH /api/v1/players/00%3A04%3A20%3A12%3A34%3A56/settings (change display settings)": {
     "status": 200,
     "body": {
-      "transition_type": 0,
-      "transition_duration": 10,
-      "replay_gain_mode": 0,
       "max_bitrate": 0,
       "digital_volume_control": true,
-      "dont_stop_the_music": {
-        "value": "0",
-        "options": [
-          {
-            "value": "0",
-            "label": "Disabled"
-          },
-          {
-            "value": "Example FM",
-            "label": "Example FM"
-          },
-          {
-            "value": "First Light",
-            "label": "First Light"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_ITEM",
-            "label": "Random Album"
-          },
-          {
-            "value": "PLUGIN_RANDOM_ALBUM_MIX_WITH_GENRES",
-            "label": "Random Album (limited to current genres)"
-          },
-          {
-            "value": "PLUGIN_RANDOM_CONTRIBUTOR_ITEM",
-            "label": "Random Artist"
-          },
-          {
-            "value": "PLUGIN_RANDOM_YEAR_ITEM",
-            "label": "Random Year"
-          },
-          {
-            "value": "RMS_DSTM_SIMILAR",
-            "label": "Similar Songs"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TRACK",
-            "label": "Song Mix"
-          },
-          {
-            "value": "PLUGIN_RANDOM_TITLEMIX_WITH_GENRES",
-            "label": "Song Mix (limited to current genres)"
-          }
-        ]
-      },
-      "adventurous": 15,
-      "scrobble_to": [],
       "display": {
         "playing_mode": {
           "value": "2",
@@ -1866,7 +1925,7 @@
       "error": "this player has no text_size"
     }
   },
-  "PATCH /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (bad transition)": {
+  "PATCH /api/v1/settings (bad transition)": {
     "status": 400,
     "body": {
       "error": "transition_type must be 0–4"

@@ -772,7 +772,7 @@ Accounts are added with a user token from <https://listenbrainz.org/settings/>
 (`POST /api/v1/listenbrainz/accounts`, which checks it with ListenBrainz; 422 when refused).
 What plays is scrobbled to them: *now playing* when a song starts, a listen once it has played
 for half its length or 4 minutes (if longer than 30 seconds), with the MusicBrainz ids and
-ISRC the library knows.  A player scrobbles to its settings' `scrobble_to` accounts, which
+ISRC the library knows.  Players scrobble to the server settings' `scrobble_to` accounts, which
 are the `default` ones unless set; Subsonic apps' `scrobble` calls go to the default
 accounts.  Listens wait in a queue while ListenBrainz can't take them (`scrobble_pending`,
 `scrobble_error` in the server settings).
@@ -849,7 +849,10 @@ then.
  "visualizer_size": Choice, "visualizer_render_size": Choice, "visualizer_fps": Choice,
  "visualizer_quality": {"value": 30, "min": 18, "max": 45},
  "visualizer_preset_seconds": {"value": 30, "min": 5, "max": 600},
- "visualizer_receiver_app": ""}
+ "visualizer_receiver_app": "",
+ "transition_type": 1, "transition_duration": 5, "replay_gain_mode": 0,
+ "dont_stop_the_music": {"value": "0", "options": [{"value": "0", "label": "Disabled"}, "…"]},
+ "adventurous": 15, "scrobble_to": ["alice"]}
 ```
 
 `PATCH /api/v1/settings` with some of these fields changes them and returns all of them.
@@ -867,7 +870,22 @@ set to one of their options' `value`s and the ranges (`visualizer_quality`, the 
 QP / CRF; `visualizer_preset_seconds`) to a number within them.
 `visualizer_receiver_app` is the Cast receiver app Chromecasts play in (8 hex digits), or
 empty for RMS's own (`8745C385`).  The frame rate, drawing size and preset time apply to Chromecasts
-that draw the visualiser themselves too.  Changes apply from the next track.  Changed music folders take effect with the next scan:
+that draw the visualiser themselves too.  Changes apply from the next track.
+
+The playback settings are the same for every player (a player's `playerpref` for them, as
+Jive and Material set them, changes them for all):
+* `transition_type`: 0 none, 1 crossfade, 2 fade in, 3 fade out, 4 fade in and out;
+  `transition_duration` 0–10 seconds.
+* `replay_gain_mode`: 0 off, 1 track gain, 2 album gain, 3 smart (album gain when playing
+  a whole album).
+* `dont_stop_the_music`: what plays when the queue runs out, a choice set to one of its
+  options' `value`s (`"0"`: nothing).
+* `adventurous`: percent (0–40) of Similar Songs and Create Mix discovered with ListenBrainz
+  (when `listenbrainz` is on).
+* `scrobble_to`: the [ListenBrainz](#listenbrainz) accounts (user names) players scrobble
+  to; set it to choose (`[]`: none).
+
+Changed music folders take effect with the next scan:
 
 `POST /api/v1/library/scan` with `{"mode": "changes"}` (the default: new, changed and
 removed files), `{"mode": "playlists"}` or `{"mode": "full"}` (clear the library and scan
@@ -878,11 +896,7 @@ events.
 
 ```json
 {
-  "transition_type": 1, "transition_duration": 5, "replay_gain_mode": 0, "max_bitrate": 0,
-  "play_delay": 0,
-  "digital_volume_control": true,
-  "dont_stop_the_music": {"value": "0", "options": [{"value": "0", "label": "Disabled"}, "…"]},
-  "adventurous": 15, "scrobble_to": ["alice"],
+  "max_bitrate": 0, "play_delay": 0, "digital_volume_control": true,
   "display": {
     "playing_mode": {"value": "5", "options": [{"value": "0", "label": "Nothing"}, "…"]},
     "text_size": Choice, "text_size_off": Choice,
@@ -893,16 +907,10 @@ events.
 }
 ```
 
-* `transition_type`: 0 none, 1 crossfade, 2 fade in, 3 fade out, 4 fade in and out;
-  `transition_duration` 0–10 seconds.
-* `replay_gain_mode`: 0 off, 1 track gain, 2 album gain, 3 smart (album gain when playing
-  a whole album).  `max_bitrate` in kbps, 0 for no limit.
-* `adventurous`: percent (0–40) of Similar Songs and Create Mix discovered with ListenBrainz
-  (when the server setting `listenbrainz` is on).
-* `scrobble_to`: the [ListenBrainz](#listenbrainz) accounts (user names) the player scrobbles
-  to; set it to choose for the player (`[]`: none).
-* A choice (`dont_stop_the_music` and the display settings) is set to one of its options'
-  `value`s.
+* `max_bitrate` in kbps, 0 for no limit.
+* A choice (the display settings) is set to one of its options' `value`s.
+* Transitions, ReplayGain, Don't Stop The Music, Adventurous and who to scrobble to are the
+  same for every player: they're in the [server settings](#server-settings).
 * `display` is there for players with a screen (Squeezebox 2/3, Transporter, Boom); the
   automatic brightness ranges only for a Boom.
 * `play_delay`: milliseconds (0–1000) the player's sound comes out later than it says (TV

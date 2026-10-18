@@ -14,7 +14,7 @@ use crate::strings::s;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-pub fn server_settings(server: &Server) -> ServerSettings {
+pub fn server_settings(server: &Arc<Server>) -> ServerSettings {
     let prefs = &server.prefs.server;
     let bitrate = prefs.get_i64("spotifyBitrate");
     let mb = server.library.musicbrainz_totals();
@@ -84,7 +84,24 @@ pub fn server_settings(server: &Server) -> ServerSettings {
         visualizer_quality: viz.quality,
         visualizer_preset_seconds: viz.preset_seconds,
         visualizer_receiver_app: prefs.get_str("visualizerReceiverApp").trim().to_string(),
+        transition_type: prefs.get_i64("transitionType"),
+        transition_duration: prefs.get_i64("transitionDuration"),
+        replay_gain_mode: prefs.get_i64("replayGainMode"),
+        dont_stop_the_music: dstm_choice(server),
+        adventurous: crate::plugins::listenbrainz::adventurous(server),
+        scrobble_to: crate::plugins::scrobble::scrobble_to(server)
+            .into_iter()
+            .map(|a| a.user)
+            .collect(),
     }
+}
+
+/// What plays when the queue runs out, and the choices.
+fn dstm_choice(server: &Arc<Server>) -> Choice {
+    let dstm = crate::plugins::dstm::chosen(&server.prefs.server).unwrap_or_else(|| "0".into());
+    let mut providers = vec![("0".to_string(), s("DISABLED"))];
+    providers.extend(crate::plugins::dstm::providers(server));
+    choice(dstm, providers)
 }
 
 /// Video sizes, draw sizes and frame rates the settings offer.
@@ -300,8 +317,58 @@ pub async fn update_server_settings(
             within(v, 5, 600, "visualizer_preset_seconds")?,
         ));
     }
+    if let Some(v) = patch.transition_type {
+        changes.push(("transitionType", within(v, 0, 4, "transition_type")?));
+    }
+    if let Some(v) = patch.transition_duration {
+        changes.push((
+            "transitionDuration",
+            within(v, 0, 10, "transition_duration")?,
+        ));
+    }
+    if let Some(v) = patch.replay_gain_mode {
+        changes.push(("replayGainMode", within(v, 0, 3, "replay_gain_mode")?));
+    }
+    if let Some(v) = patch.adventurous {
+        changes.push((
+            crate::plugins::listenbrainz::ADVENTUROUS,
+            within(
+                v,
+                0,
+                crate::plugins::listenbrainz::MAX_ADVENTUROUS,
+                "adventurous",
+            )?,
+        ));
+    }
+    if let Some(v) = patch.dont_stop_the_music {
+        let cur = dstm_choice(server);
+        if !cur.options.iter().any(|o| o.value == v) {
+            return Err(CommandError::Invalid(format!(
+                "{v} is not a valid dont_stop_the_music"
+            )));
+        }
+        changes.push((crate::plugins::dstm::PREF, v));
+    }
+    let scrobble_to = match patch.scrobble_to {
+        Some(to) => {
+            let known = crate::plugins::scrobble::accounts(server);
+            if let Some(u) = to.iter().find(|u| !known.iter().any(|a| &a.user == *u)) {
+                return Err(CommandError::Invalid(format!(
+                    "scrobble_to: no ListenBrainz account {u}"
+                )));
+            }
+            Some(to)
+        }
+        None => None,
+    };
     for (name, value) in changes {
         set_pref(server, None, name, value).await?;
+    }
+    if let Some(to) = scrobble_to {
+        server
+            .prefs
+            .server
+            .set(crate::plugins::scrobble::SCROBBLE_TO, json!(to));
     }
     Ok(server_settings(server))
 }
@@ -341,23 +408,10 @@ fn kind(p: &Player) -> Option<Kind> {
 
 pub fn player_settings(server: &Arc<Server>, p: &Arc<Player>) -> PlayerSettings {
     let prefs = &p.prefs;
-    let master = p.controller().lock().master().unwrap_or_else(|| p.clone());
-    let dstm = crate::plugins::dstm::provider(&master).unwrap_or_else(|| "0".into());
-    let mut providers = vec![("0".to_string(), s("DISABLED"))];
-    providers.extend(crate::plugins::dstm::providers(server));
     PlayerSettings {
-        transition_type: prefs.get_i64("transitionType"),
-        transition_duration: prefs.get_i64("transitionDuration"),
         play_delay: prefs.get_i64("playDelay"),
-        replay_gain_mode: prefs.get_i64("replayGainMode"),
         max_bitrate: prefs.get_i64("maxBitrate"),
         digital_volume_control: prefs.get_bool("digitalVolumeControl"),
-        dont_stop_the_music: Some(choice(dstm, providers)),
-        adventurous: crate::plugins::listenbrainz::adventurous(p),
-        scrobble_to: crate::plugins::scrobble::player_accounts(server, p)
-            .into_iter()
-            .map(|a| a.user)
-            .collect(),
         display: display_settings(p),
         visualizer: visualizer_choice(server, p),
     }
@@ -486,18 +540,6 @@ pub async fn update_player_settings(
     };
     // validate everything before changing anything
     let mut changes: Vec<(&str, String)> = Vec::new();
-    if let Some(v) = patch.transition_type {
-        changes.push(("transitionType", within(v, 0, 4, "transition_type")?));
-    }
-    if let Some(v) = patch.transition_duration {
-        changes.push((
-            "transitionDuration",
-            within(v, 0, 10, "transition_duration")?,
-        ));
-    }
-    if let Some(v) = patch.replay_gain_mode {
-        changes.push(("replayGainMode", within(v, 0, 3, "replay_gain_mode")?));
-    }
     if let Some(v) = patch.play_delay {
         changes.push(("playDelay", within(v, 0, 1000, "play_delay")?));
     }
@@ -506,21 +548,6 @@ pub async fn update_player_settings(
     }
     if let Some(v) = patch.digital_volume_control {
         changes.push(("digitalVolumeControl", flag(v)));
-    }
-    if let Some(v) = patch.adventurous {
-        changes.push((
-            crate::plugins::listenbrainz::ADVENTUROUS,
-            within(
-                v,
-                0,
-                crate::plugins::listenbrainz::MAX_ADVENTUROUS,
-                "adventurous",
-            )?,
-        ));
-    }
-    if let Some(v) = patch.dont_stop_the_music {
-        let v = pick(cur.dont_stop_the_music.as_ref(), "dont_stop_the_music", v)?;
-        changes.push((crate::plugins::dstm::PREF, v));
     }
     if let Some(v) = patch.playing_mode {
         changes.push((
@@ -581,24 +608,8 @@ pub async fn update_player_settings(
             range(r, v, "auto_brightness_sensitivity")?,
         ));
     }
-    let scrobble_to = match patch.scrobble_to {
-        Some(to) => {
-            let known = crate::plugins::scrobble::accounts(server);
-            if let Some(u) = to.iter().find(|u| !known.iter().any(|a| &a.user == *u)) {
-                return Err(CommandError::Invalid(format!(
-                    "scrobble_to: no ListenBrainz account {u}"
-                )));
-            }
-            Some(to)
-        }
-        None => None,
-    };
     for (name, value) in changes {
         set_pref(server, Some(p), name, value).await?;
-    }
-    if let Some(to) = scrobble_to {
-        p.prefs
-            .set(crate::plugins::scrobble::SCROBBLE_TO, serde_json::json!(to));
     }
     Ok(player_settings(server, p))
 }

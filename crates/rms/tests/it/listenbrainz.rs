@@ -133,8 +133,8 @@ async fn mixes_take_songs_listenbrainz_finds_similar() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let pid = MAC_S.replace(':', "%3A");
-    let ps = api(http, "GET", format!("/api/v1/players/{pid}/settings"), None).await;
-    assert_eq!(ps["adventurous"], 15, "the default");
+    let s = api(http, "GET", "/api/v1/settings".into(), None).await;
+    assert_eq!(s["adventurous"], 15, "the default");
     api(
         http,
         "PATCH",
@@ -145,7 +145,7 @@ async fn mixes_take_songs_listenbrainz_finds_similar() {
     api(
         http,
         "PATCH",
-        format!("/api/v1/players/{pid}/settings"),
+        "/api/v1/settings".into(),
         Some(json!({"adventurous": 40})),
     )
     .await;
