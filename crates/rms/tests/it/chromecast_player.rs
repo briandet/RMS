@@ -119,7 +119,14 @@ enum Ctl {
     Finish,
     /// The receiver app can't keep up drawing the visualiser.
     Slow,
+    /// Someone casts another app (Netflix) to the device: it takes over from the receiver.
+    OtherApp,
+    /// The device drops the connection (it was turned off, or lost the network).
+    Drop,
 }
+
+/// Another app's id (Netflix's).
+const OTHER_APP: &str = "CA5E8412";
 
 struct Fake {
     port: u16,
@@ -128,6 +135,8 @@ struct Fake {
     /// when the connection ends.
     log: mpsc::UnboundedReceiver<Value>,
     ctl: mpsc::UnboundedSender<Ctl>,
+    /// Another app runs on it when the server connects.
+    busy: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Fake {
@@ -168,6 +177,8 @@ impl Fake {
         let port = listener.local_addr().unwrap().port();
         let (log_tx, log) = mpsc::unbounded_channel();
         let (ctl, mut ctl_rx) = mpsc::unbounded_channel();
+        let busy = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let busy2 = busy.clone();
         tokio::spawn(async move {
             // one connection at a time, like the server should make
             loop {
@@ -175,11 +186,17 @@ impl Fake {
                 let Ok(tls) = acceptor.accept(sock).await else {
                     continue;
                 };
-                serve(tls, &log_tx, &mut ctl_rx, live, engine).await;
+                let busy = busy2.load(std::sync::atomic::Ordering::SeqCst);
+                serve(tls, &log_tx, &mut ctl_rx, live, engine, busy).await;
                 let _ = log_tx.send(json!({"closed": true}));
             }
         });
-        Fake { port, log, ctl }
+        Fake {
+            port,
+            log,
+            ctl,
+            busy,
+        }
     }
 
     /// The next message satisfying `ok` (earlier ones are dropped).
@@ -272,12 +289,13 @@ async fn serve(
     ctl: &mut mpsc::UnboundedReceiver<Ctl>,
     live: Option<Duration>,
     engine_opts: Option<EngineOpts>,
+    busy: bool,
 ) {
     let mut engine = Engine::default();
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut ticks = 0u64;
     let offset = engine_opts.map_or(0.0, |e| e.offset);
-    let mut launched: Option<String> = None;
+    let mut launched: Option<String> = busy.then(|| OTHER_APP.to_string());
     let mut volume = json!({"level": 1.0, "muted": false});
     let mut media: Option<Playing> = None;
     let mut sessions = 0;
@@ -388,11 +406,7 @@ async fn serve(
                                 }
                             }
                         }
-                        let apps = match &launched {
-                            Some(app) => json!([{"appId": app, "displayName": "Receiver",
-                                    "sessionId": "s-1", "transportId": TRANSPORT}]),
-                            None => json!([]),
-                        };
+                        let apps = apps_of(&launched);
                         out.push(reply(
                             NS_RECEIVER,
                             json!({"type": "RECEIVER_STATUS", "requestId": request,
@@ -534,6 +548,26 @@ async fn serve(
             c = ctl.recv() => {
                 // (the test is over)
                 let Some(c) = c else { return };
+                if let Ctl::Drop = c {
+                    return;
+                }
+                if let Ctl::OtherApp = c {
+                    launched = Some(OTHER_APP.to_string());
+                    media = None;
+                    let m = CastMessage {
+                        source: "receiver-0".into(),
+                        destination: "*".into(),
+                        namespace: NS_RECEIVER.into(),
+                        payload: json!({"type": "RECEIVER_STATUS", "requestId": 0,
+                                        "status": {"applications": apps_of(&launched),
+                                                   "volume": volume}})
+                        .to_string(),
+                    };
+                    if tls.write_all(&encode(&m)).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if let Ctl::Slow = c {
                     let m = CastMessage {
                         source: TRANSPORT.into(),
@@ -554,7 +588,7 @@ async fn serve(
                             me.since = Some(Instant::now());
                         }
                     }
-                    Ctl::Slow => {}
+                    Ctl::Slow | Ctl::OtherApp | Ctl::Drop => {}
                     Ctl::Finish => {
                         me.since = None;
                         me.time = LENGTH;
@@ -574,6 +608,17 @@ async fn serve(
                 }
             }
         }
+    }
+}
+
+/// The apps a `RECEIVER_STATUS` lists: the one launched, if any.
+fn apps_of(launched: &Option<String>) -> Value {
+    match launched.as_deref() {
+        Some(OTHER_APP) => json!([{"appId": OTHER_APP, "displayName": "Netflix",
+                "isIdleScreen": false, "sessionId": "s-9", "transportId": "web-9"}]),
+        Some(app) => json!([{"appId": app, "displayName": "Receiver",
+                "sessionId": "s-1", "transportId": TRANSPORT}]),
+        None => json!([]),
     }
 }
 
@@ -1563,4 +1608,196 @@ async fn automatic_draws_on_the_tv_until_it_cant_keep_up() {
     let (code, s) = patch(http, &settings, json!({"visualizer": "auto"})).await;
     assert_eq!(code, 200, "{s}");
     assert_eq!(auto_label(&s), "Automatic (drawn on the TV)");
+}
+
+/// A browser that can't decode FLAC (no WebCodecs, as on a page that isn't https) synced
+/// with a Chromecast: both get raw samples, the Chromecast's in a WAV header, for Cast's
+/// media handling.  (With no format both take, the browser played MP3 as raw samples: hiss.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_without_flac_and_a_chromecast_share_raw_samples() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, cast) = one_cast(dir.path()).await;
+    let http = server.http;
+
+    let url = format!(
+        "ws://127.0.0.1:{http}/api/v1/browser-player?id=phone&name=Phone&formats=pcm&rate=44100&clock=1"
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    // the next message of type `want`
+    async fn next(
+        ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+        want: &str,
+    ) -> Value {
+        loop {
+            let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
+                .await
+                .unwrap_or_else(|_| panic!("no {want}"))
+                .expect("socket open")
+                .unwrap();
+            if let Message::Text(t) = msg {
+                let v: Value = serde_json::from_str(&t).unwrap();
+                if v["type"] == want {
+                    return v;
+                }
+            }
+        }
+    }
+    let phone = next(&mut ws, "welcome").await["player"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    ws.send(Message::Text(
+        json!({"type": "clock", "jiffies": 1000}).to_string().into(),
+    ))
+    .await
+    .unwrap();
+    let path = format!("/api/v1/players/{}", phone.replace(':', "%3A"));
+    for _ in 0..100 {
+        let path = path.clone();
+        let (code, body) = tokio::task::spawn_blocking(move || http_json(http, "GET", &path, None))
+            .await
+            .unwrap();
+        if code == 200 && serde_json::from_str::<Value>(&body).unwrap()["connected"] == true {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    command(http, &phone, json!({"command": "sync", "with": cast})).await;
+    command(
+        http,
+        &cast,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+
+    let load = next(&mut ws, "load").await;
+    assert_eq!(load["format"], "pcm", "{load}");
+    let cast_load = dev.expect_type(NS_MEDIA, "LOAD").await;
+    let media = &cast_load["media"];
+    assert_eq!(media["contentType"], "audio/wav", "{cast_load}");
+    assert!(
+        media["contentId"]
+            .as_str()
+            .unwrap()
+            .contains("&wav=44100,16,2"),
+        "{cast_load}"
+    );
+    let fetched = dev.expect("the stream", |v| v["fetched"].is_string()).await;
+    assert_eq!(fetched["fetched"], "RIFF", "{fetched}");
+}
+
+/// Someone casts Netflix to a Chromecast that plays: the player turns off, and the queue
+/// doesn't go on to its next track and take the TV back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chromecast_another_app_takes_over_turns_off() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    dev.expect_type(NS_MEDIA, "LOAD").await;
+    wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
+
+    dev.ctl.send(Ctl::OtherApp).unwrap();
+    wait_player(http, &id, "turned off", |p| p["power"] == false).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    while let Ok(v) = dev.log.try_recv() {
+        assert!(v["type"] != "LAUNCH" && v["type"] != "LOAD", "{v}");
+    }
+
+    // playing to it again turns it on, and takes the TV
+    command(http, &id, json!({"command": "play"})).await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], TEST_APP);
+    wait_player(http, &id, "on", |p| p["power"] == true).await;
+}
+
+/// A Chromecast that has Netflix on it when it connects, in a sync group that plays: it
+/// isn't taken over for the group, but turns off.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_chromecast_isnt_taken_over_by_its_sync_group() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path().join("music");
+    let track = m.join("A/Album/01 Long.flac");
+    std::fs::create_dir_all(track.parent().unwrap()).unwrap();
+    make_audio(
+        &track,
+        30,
+        &[("title", "Long"), ("artist", "A"), ("album", "Album")],
+    );
+    let server = start_server(&m);
+    let http = server.http;
+    for _ in 0..100 {
+        if get(http, "/api/v1/server").await["library"]["tracks"] == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut a = Fake::start_on("127.0.0.1").await;
+    let mut b = Fake::start_on("127.0.0.2").await;
+    let hosts = json!([
+        format!("127.0.0.1:{}", a.port),
+        format!("127.0.0.2:{}", b.port)
+    ])
+    .to_string();
+    pref(http, "chromecastHosts", &hosts).await;
+    pref(http, "visualizerReceiverApp", TEST_APP).await;
+    pref(http, "bridgeChromecast", "1").await;
+    let players = cast_players(http, 2).await;
+    let id = |name: &str| {
+        players
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, id)| id.clone())
+            .unwrap()
+    };
+    let (ida, idb) = (id("127.0.0.1"), id("127.0.0.2"));
+    command(http, &idb, json!({"command": "sync", "with": ida})).await;
+
+    // B goes away (the TV turned off), A plays, and B comes back with Netflix on it
+    b.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+    b.ctl.send(Ctl::Drop).unwrap();
+    b.expect("B dropped", |v| v["closed"] == true).await;
+    command(
+        http,
+        &ida,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    a.expect_type(NS_MEDIA, "LOAD").await;
+    wait_player(http, &ida, "playing", |p| p["mode"] == "play").await;
+
+    // (it's tried again within 10 s)
+    b.expect_within(Duration::from_secs(20), "B back", |v| {
+        v["type"] == "GET_STATUS"
+    })
+    .await;
+    wait_player(http, &idb, "turned off", |p| {
+        p["power"] == false && p["connected"] == true
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    while let Ok(v) = b.log.try_recv() {
+        assert!(
+            v["type"] != "LAUNCH" && v["type"] != "LOAD",
+            "B taken over: {v}"
+        );
+    }
+    // A plays on
+    let pa = get(
+        http,
+        &format!("/api/v1/players/{}", ida.replace(':', "%3A")),
+    )
+    .await;
+    assert_eq!(pa["mode"], "play");
 }

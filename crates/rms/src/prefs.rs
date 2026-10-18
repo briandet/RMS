@@ -407,6 +407,26 @@ impl Prefs {
         }
     }
 
+    /// The music folders given on the command line (`--music`, `RMS_MUSIC_DIR`): the saved
+    /// folders become these when they differ from what was given last time, as on the first
+    /// start or after editing them there.  Otherwise the saved folders stay, so a change in
+    /// the settings lasts beyond the next start.
+    pub fn music_dirs_given(&self, dirs: Vec<String>) {
+        let given = json!(dirs);
+        match self.server.get("mediadirsGiven") {
+            Some(last) if last == given => {}
+            // from a version that didn't keep what was given: the saved folders are the ones
+            // to keep, if any
+            None if !self.server.get_string_list("mediadirs").is_empty() => {
+                self.server.set("mediadirsGiven", given);
+            }
+            _ => {
+                self.server.set("mediadirs", given.clone());
+                self.server.set("mediadirsGiven", given);
+            }
+        }
+    }
+
     /// Ids of players that have a prefs file on disk (used to list "known" players).
     pub fn known_players(&self) -> Vec<String> {
         let mut ids: Vec<String> = Vec::new();
@@ -440,6 +460,38 @@ mod tests {
         assert_eq!(again.player("00:04:20:aa:bb:cc").get_i64("volume"), 33);
         assert_eq!(again.known_players(), vec!["00:04:20:aa:bb:cc"]);
         assert!(!again.server.get_str("server_uuid").is_empty());
+    }
+
+    #[test]
+    fn music_folders_given_at_start_dont_undo_the_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = Prefs::open(dir.path());
+        let saved = |p: &Prefs| p.server.get_string_list("mediadirs");
+        // the first start sets them
+        prefs.music_dirs_given(vec!["/srv/music".into()]);
+        assert_eq!(saved(&prefs), ["/srv/music"]);
+        // changed in the settings, they stay through starts given the same
+        prefs
+            .server
+            .set("mediadirs", json!(["/srv/music", "/mnt/more"]));
+        let again = Prefs::open(dir.path());
+        again.music_dirs_given(vec!["/srv/music".into()]);
+        assert_eq!(saved(&again), ["/srv/music", "/mnt/more"]);
+        // given something else, they become that
+        again.music_dirs_given(vec!["/data/music".into()]);
+        assert_eq!(saved(&again), ["/data/music"]);
+    }
+
+    #[test]
+    fn music_folders_saved_before_the_upgrade_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = Prefs::open(dir.path());
+        prefs.server.set("mediadirs", json!(["/mnt/changed"]));
+        prefs.music_dirs_given(vec!["/srv/music".into()]);
+        assert_eq!(prefs.server.get_string_list("mediadirs"), ["/mnt/changed"]);
+        // and a later change to what's given applies
+        prefs.music_dirs_given(vec!["/data/music".into()]);
+        assert_eq!(prefs.server.get_string_list("mediadirs"), ["/data/music"]);
     }
 
     #[test]

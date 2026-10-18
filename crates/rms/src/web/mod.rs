@@ -175,11 +175,22 @@ async fn stream_handler(
             }
         }
     });
-    let mut resp = Response::new(Body::from_stream(body));
+    // raw samples in a WAV header, for a device that can't take them bare (a Chromecast
+    // playing through Cast's media handling)
+    let wav = q
+        .get("wav")
+        .filter(|_| spec.format == "pcm")
+        .and_then(|w| crate::stream::wav_header(w));
+    let content_type = match &wav {
+        Some(_) => Some("audio/wav"),
+        None => spec.content_type(),
+    };
+    let header = futures::stream::iter(wav.map(|h| Ok(Bytes::from(h))));
+    let mut resp = Response::new(Body::from_stream(header.chain(body)));
     let h = resp.headers_mut();
     h.insert(header::SERVER, server_header());
     h.insert(header::CONNECTION, HeaderValue::from_static("close"));
-    if let Some(ct) = spec.content_type() {
+    if let Some(ct) = content_type {
         h.insert(header::CONTENT_TYPE, HeaderValue::from_static(ct));
     }
     resp

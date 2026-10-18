@@ -39,7 +39,7 @@ tracks and HLS radio.  Without it RMS still streams files the player can decode 
 
 | Flag | Env | Default | |
 |---|---|---|---|
-| `--music <dir>[,<dir>…]` | `RMS_MUSIC_DIR` | saved pref | music folders to scan |
+| `--music <dir>[,<dir>…]` | `RMS_MUSIC_DIR` | saved pref | music folders to scan: set on the first start and whenever this changes, so folders changed in the web UI stay through restarts |
 | `--playlist-dir <dir>` | `RMS_PLAYLIST_DIR` | | where saved playlists are written |
 | `--data-dir <dir>` | `RMS_DATA_DIR` | `./data` | prefs, database, artwork cache |
 | `--http-port <n>` | `RMS_HTTP_PORT` | 9000 | web UI, JSON-RPC, Cometd, streaming |
@@ -191,10 +191,17 @@ The script builds a release binary (the web UI is built in), installs it as
   own media handling: the driver asks where playback is a second, starts it at the moment
   the server names (sending `PLAY` as much earlier as the device was seen to take to
   start), and makes up a difference by playing 5% or 10% faster or slower for a few
-  seconds (`SET_PLAYBACK_RATE`).  Chromecasts get FLAC whatever the file.  Each player's *Audio delay* (Settings → Player,
+  seconds (`SET_PLAYBACK_RATE`).  Chromecasts get FLAC whatever the file, or raw samples when a player synced with
+  them can't take FLAC (a browser on a page that isn't https, AirPlay): as they are on
+  Web Audio, in a WAV header for Cast's media handling.  Each player's *Audio delay* (Settings → Player,
   the `playDelay` pref) is how much later its sound comes out than it says, for TV
   speakers and soundbars.  Sync with UPnP and AirPlay players stays loose (they buffer by
   themselves).
+  **A Chromecast doesn't take the TV from other apps:** when another app takes over
+  (Netflix, YouTube) or it's stopped on the TV or from Google Home, the player turns off,
+  so the queue doesn't go on and take the TV back (in a sync group the others play on).
+  One that has another app on it when it connects isn't pulled into its sync group's
+  playback.  Playing to it turns it on and takes the TV again.
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.

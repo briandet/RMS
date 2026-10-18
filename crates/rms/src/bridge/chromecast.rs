@@ -38,7 +38,7 @@
 
 use super::cast_clock::{CastClock, ClockLink};
 use super::devices::{self, Device, DriverIo, Protocol};
-use super::{mac_for, FromRenderer, Identity, ToRenderer};
+use super::{mac_for, FromRenderer, Identity, Pcm, ToRenderer};
 use crate::server::Server;
 use bytes::{Buf, BytesMut};
 use serde_json::{json, Value};
@@ -286,8 +286,10 @@ async fn attempt(server: Arc<Server>, c: Candidate) {
         model: "chromecast".into(),
         model_name: c.model_name.clone(),
         // FLAC whatever the file: the receiver's Web Audio player decodes it (and Cast's
-        // own media handling plays it too)
-        formats: vec!["flc".into()],
+        // own media handling plays it too).  Raw samples where a synced player can't take
+        // FLAC (a browser without WebCodecs, AirPlay): the Web Audio player takes them as
+        // they are, Cast's media handling in a WAV header.
+        formats: vec!["flc".into(), "pcm".into()],
         max_sample_rate: 96_000,
         accurate: true,
     };
@@ -498,6 +500,8 @@ struct Item {
     /// Absolute: the device fetches it.
     url: String,
     format: String,
+    /// What raw samples (`pcm`) are like.
+    pcm: Option<Pcm>,
     autoplay: bool,
     /// What the server is streaming (title, artist, artwork), shown on screens.
     metadata: Option<Value>,
@@ -557,6 +561,8 @@ struct Cast {
     link: ClockLink,
     /// Since when the receiver's `ready` waits for the clocks to line up.
     ready_held: Option<Instant>,
+    /// The device has said what runs on it (until then, nothing is launched).
+    status_seen: bool,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -632,6 +638,7 @@ impl Cast {
             hello_asked: None,
             engine_active: false,
             ready_held: None,
+            status_seen: false,
             link: ClockLink::new(),
             launching: None,
             queued: None,
@@ -734,8 +741,8 @@ impl Cast {
         // the receiver's Web Audio player takes the server's messages as they are
         if self.engine_active {
             match &cmd {
-                ToRenderer::Preload { url, format, .. } => {
-                    let item = self.item(url, format, true);
+                ToRenderer::Preload { url, format, pcm } => {
+                    let item = self.item(url, format, *pcm, true);
                     return self.engine_load(item, true).await;
                 }
                 ToRenderer::Pause
@@ -756,8 +763,8 @@ impl Cast {
             ToRenderer::Load {
                 url,
                 format,
+                pcm,
                 autostart,
-                ..
             } => {
                 self.next = None;
                 self.start_at = None;
@@ -769,7 +776,7 @@ impl Cast {
                 }
                 let mode = crate::viz::mode(&self.server, &self.mac);
                 if mode == crate::viz::Mode::Video {
-                    match self.viz_item(&url, autostart) {
+                    match self.viz_item(&wav_url(&url, pcm.as_ref()), autostart) {
                         Ok(item) => {
                             self.visual = "video";
                             return self.load_or_launch(item).await;
@@ -781,14 +788,14 @@ impl Cast {
                     crate::viz::Mode::Tv => "draw",
                     _ => "off",
                 };
-                let item = self.item(&url, &format, autostart);
+                let item = self.item(&url, &format, pcm, autostart);
                 self.load_or_launch(item).await?;
             }
-            ToRenderer::Preload { url, format, .. } => {
+            ToRenderer::Preload { url, format, pcm } => {
                 if self.viz.is_some() {
-                    self.viz_add(&url);
+                    self.viz_add(&wav_url(&url, pcm.as_ref()));
                 } else {
-                    self.next = Some(self.item(&url, &format, true));
+                    self.next = Some(self.item(&url, &format, pcm, true));
                 }
             }
             ToRenderer::Pause => {
@@ -848,6 +855,15 @@ impl Cast {
         self.app = None;
         self.media = None;
         self.queued = Some(item);
+        // not before the device has said what's on it: it may be busy with another app
+        if !self.status_seen {
+            return Ok(());
+        }
+        self.launch().await
+    }
+
+    /// Start the receiver app, for the queued track.
+    async fn launch(&mut self) -> anyhow::Result<()> {
         if self.launching.is_none() {
             self.launching = Some(Instant::now());
             let app = self.want_app.clone();
@@ -886,6 +902,7 @@ impl Cast {
         let item = Item {
             url: format!("{}/viz/{}.mp4?r={token}", self.io.base_url, session.id),
             format: "mp4v".into(),
+            pcm: None,
             autoplay,
             metadata: streaming(&self.server, &self.mac, &self.io.base_url).map(|(m, _)| m),
             duration: None,
@@ -1085,8 +1102,23 @@ impl Cast {
     }
 
     async fn on_receiver_status(&mut self, payload: &Value) -> anyhow::Result<()> {
-        let app = payload["status"]["applications"]
-            .as_array()
+        let apps = payload["status"]["applications"].as_array();
+        // when it connects: an app of its own on it (Netflix, YouTube) isn't to be taken
+        // over by a sync group that plays; the player is off until it's asked to play
+        if !std::mem::replace(&mut self.status_seen, true) {
+            let busy = apps
+                .into_iter()
+                .flatten()
+                .find(|a| a["appId"] != self.want_app.as_str() && a["isIdleScreen"] != true);
+            if let Some(other) = busy {
+                let name = other["displayName"].as_str().unwrap_or("another app");
+                self.queued = None;
+                self.power_off(&format!("{name} is playing on it"));
+            } else if self.queued.is_some() && self.app.is_none() {
+                self.launch().await?;
+            }
+        }
+        let app = apps
             .into_iter()
             .flatten()
             .find(|a| a["appId"] == self.want_app.as_str())
@@ -1128,20 +1160,46 @@ impl Cast {
         Ok(())
     }
 
-    /// Another app took over the device, or the media receiver quit.
+    /// Another app took over the device, or the receiver app was closed on it (it never
+    /// closes it itself): someone is using the TV for something else.  The player turns
+    /// off, as a Squeezebox would, so the queue doesn't go on to its next track and take
+    /// the TV back; in a sync group the others play on.  Playing to it again turns it on.
     async fn app_gone(&mut self) -> anyhow::Result<()> {
         self.app = None;
         self.next = None;
         self.engine = None;
         self.hello_asked = None;
         self.ready_held = None;
-        if std::mem::take(&mut self.engine_active) {
-            return self.report(FromRenderer::Ended).await;
-        }
-        if self.media.take().is_some_and(|m| m.started) {
-            self.report(FromRenderer::Ended).await?;
+        let playing = std::mem::take(&mut self.engine_active) || self.media.take().is_some();
+        self.queued = None;
+        self.launching = None;
+        if playing {
+            self.power_off("another app took over, or the receiver was closed");
         }
         Ok(())
+    }
+
+    /// Turn the player off (see [`Self::app_gone`]).
+    fn power_off(&self, why: &str) {
+        let Some(p) = self.server.player(&self.mac).filter(|p| p.power()) else {
+            return;
+        };
+        info!("chromecast {}: turned off: {why}", self.mac);
+        let ctrl = p.controller();
+        let alone = ctrl
+            .lock()
+            .all_players()
+            .iter()
+            .all(|o| o.id == p.id || !o.power());
+        self.server.set_power(&p, false, true);
+        // what it played is gone from the TV: playing again starts the track afresh,
+        // rather than resuming nothing
+        if alone {
+            let mut c = ctrl.lock();
+            if c.is_paused() {
+                c.stop();
+            }
+        }
     }
 
     async fn on_media_status(&mut self, payload: &Value) -> anyhow::Result<()> {
@@ -1219,10 +1277,13 @@ impl Cast {
                 "IDLE" => {
                     match st["idleReason"].as_str().unwrap_or_default() {
                         "FINISHED" => return self.finished().await,
+                        // stopped on the device (its remote, Google Home): as when another
+                        // app takes over, not the end of the track
                         "CANCELLED" => {
                             self.media = None;
                             self.next = None;
-                            return self.report(FromRenderer::Ended).await;
+                            self.power_off("stopped on the device");
+                            return Ok(());
                         }
                         "ERROR" => {
                             self.media = None;
@@ -1311,6 +1372,12 @@ impl Cast {
         if std::mem::take(&mut self.engine_active) {
             self.render(json!({"cmd": {"type": "stop"}})).await?;
         }
+        // raw samples go in a WAV header, which can't say they're big-endian
+        if item.pcm.is_some_and(|p| !p.little_endian) {
+            let message = "Cast's media handling can't play big-endian raw samples".into();
+            return self.report(FromRenderer::Error { message }).await;
+        }
+        item.url = wav_url(&item.url, item.pcm.as_ref());
         let content_type = content_type(&item.format);
         let mut media = json!({
             "contentId": item.url,
@@ -1525,11 +1592,14 @@ impl Cast {
     /// Load `item` on the receiver's Web Audio player.
     async fn engine_load(&mut self, item: Item, preload: bool) -> anyhow::Result<()> {
         let track = track_info(&item.metadata, item.duration);
-        let cmd = if preload {
+        let mut cmd = if preload {
             json!({"type": "preload", "url": item.url, "format": item.format})
         } else {
             json!({"type": "load", "url": item.url, "format": item.format, "autostart": item.autoplay})
         };
+        if let Some(pcm) = item.pcm {
+            cmd["pcm"] = json!(pcm);
+        }
         let mut msg = json!({"cmd": cmd, "track": track});
         if !preload {
             self.engine_active = true;
@@ -1669,12 +1739,13 @@ impl Cast {
     }
 
     /// What to load for a stream URL the bridge gave.
-    fn item(&self, url: &str, format: &str, autoplay: bool) -> Item {
+    fn item(&self, url: &str, format: &str, pcm: Option<Pcm>, autoplay: bool) -> Item {
         let (metadata, duration) = streaming(&self.server, &self.mac, &self.io.base_url)
             .map_or((None, None), |(m, d)| (Some(m), d));
         Item {
             url: format!("{}{}", self.io.base_url, url),
             format: format.to_string(),
+            pcm,
             autoplay,
             metadata,
             duration,
@@ -1758,6 +1829,15 @@ fn track_info(meta: &Option<Value>, duration: Option<f64>) -> Value {
         "art": m["images"][0]["url"],
         "duration": duration,
     })
+}
+
+/// The stream at `url`, for a device that can't take raw samples (`pcm`) bare: in a WAV
+/// header.
+fn wav_url(url: &str, pcm: Option<&Pcm>) -> String {
+    match pcm {
+        Some(p) => format!("{url}&wav={},{},{}", p.rate, p.bits, p.channels),
+        None => url.to_string(),
+    }
 }
 
 /// The MIME type a Cast receiver expects for an LMS format code.
