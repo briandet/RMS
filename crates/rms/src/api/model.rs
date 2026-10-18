@@ -286,6 +286,9 @@ pub struct TrackAnalysis {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
+    /// Its album, with the album's artist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<Album>,
     pub file: AnalysisFile,
     /// bliss: what it sounds like, which drives similar songs and mixes; loudness.
     pub bliss: AnalysisStage<BlissAnalysis>,
@@ -1629,6 +1632,19 @@ pub struct ServerSettings {
     /// registered in the Google Cast developer console for
     /// `https://<owner>.github.io/<repo>/receiver/`.
     pub visualizer_receiver_app: String,
+    // ---- playback, the same for every player
+    /// 0 none, 1 crossfade, 2 fade in, 3 fade out, 4 fade in and out.
+    pub transition_type: i64,
+    /// Seconds.
+    pub transition_duration: i64,
+    /// 0 off, 1 track gain, 2 album gain, 3 smart.
+    pub replay_gain_mode: i64,
+    /// What plays when the queue runs out ("0": nothing).
+    pub dont_stop_the_music: Choice,
+    /// Percent of a mix discovered from outside what was played (0–40; with ListenBrainz on).
+    pub adventurous: i64,
+    /// The ListenBrainz accounts (user names) players scrobble to.
+    pub scrobble_to: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1682,6 +1698,12 @@ pub struct ServerSettingsPatch {
     pub visualizer_quality: Option<i64>,
     pub visualizer_preset_seconds: Option<i64>,
     pub visualizer_receiver_app: Option<String>,
+    pub transition_type: Option<i64>,
+    pub transition_duration: Option<i64>,
+    pub replay_gain_mode: Option<i64>,
+    pub dont_stop_the_music: Option<String>,
+    pub adventurous: Option<i64>,
+    pub scrobble_to: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, TS)]
@@ -1727,22 +1749,9 @@ pub struct Range {
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(optional_fields)]
 pub struct PlayerSettings {
-    /// 0 none, 1 crossfade, 2 fade in, 3 fade out, 4 fade in and out.
-    pub transition_type: i64,
-    /// Seconds.
-    pub transition_duration: i64,
-    /// 0 off, 1 track gain, 2 album gain, 3 smart.
-    pub replay_gain_mode: i64,
     /// kbps; 0 for no limit.
     pub max_bitrate: i64,
     pub digital_volume_control: bool,
-    /// What plays when the queue runs out ("0": nothing).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dont_stop_the_music: Option<Choice>,
-    /// Percent of a mix discovered from outside what was played (0–40; with ListenBrainz on).
-    pub adventurous: i64,
-    /// The ListenBrainz accounts (user names) it scrobbles to.
-    pub scrobble_to: Vec<String>,
     /// For players with a screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<DisplaySettings>,
@@ -1777,15 +1786,9 @@ pub struct DisplaySettings {
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
 pub struct PlayerSettingsPatch {
-    pub transition_type: Option<i64>,
-    pub transition_duration: Option<i64>,
     pub play_delay: Option<i64>,
-    pub replay_gain_mode: Option<i64>,
     pub max_bitrate: Option<i64>,
     pub digital_volume_control: Option<bool>,
-    pub dont_stop_the_music: Option<String>,
-    pub adventurous: Option<i64>,
-    pub scrobble_to: Option<Vec<String>>,
     pub playing_mode: Option<String>,
     pub text_size: Option<String>,
     pub text_size_off: Option<String>,

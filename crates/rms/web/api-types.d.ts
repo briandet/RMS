@@ -267,7 +267,11 @@ export type TrackKind = { styles: Array<Label>, moods: Array<Label>, themes: Arr
 
 export type Label = { name: string, score: number, };
 
-export type TrackAnalysis = { track_id: number, title: string, artist?: string, file: AnalysisFile, 
+export type TrackAnalysis = { track_id: number, title: string, artist?: string, 
+/**
+ * Its album, with the album's artist.
+ */
+album?: Album, file: AnalysisFile, 
 /**
  * bliss: what it sounds like, which drives similar songs and mixes; loudness.
  */
@@ -1073,21 +1077,7 @@ visualizer_preset_seconds: Range,
  * registered in the Google Cast developer console for
  * `https://<owner>.github.io/<repo>/receiver/`.
  */
-visualizer_receiver_app: string, };
-
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, visualizer_receiver_app?: string, };
-
-export type ScanMode = "changes" | "playlists" | "full";
-
-export type ScanRequest = { mode?: ScanMode, };
-
-export type Choice = { value: string, options: Array<ChoiceOption>, };
-
-export type ChoiceOption = { value: string, label: string, };
-
-export type Range = { value: number, min: number, max: number, };
-
-export type PlayerSettings = { 
+visualizer_receiver_app: string, 
 /**
  * 0 none, 1 crossfade, 2 fade in, 3 fade out, 4 fade in and out.
  */
@@ -1101,21 +1091,35 @@ transition_duration: number,
  */
 replay_gain_mode: number, 
 /**
- * kbps; 0 for no limit.
- */
-max_bitrate: number, digital_volume_control: boolean, 
-/**
  * What plays when the queue runs out ("0": nothing).
  */
-dont_stop_the_music?: Choice, 
+dont_stop_the_music: Choice, 
 /**
  * Percent of a mix discovered from outside what was played (0–40; with ListenBrainz on).
  */
 adventurous: number, 
 /**
- * The ListenBrainz accounts (user names) it scrobbles to.
+ * The ListenBrainz accounts (user names) players scrobble to.
  */
-scrobble_to: Array<string>, 
+scrobble_to: Array<string>, };
+
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, visualizer_receiver_app?: string, transition_type?: number, transition_duration?: number, replay_gain_mode?: number, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, };
+
+export type ScanMode = "changes" | "playlists" | "full";
+
+export type ScanRequest = { mode?: ScanMode, };
+
+export type Choice = { value: string, options: Array<ChoiceOption>, };
+
+export type ChoiceOption = { value: string, label: string, };
+
+export type Range = { value: number, min: number, max: number, };
+
+export type PlayerSettings = { 
+/**
+ * kbps; 0 for no limit.
+ */
+max_bitrate: number, digital_volume_control: boolean, 
 /**
  * For players with a screen.
  */
@@ -1137,7 +1141,7 @@ export type DisplaySettings = {
  */
 playing_mode: Choice, text_size: Choice, text_size_off: Choice, brightness_on: Choice, brightness_off: Choice, brightness_idle: Choice, auto_brightness_min?: Range, auto_brightness_sensitivity?: Range, };
 
-export type PlayerSettingsPatch = { transition_type?: number, transition_duration?: number, play_delay?: number, replay_gain_mode?: number, max_bitrate?: number, digital_volume_control?: boolean, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, visualizer?: string, };
+export type PlayerSettingsPatch = { play_delay?: number, max_bitrate?: number, digital_volume_control?: boolean, playing_mode?: string, text_size?: string, text_size_off?: string, brightness_on?: string, brightness_off?: string, brightness_idle?: string, auto_brightness_min?: number, auto_brightness_sensitivity?: number, visualizer?: string, };
 
 export type ToRenderer = { "type": "load", url: string, format: string, 
 /**

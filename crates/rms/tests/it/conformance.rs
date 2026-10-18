@@ -914,6 +914,8 @@ fn native_api() {
 
     get!("artists", "/api/v1/artists");
     get!("artists page", "/api/v1/artists?offset=1&limit=2",);
+    get!("album artists", "/api/v1/artists?role=album");
+    get!("unknown role", "/api/v1/artists?role=composer");
     get!("artist", "/api/v1/artists/2");
     get!("unknown artist", "/api/v1/artists/999");
     get!("albums", "/api/v1/albums");
@@ -1047,11 +1049,19 @@ fn native_api() {
         "squeezebox settings",
         &format!("/api/v1/players/{sb3}/settings"),
     );
-    let patch = json!({"transition_type": 1, "transition_duration": 5, "dont_stop_the_music": "0"});
+    let patch = json!({"play_delay": 120, "max_bitrate": 320});
     call(
         "change player settings",
         "PATCH",
         &format!("/api/v1/players/{pid}/settings"),
+        Some(patch),
+    );
+    // the same for every player
+    let patch = json!({"transition_type": 1, "transition_duration": 5, "dont_stop_the_music": "0"});
+    call(
+        "change playback settings",
+        "PATCH",
+        "/api/v1/settings",
         Some(patch),
     );
     let patch = json!({"playing_mode": "2", "text_size": "0", "brightness_on": "3"});
@@ -1069,12 +1079,7 @@ fn native_api() {
         Some(patch),
     );
     let patch = json!({"transition_type": 9});
-    call(
-        "bad transition",
-        "PATCH",
-        &format!("/api/v1/players/{pid}/settings"),
-        Some(patch),
-    );
+    call("bad transition", "PATCH", "/api/v1/settings", Some(patch));
     call(
         "rescan playlists",
         "POST",

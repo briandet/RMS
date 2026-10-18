@@ -4,9 +4,9 @@
 //! * *Now playing* goes out when a song starts; a *listen* once it has really played (paused
 //!   time and what a seek skips don't count) for half its length or 4 minutes, whichever is
 //!   first, if it is longer than 30 seconds: ListenBrainz's (and Last.fm's) rule.
-//! * A synced group scrobbles once, as its master.  Each player sends to the accounts its
-//!   `scrobbleTo` pref names, or else to the accounts marked default; Subsonic apps to the
-//!   default accounts.
+//! * A synced group scrobbles once, as its master.  Players send to the accounts the
+//!   `scrobbleTo` pref names (the same for every player), or else to the accounts marked
+//!   default; Subsonic apps to the default accounts.
 //! * Library files are scrobbled with the MusicBrainz ids and ISRC from their tags or
 //!   identification, so ListenBrainz links them to the right recordings.  Spotify plays only
 //!   with the `scrobbleSpotify` pref (ListenBrainz can import them from Spotify itself);
@@ -14,7 +14,6 @@
 //! * Listens wait in the library's queue (`rms_library::scrobble`) until ListenBrainz takes
 //!   them, so none are lost while it or the network is down.
 
-use crate::player::Player;
 use crate::server::Server;
 use rms_library::scrobble::ListenInfo;
 use serde::{Deserialize, Serialize};
@@ -143,11 +142,12 @@ pub fn set_default(server: &Server, user: &str, default: bool) -> bool {
     true
 }
 
-/// The accounts a player scrobbles to.
-pub fn player_accounts(server: &Server, p: &Player) -> Vec<Account> {
+/// The accounts players scrobble to (the same for every player).
+pub fn scrobble_to(server: &Server) -> Vec<Account> {
     let all = accounts(server);
-    if p.prefs.exists(SCROBBLE_TO) {
-        let to = p.prefs.get_string_list(SCROBBLE_TO);
+    let prefs = &server.prefs.server;
+    if prefs.exists(SCROBBLE_TO) {
+        let to = prefs.get_string_list(SCROBBLE_TO);
         all.into_iter().filter(|a| to.contains(&a.user)).collect()
     } else {
         all.into_iter().filter(|a| a.default).collect()
@@ -275,7 +275,7 @@ pub async fn run(server: Arc<Server>) {
                 continue;
             }
             play.announced = true;
-            let to = player_accounts(&server, &p);
+            let to = scrobble_to(&server);
             if to.is_empty() {
                 continue;
             }

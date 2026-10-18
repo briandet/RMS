@@ -95,9 +95,14 @@ fn favorites_registered(server: &Arc<Server>) -> bool {
         .unwrap_or(true)
 }
 
-/// The provider chosen for a player ("" / "0" = disabled).
+/// The provider chosen for a player ("" / "0" = disabled); the same for every player.
 pub(crate) fn provider(p: &Arc<Player>) -> Option<String> {
-    let v = p.prefs.get(PREF)?;
+    chosen(&p.prefs)
+}
+
+/// The provider chosen in `prefs` (a player's or the server's: they share it).
+pub(crate) fn chosen(prefs: &crate::prefs::PrefStore) -> Option<String> {
+    let v = prefs.get(PREF)?;
     let v = match v {
         serde_json::Value::String(s) => s,
         other => other.to_string(),
@@ -128,7 +133,7 @@ async fn mix(
     // Similar Songs: some songs from outside what was played (ListenBrainz)
     let discovered = if token == SIMILAR {
         let seeds: Vec<i64> = ids.iter().rev().take(SEEDS).copied().collect();
-        let n = crate::plugins::listenbrainz::share(server, master, NEW_TRACKS);
+        let n = crate::plugins::listenbrainz::share(server, NEW_TRACKS);
         crate::plugins::listenbrainz::explore(server, Some(master), &seeds, n, &snap.urls).await
     } else {
         Vec::new()
@@ -489,7 +494,7 @@ pub async fn mix_tracks(server: &Arc<Server>, p: &Arc<Player>, seed: Seed) -> Ve
         .await
         .unwrap_or_default();
     // some songs from outside what was played (ListenBrainz)
-    let n = crate::plugins::listenbrainz::share(server, p, MIX_SIZE);
+    let n = crate::plugins::listenbrainz::share(server, MIX_SIZE);
     let discovered = if seeds.is_empty() {
         Vec::new()
     } else {

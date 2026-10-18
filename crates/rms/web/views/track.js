@@ -27,19 +27,29 @@ const WHY = {
 
 export async function trackPage(v, id) {
   const name = v.query.get('name') || 'Track';
-  v.crumbs([{ label: 'Albums', href: '#/library/albums' }, { label: name }]);
+  v.crumbs([{ label: 'Library', href: '#/library' }, { label: name }]);
   v.body.replaceChildren(loadingBox());
   /** @type {TrackAnalysis} */
   const a = await getTrackAnalysis(id);
   if (!v.alive) return;
   const title = a.title || name;
-  v.crumbs([{ label: 'Albums', href: '#/library/albums' }, { label: title }]);
+  // where it is in the library: Artists › its album's artist › the album › the track
+  const al = a.album;
+  const artistHref = al?.artist_id != null && al.artist ? `#/library/artist/${enc(al.artist_id)}?name=${enc(al.artist)}` : null;
+  const albumHref = al ? `#/library/album/${enc(al.id)}?name=${enc(al.title)}` : null;
+  v.crumbs([
+    ...(artistHref ? [{ label: 'Artists', href: '#/library/artists' }, { label: al.artist, href: artistHref }]
+      : [{ label: 'Albums', href: '#/library/albums' }]),
+    ...(al ? [{ label: al.title, href: albumHref }] : []),
+    { label: title },
+  ]);
 
   v.body.replaceChildren(
     h('header', { class: 'page-head' },
       h('div', { class: 'page-head-text' },
         h('h1', {}, title),
-        a.artist && h('div', { class: 'page-sub' }, a.artist),
+        (a.artist || al) && h('div', { class: 'page-sub' }, a.artist, a.artist && al ? ' · ' : null,
+          al && h('a', { href: albumHref }, al.title)),
         h('div', { class: 'page-actions' }, bigActions(v.ctx, 'track_id', a.track_id, title),
           h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => v.ctx.reload() }, icon('refresh'), 'Refresh')))),
     h('div', { class: 'settings-grid analysis' },

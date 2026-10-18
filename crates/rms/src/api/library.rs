@@ -46,6 +46,17 @@ impl ListParams {
     }
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct ArtistParams {
+    #[serde(default)]
+    pub offset: usize,
+    pub limit: Option<usize>,
+    pub q: Option<String>,
+    /// `album`: album artists only (the artists albums are filed under), else everyone
+    /// credited.
+    pub role: Option<String>,
+}
+
 // (No `#[serde(flatten)]` of `ListParams`: query strings only deserialize numbers into
 // fields of the top-level struct.)
 
@@ -181,10 +192,32 @@ fn track(row: &Row) -> Option<Track> {
     Some(track_from_row(row, &url))
 }
 
-pub async fn artists(server: &Arc<Server>, p: ListParams) -> Result<Page<Artist>, LibraryError> {
+pub async fn artists(server: &Arc<Server>, p: ArtistParams) -> Result<Page<Artist>, LibraryError> {
     let mut params = vec![("tags", ARTIST_TAGS.to_string())];
     params.extend(search_param(&p.q));
-    let row = query(server, LibQueryName::Artists, p.offset, p.limit(), &params).await?;
+    match p.role.as_deref() {
+        // (with the track artists of albums that have no album artist, as in Lyrion)
+        Some("album") => params.push(("role_id", "ALBUMARTIST".to_string())),
+        None | Some("") => {}
+        Some(other) => {
+            return Err(LibraryError::Invalid(format!(
+                "unknown role {other:?} (album, or none for every artist)"
+            )))
+        }
+    }
+    let list = ListParams {
+        offset: p.offset,
+        limit: p.limit,
+        q: None,
+    };
+    let row = query(
+        server,
+        LibQueryName::Artists,
+        p.offset,
+        list.limit(),
+        &params,
+    )
+    .await?;
     Ok(page(&row, "artists_loop", p.offset, artist))
 }
 
@@ -928,7 +961,15 @@ pub async fn search(server: &Arc<Server>, p: ListParams) -> Result<SearchResults
         ..Default::default()
     };
     let (artists, albums, tracks, genres) = tokio::try_join!(
-        artists(server, list()),
+        artists(
+            server,
+            ArtistParams {
+                offset: p.offset,
+                limit: Some(p.limit.unwrap_or(20)),
+                q: p.q.clone(),
+                role: None,
+            }
+        ),
         albums(server, albums_params),
         tracks(
             server,
@@ -1005,10 +1046,19 @@ pub async fn track_analysis(
         }
     };
     let (track_title, artist) = title(id);
+    let album_params = [
+        ("tags", ALBUM_TAGS.to_string()),
+        ("track_id", id.to_string()),
+    ];
+    let album = query(server, LibQueryName::Albums, 0, 1, &album_params)
+        .await
+        .ok()
+        .and_then(|row| page(&row, "albums_loop", 0, album).items.into_iter().next());
     Ok(TrackAnalysis {
         track_id: id,
         title: track_title,
         artist,
+        album,
         file: report.file.into(),
         bliss: AnalysisStage::map(report.sound, sonic, |s| BlissAnalysis {
             features: s

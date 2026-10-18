@@ -246,8 +246,8 @@ async fn listens_and_listenbrainz_playlists() {
         http_json(http, "GET", &format!("/api/v1/players/{pid}"), None).0 == 200
     })
     .await;
-    let ps = api(http, "GET", format!("/api/v1/players/{pid}/settings"), None).await;
-    assert_eq!(ps["scrobble_to"], json!(["alice"]), "the default account");
+    let s = api(http, "GET", "/api/v1/settings".into(), None).await;
+    assert_eq!(s["scrobble_to"], json!(["alice"]), "the default account");
     let tracks = api(http, "GET", "/api/v1/tracks?limit=10".into(), None).await;
     let id_of = |title: &str| {
         tracks["items"]
@@ -376,7 +376,7 @@ async fn listens_and_listenbrainz_playlists() {
     api(
         http,
         "PATCH",
-        format!("/api/v1/players/{pid}/settings"),
+        "/api/v1/settings".into(),
         Some(json!({"adventurous": 40})),
     )
     .await;
@@ -390,23 +390,23 @@ async fn listens_and_listenbrainz_playlists() {
     let s = api(http, "GET", "/api/v1/settings".into(), None).await;
     assert_eq!(s["discovered"], 1, "{s}");
 
-    // a player can scrobble to nobody; only known accounts
+    // players can scrobble to nobody; only known accounts
     let (code, _) = call(
         http,
         "PATCH",
-        format!("/api/v1/players/{pid}/settings"),
+        "/api/v1/settings".into(),
         Some(json!({"scrobble_to": ["bob"]})),
     )
     .await;
     assert_eq!(code, 400);
-    let ps = api(
+    let s = api(
         http,
         "PATCH",
-        format!("/api/v1/players/{pid}/settings"),
+        "/api/v1/settings".into(),
         Some(json!({"scrobble_to": []})),
     )
     .await;
-    assert_eq!(ps["scrobble_to"], json!([]));
+    assert_eq!(s["scrobble_to"], json!([]));
 
     // removing the account
     api(

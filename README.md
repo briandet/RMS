@@ -120,7 +120,10 @@ The script builds a release binary (the web UI is built in), installs it as
 * **Playback controller**: a port of `Slim::Player::StreamingController` including its
   full event × state transition table: gapless track hand-off on `STMd`, end-of-stream
   handling, rebuffering on output underrun, retry of failed radio streams, crossfade /
-  fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.
+  fade-in transitions, replay gain (track/album/smart), sleep timer, alarms.  Unlike Lyrion,
+  transitions, replay gain, Don't Stop The Music, Adventurous and who to scrobble to are the
+  same for every player (Settings → Playback; a client changing them for one player changes
+  them for all).
 * **Synchronisation**: sync groups share one controller and playlist; synchronized start
   with `strm u` at a common player-clock time and continuous drift correction with
   `skipAhead` / `pauseFor` from accurate play points.  A transcoded, proxied or Spotify
@@ -270,7 +273,9 @@ The script builds a release binary (the web UI is built in), installs it as
   the tags, columns show what MusicBrainz says (the matched release's titles, label, catalogue
   number, country, medium, original year, …) and EffNet's style and mood scores; they are chosen, ordered, sorted
   and resized; double-click opens a row (artist → albums → tracks) or plays a track; views
-  can be saved.  Rows load as they scroll into view, so a big library scrolls freely.  The
+  can be saved.  Right-click a column's heading to group by it (or sort by it, or hide it),
+  or a cell to keep only the rows with that value, or leave them out (`year:=1959`,
+  `-artist:="Bill Evans"`, `missing:year`).  Rows load as they scroll into view, so a big library scrolls freely.  The
   same queries are in the API ([docs/api.md](docs/api.md#the-table)) and can be queued.
 * **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
   treble, moving with the music, in the web UI's player menu and now playing.  They are
@@ -321,8 +326,8 @@ The script builds a release binary (the web UI is built in), installs it as
 
 **Don't Stop The Music** keeps a player going when its queue runs out, as in Lyrion: when
 fewer than two songs follow the one playing (and repeat is off), it adds more.  Choose what
-per player under Settings in the web UI, Squeezer, the Touch/Radio or the player's own
-menus:
+(for every player) under Settings → Playback in the web UI, or in Squeezer, the Touch/Radio
+or a player's own menus:
 
 * **Similar Songs**: songs like the last ones in the queue, picked from your library by
   how they sound (see below), shared genres and artists, era, and play history (artists you played around the same

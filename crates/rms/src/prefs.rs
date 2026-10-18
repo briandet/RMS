@@ -13,11 +13,36 @@ use tracing::{info, warn};
 
 pub type PrefMap = BTreeMap<String, Value>;
 
+/// Player prefs that are the same for every player: a player's store reads and writes
+/// them in the server's (so `playerpref` and the clients that use it change them for
+/// all).  Transitions, ReplayGain, Don't Stop The Music, ListenBrainz's adventurousness and
+/// who to scrobble to.
+pub const SERVER_WIDE: &[&str] = &[
+    "transitionType",
+    "transitionDuration",
+    "transitionSmart",
+    "transitionSampleRestriction",
+    "replayGainMode",
+    "replayGainSmartGain",
+    "remoteReplayGain",
+    "plugin.dontstopthemusic:provider",
+    "adventurous",
+    "scrobbleTo",
+];
+
 /// Default server preference values (subset of `Slim::Utils::Prefs::init`).
 pub fn server_defaults() -> PrefMap {
     let mut m = PrefMap::new();
     let defaults = [
         ("httpport", json!(9000)),
+        // the same for every player (SERVER_WIDE)
+        ("transitionType", json!(0)),
+        ("transitionDuration", json!(10)),
+        ("transitionSmart", json!(1)),
+        ("transitionSampleRestriction", json!(0)),
+        ("replayGainMode", json!(0)),
+        ("replayGainSmartGain", json!(1)),
+        ("remoteReplayGain", json!(-5)),
         ("cliport", json!(9090)),
         ("language", json!("EN")),
         ("mediadirs", json!([])),
@@ -131,12 +156,6 @@ pub fn player_defaults() -> PrefMap {
         ("repeat", json!(0)),
         ("shuffle", json!(0)),
         ("maxBitrate", json!(0)),
-        ("transitionType", json!(0)),
-        ("transitionDuration", json!(10)),
-        ("transitionSmart", json!(1)),
-        ("transitionSampleRestriction", json!(0)),
-        ("replayGainMode", json!(0)),
-        ("replayGainSmartGain", json!(1)),
         ("syncVolume", json!(0)),
         ("syncPower", json!(0)),
         ("syncBufferThreshold", json!(128)),
@@ -194,7 +213,6 @@ pub fn player_defaults() -> PrefMap {
         ("playname", json!("")),
         ("irmap", json!("default.map")),
         ("disabledirsets", json!([])),
-        ("remoteReplayGain", json!(-5)),
         ("alarmSoundEnabled", json!(1)),
     ];
     for (k, v) in defaults {
@@ -208,6 +226,8 @@ pub struct PrefStore {
     path: PathBuf,
     defaults: PrefMap,
     values: RwLock<PrefMap>,
+    /// For a player's: the server's, which holds the [`SERVER_WIDE`] prefs.
+    server: Option<Arc<PrefStore>>,
 }
 
 impl PrefStore {
@@ -230,10 +250,21 @@ impl PrefStore {
             path,
             defaults,
             values: RwLock::new(values),
+            server: None,
         }
     }
 
+    /// The store that holds `key`: the server's for a [`SERVER_WIDE`] one.
+    fn holder(&self, key: &str) -> Option<&PrefStore> {
+        self.server
+            .as_deref()
+            .filter(|_| SERVER_WIDE.contains(&key))
+    }
+
     pub fn get(&self, key: &str) -> Option<Value> {
+        if let Some(s) = self.holder(key) {
+            return s.get(key);
+        }
         self.values
             .read()
             .get(key)
@@ -293,11 +324,17 @@ impl PrefStore {
     }
 
     pub fn exists(&self, key: &str) -> bool {
+        if let Some(s) = self.holder(key) {
+            return s.exists(key);
+        }
         self.values.read().contains_key(key) || self.defaults.contains_key(key)
     }
 
     /// Set a value unless one is stored already (`Slim::Utils::Prefs::Namespace::init`).
     pub fn init(&self, key: &str, value: Value) {
+        if let Some(s) = self.holder(key) {
+            return s.init(key, value);
+        }
         {
             let mut values = self.values.write();
             if values.contains_key(key) {
@@ -310,12 +347,18 @@ impl PrefStore {
 
     /// Set a value and persist.  Returns the previous value.
     pub fn set(&self, key: &str, value: Value) -> Option<Value> {
+        if let Some(s) = self.holder(key) {
+            return s.set(key, value);
+        }
         let old = self.values.write().insert(key.to_string(), value);
         self.save();
         old
     }
 
     pub fn remove(&self, key: &str) {
+        if let Some(s) = self.holder(key) {
+            return s.remove(key);
+        }
         self.values.write().remove(key);
         self.save();
     }
@@ -342,7 +385,7 @@ impl PrefStore {
 /// All preference namespaces.
 pub struct Prefs {
     dir: PathBuf,
-    pub server: PrefStore,
+    pub server: Arc<PrefStore>,
     players: RwLock<BTreeMap<String, Arc<PrefStore>>>,
 }
 
@@ -363,11 +406,56 @@ impl Prefs {
             );
         }
         info!("prefs directory: {}", dir.display());
-        Prefs {
+        let prefs = Prefs {
             dir: dir.to_path_buf(),
-            server,
+            server: Arc::new(server),
             players: RwLock::new(BTreeMap::new()),
+        };
+        prefs.adopt_server_wide();
+        prefs
+    }
+
+    /// The [`SERVER_WIDE`] prefs that versions before kept for each player: each takes the
+    /// value most players had (the first player's, on a tie), once.
+    fn adopt_server_wide(&self) {
+        let players: Vec<PrefStore> = self
+            .known_players()
+            .iter()
+            .map(|id| PrefStore::load(self.player_path(id), PrefMap::new()))
+            .collect();
+        for key in SERVER_WIDE {
+            if self.server.values.read().contains_key(*key) {
+                continue;
+            }
+            let mut counts: Vec<(Value, usize)> = Vec::new();
+            for p in &players {
+                let Some(v) = p.values.read().get(*key).cloned() else {
+                    continue;
+                };
+                match counts.iter_mut().find(|(c, _)| *c == v) {
+                    Some((_, n)) => *n += 1,
+                    None => counts.push((v, 1)),
+                }
+            }
+            // (the first of the most common)
+            let best = counts
+                .iter()
+                .rev()
+                .max_by_key(|(_, n)| *n)
+                .map(|(v, _)| v.clone());
+            if let Some(v) = best {
+                info!("{key}: the same for every player now: {v}");
+                self.server.set(key, v);
+            }
         }
+    }
+
+    fn player_path(&self, id: &str) -> PathBuf {
+        let safe: String = id
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
+        self.dir.join(format!("{}.prefs", safe))
     }
 
     /// Per-player prefs, created on first use.
@@ -375,14 +463,9 @@ impl Prefs {
         if let Some(p) = self.players.read().get(id) {
             return p.clone();
         }
-        let safe: String = id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-            .collect();
-        let store = Arc::new(PrefStore::load(
-            self.dir.join(format!("{}.prefs", safe)),
-            player_defaults(),
-        ));
+        let mut store = PrefStore::load(self.player_path(id), player_defaults());
+        store.server = Some(self.server.clone());
+        let store = Arc::new(store);
         self.players.write().insert(id.to_string(), store.clone());
         store
     }
@@ -492,6 +575,56 @@ mod tests {
         // and a later change to what's given applies
         prefs.music_dirs_given(vec!["/data/music".into()]);
         assert_eq!(prefs.server.get_string_list("mediadirs"), ["/data/music"]);
+    }
+
+    #[test]
+    fn server_wide_prefs_are_the_same_for_every_player() {
+        let dir = tempfile::tempdir().unwrap();
+        let prefs = Prefs::open(dir.path());
+        let (a, b) = (
+            prefs.player("00:04:20:00:00:01"),
+            prefs.player("00:04:20:00:00:02"),
+        );
+        a.set("transitionType", json!(1));
+        assert_eq!(b.get_i64("transitionType"), 1);
+        assert_eq!(prefs.server.get_i64("transitionType"), 1);
+        assert!(!b.exists("scrobbleTo"));
+        b.set("scrobbleTo", json!(["me"]));
+        assert_eq!(a.get_string_list("scrobbleTo"), ["me"]);
+        // the rest stay each player's own
+        a.set("volume", json!(20));
+        assert_eq!(b.get_i64("volume"), 50);
+        let again = Prefs::open(dir.path());
+        assert_eq!(
+            again.player("00:04:20:00:00:03").get_i64("transitionType"),
+            1
+        );
+    }
+
+    #[test]
+    fn player_values_from_before_become_the_servers() {
+        let dir = tempfile::tempdir().unwrap();
+        for (mac, gain) in [
+            ("00_04_20_00_00_01", 2),
+            ("00_04_20_00_00_02", 1),
+            ("00_04_20_00_00_03", 2),
+        ] {
+            std::fs::write(
+                dir.path().join(format!("{mac}.prefs")),
+                format!("---\nreplayGainMode: {gain}\nadventurous: 30\n"),
+            )
+            .unwrap();
+        }
+        let prefs = Prefs::open(dir.path());
+        assert_eq!(prefs.server.get_i64("replayGainMode"), 2);
+        assert_eq!(
+            prefs.player("00:04:20:00:00:02").get_i64("replayGainMode"),
+            2
+        );
+        assert_eq!(prefs.player("00:04:20:00:00:02").get_i64("adventurous"), 30);
+        // once: a later change stands
+        prefs.server.set("replayGainMode", json!(0));
+        assert_eq!(Prefs::open(dir.path()).server.get_i64("replayGainMode"), 0);
     }
 
     #[test]

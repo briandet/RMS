@@ -100,7 +100,10 @@ function withQuery(path, params = {}) {
   return s ? `${path}?${s}` : path;
 }
 
-/** @param {{offset?: number, limit?: number, q?: string}} [p] @returns {Promise<Page<Artist>>} */
+/**
+ * `role: 'album'`: album artists only (the artists albums are filed under).
+ * @param {{offset?: number, limit?: number, q?: string, role?: 'album'}} [p] @returns {Promise<Page<Artist>>}
+ */
 export const getArtists = (p) => api(withQuery('artists', p));
 /** @returns {Promise<Artist>} */
 export const getArtist = (id) => api(`artists/${encodeURIComponent(id)}`);

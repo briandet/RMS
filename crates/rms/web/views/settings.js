@@ -27,6 +27,7 @@ export function render(node, { ctx }) {
   let alive = true;
 
   const playerSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-player' });
+  const playbackSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-playback' });
   const displaySection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-display', hidden: true });
   const syncSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-sync' });
   const browserSection = h('section', { class: 'settings-card', 'aria-labelledby': 'set-browser' });
@@ -41,7 +42,7 @@ export function render(node, { ctx }) {
 
   node.append(
     h('h1', { class: 'view-title' }, 'Settings'),
-    h('div', { class: 'settings-grid' }, playerSection, displaySection, syncSection, browserSection, secureSection, devicesSection, vizSection, spotifySection, lbSection, libSection, scanSection, appearance(ctx), aboutSection));
+    h('div', { class: 'settings-grid' }, playerSection, playbackSection, displaySection, syncSection, browserSection, secureSection, devicesSection, vizSection, spotifySection, lbSection, libSection, scanSection, appearance(ctx), aboutSection));
 
   // Server settings: PATCH /settings, toast the outcome; resolves to the new settings or null.
   async function saveServer(patch, done = 'Setting saved') {
@@ -98,14 +99,6 @@ export function render(node, { ctx }) {
     h('label', { for: nameId }, 'Name'),
     h('div', { class: 'inline-row' }, nameInput, h('button', { class: 'btn', type: 'submit' }, 'Rename')));
 
-    // Transition
-    const durId = fieldId();
-    const durOut = h('output', { for: durId }, `${pref.transition_duration ?? 0} s`);
-    const dur = h('input', { id: durId, type: 'range', class: 'range', min: 0, max: 10, step: 1, value: pref.transition_duration ?? 0,
-      disabled: pref.transition_duration === undefined,
-      oninput: (e) => { durOut.textContent = `${e.target.value} s`; },
-      onchange: (e) => setPref({ transition_duration: +e.target.value }) });
-
     // how much later the player's sound comes out than it says, for sync
     const delayId = fieldId();
     const delayOut = h('output', { for: delayId }, `${pref.play_delay ?? 0} ms`);
@@ -113,12 +106,6 @@ export function render(node, { ctx }) {
       disabled: pref.play_delay === undefined,
       oninput: (e) => { delayOut.textContent = `${e.target.value} ms`; },
       onchange: (e) => setPref({ play_delay: +e.target.value }) });
-
-    // Don't Stop The Music: the server lists the choices with their labels
-    const dstmField = pref.dont_stop_the_music?.options?.length
-      ? choiceField('Don’t Stop The Music', pref.dont_stop_the_music, (v) => setPref({ dont_stop_the_music: v }),
-        'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.')
-      : null;
 
     // Chromecasts: the TV visualiser
     const vizField = pref.visualizer?.options?.length
@@ -132,14 +119,7 @@ export function render(node, { ctx }) {
       h('p', { class: 'muted small' }, [p.model_name || p.model, p.ip, p.id].filter(Boolean).join(' · ')),
       err && h('p', { class: 'muted small', role: 'alert' }, `Could not load the player’s settings: ${err.message}`),
       nameForm,
-      selectField('Transition', TRANSITIONS, pref.transition_type, (v) => setPref({ transition_type: v })),
-      h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
-      dstmField,
       vizField,
-      scrobbleField(pref, setPref),
-      pref.adventurous !== undefined && selectField('Adventurous', ADVENTUROUS, pref.adventurous, (v) => setPref({ adventurous: v }),
-        'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
-      selectField('Replay gain', REPLAY_GAIN, pref.replay_gain_mode, (v) => setPref({ replay_gain_mode: v })),
       selectField('Maximum bitrate', BITRATES, pref.max_bitrate, (v) => setPref({ max_bitrate: v }), 'Higher bitrates are transcoded down when the player or network needs it.'),
       h('div', { class: 'field' }, h('label', { for: delayId }, 'Audio delay'), h('div', { class: 'inline-row' }, delay, delayOut),
         h('p', { class: 'muted small' }, 'How much later this player’s sound comes out than it says: a TV’s speakers, a soundbar, Bluetooth. If it plays out of step with the players it’s synced with, raise it until they line up.')),
@@ -149,6 +129,41 @@ export function render(node, { ctx }) {
         h('label', { for: digitalId }, 'Digital volume control', h('span', { class: 'muted small block' }, 'Turn off to output fixed (100%) volume to an external amplifier.'))),
     ].filter(Boolean));
     renderDisplay(ps?.display ? { display: ps.display, setPref } : null);
+  }
+
+  // ---------------------------------------------------------------- playback (every player)
+  let playbackSeq = 0;
+  async function renderPlayback() {
+    const seq = ++playbackSeq;
+    const head = h('h2', { id: 'set-playback' }, 'Playback');
+    let st;
+    try { st = await getSettings(); } catch (e) {
+      if (alive && seq === playbackSeq) playbackSection.replaceChildren(head, h('p', { class: 'muted', role: 'alert' }, `Could not load the settings: ${e.message}`));
+      return;
+    }
+    if (!alive || seq !== playbackSeq) return;
+    lbAccounts = st.listenbrainz_accounts || lbAccounts;
+    const set = (patch) => saveServer(patch);
+
+    const durId = fieldId();
+    const durOut = h('output', { for: durId }, `${st.transition_duration ?? 0} s`);
+    const dur = h('input', { id: durId, type: 'range', class: 'range', min: 0, max: 10, step: 1, value: st.transition_duration ?? 0,
+      oninput: (e) => { durOut.textContent = `${e.target.value} s`; },
+      onchange: (e) => set({ transition_duration: +e.target.value }) });
+
+    playbackSection.replaceChildren(...[
+      head,
+      h('p', { class: 'muted small' }, 'The same for every player.'),
+      selectField('Transition', TRANSITIONS, st.transition_type, (v) => set({ transition_type: v })),
+      h('div', { class: 'field' }, h('label', { for: durId }, 'Transition duration'), h('div', { class: 'inline-row' }, dur, durOut)),
+      // the server lists the choices with their labels
+      st.dont_stop_the_music?.options?.length && choiceField('Don’t Stop The Music', st.dont_stop_the_music, (v) => set({ dont_stop_the_music: v }),
+        'When the queue runs out, keep playing: songs similar to the last ones, a random mix, or one of your favorites.'),
+      selectField('Adventurous', ADVENTUROUS, st.adventurous, (v) => set({ adventurous: v }),
+        'How much of Similar Songs and Create Mix is music you haven’t played: songs ListenBrainz finds similar, from your library or Spotify. Needs “Discover music with ListenBrainz” under Library.'),
+      selectField('Replay gain', REPLAY_GAIN, st.replay_gain_mode, (v) => set({ replay_gain_mode: v })),
+      scrobbleField(st, set),
+    ].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- display (Squeezebox screens)
@@ -341,7 +356,7 @@ export function render(node, { ctx }) {
   }
 
   // ---------------------------------------------------------------- ListenBrainz
-  // Which accounts a player scrobbles to (filled in once the server settings are loaded).
+  // Which accounts the players scrobble to (filled in once the server settings are loaded).
   let lbAccounts = [];
   function scrobbleField(pref, setPref) {
     if (!lbAccounts.length || !Array.isArray(pref.scrobble_to)) return null;
@@ -357,7 +372,7 @@ export function render(node, { ctx }) {
           } }),
           h('label', { for: id }, `${a.user} (ListenBrainz)`));
       }),
-      h('p', { class: 'muted small' }, 'What this player (and the players synced with it) plays is sent to these ListenBrainz accounts.'));
+      h('p', { class: 'muted small' }, 'What the players play is sent to these ListenBrainz accounts.'));
   }
 
   async function renderListenBrainz() {
@@ -371,14 +386,14 @@ export function render(node, { ctx }) {
     const accounts = settings.listenbrainz_accounts || [];
     const changed = accounts.length !== lbAccounts.length;
     lbAccounts = accounts;
-    if (changed) renderPlayer();
+    if (changed) renderPlayback();
     const rows = accounts.map((a) => {
       const id = fieldId();
       return h('li', { class: 'inline-row' },
         h('strong', {}, a.user),
         h('span', { class: 'check' },
           h('input', { id, type: 'checkbox', checked: a.default, onchange: async (e) => {
-            try { await patchListenBrainzAccount(a.user, { default: e.target.checked }); toast('Saved'); renderPlayer(); } catch (err) { toast(`Could not save: ${err.message}`, 'error'); }
+            try { await patchListenBrainzAccount(a.user, { default: e.target.checked }); toast('Saved'); renderPlayback(); } catch (err) { toast(`Could not save: ${err.message}`, 'error'); }
           } }),
           h('label', { for: id }, 'Default')),
         h('button', { class: 'btn btn-ghost', type: 'button', onclick: async () => {
@@ -869,6 +884,7 @@ export function render(node, { ctx }) {
   }
 
   renderPlayer();
+  renderPlayback();
   renderSync(true);
   renderLibrary();
   renderSpotify();
