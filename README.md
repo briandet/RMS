@@ -197,6 +197,11 @@ The script builds a release binary (the web UI is built in), installs it as
   the `playDelay` pref) is how much later its sound comes out than it says, for TV
   speakers and soundbars.  Sync with UPnP and AirPlay players stays loose (they buffer by
   themselves).
+  **A Chromecast doesn't take the TV from other apps:** when another app takes over
+  (Netflix, YouTube) or it's stopped on the TV or from Google Home, the player turns off,
+  so the queue doesn't go on and take the TV back (in a sync group the others play on).
+  One that has another app on it when it connects isn't pulled into its sync group's
+  playback.  Playing to it turns it on and takes the TV again.
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.

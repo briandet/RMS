@@ -561,6 +561,8 @@ struct Cast {
     link: ClockLink,
     /// Since when the receiver's `ready` waits for the clocks to line up.
     ready_held: Option<Instant>,
+    /// The device has said what runs on it (until then, nothing is launched).
+    status_seen: bool,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -636,6 +638,7 @@ impl Cast {
             hello_asked: None,
             engine_active: false,
             ready_held: None,
+            status_seen: false,
             link: ClockLink::new(),
             launching: None,
             queued: None,
@@ -852,6 +855,15 @@ impl Cast {
         self.app = None;
         self.media = None;
         self.queued = Some(item);
+        // not before the device has said what's on it: it may be busy with another app
+        if !self.status_seen {
+            return Ok(());
+        }
+        self.launch().await
+    }
+
+    /// Start the receiver app, for the queued track.
+    async fn launch(&mut self) -> anyhow::Result<()> {
         if self.launching.is_none() {
             self.launching = Some(Instant::now());
             let app = self.want_app.clone();
@@ -1090,8 +1102,23 @@ impl Cast {
     }
 
     async fn on_receiver_status(&mut self, payload: &Value) -> anyhow::Result<()> {
-        let app = payload["status"]["applications"]
-            .as_array()
+        let apps = payload["status"]["applications"].as_array();
+        // when it connects: an app of its own on it (Netflix, YouTube) isn't to be taken
+        // over by a sync group that plays; the player is off until it's asked to play
+        if !std::mem::replace(&mut self.status_seen, true) {
+            let busy = apps
+                .into_iter()
+                .flatten()
+                .find(|a| a["appId"] != self.want_app.as_str() && a["isIdleScreen"] != true);
+            if let Some(other) = busy {
+                let name = other["displayName"].as_str().unwrap_or("another app");
+                self.queued = None;
+                self.power_off(&format!("{name} is playing on it"));
+            } else if self.queued.is_some() && self.app.is_none() {
+                self.launch().await?;
+            }
+        }
+        let app = apps
             .into_iter()
             .flatten()
             .find(|a| a["appId"] == self.want_app.as_str())
@@ -1133,20 +1160,46 @@ impl Cast {
         Ok(())
     }
 
-    /// Another app took over the device, or the media receiver quit.
+    /// Another app took over the device, or the receiver app was closed on it (it never
+    /// closes it itself): someone is using the TV for something else.  The player turns
+    /// off, as a Squeezebox would, so the queue doesn't go on to its next track and take
+    /// the TV back; in a sync group the others play on.  Playing to it again turns it on.
     async fn app_gone(&mut self) -> anyhow::Result<()> {
         self.app = None;
         self.next = None;
         self.engine = None;
         self.hello_asked = None;
         self.ready_held = None;
-        if std::mem::take(&mut self.engine_active) {
-            return self.report(FromRenderer::Ended).await;
-        }
-        if self.media.take().is_some_and(|m| m.started) {
-            self.report(FromRenderer::Ended).await?;
+        let playing = std::mem::take(&mut self.engine_active) || self.media.take().is_some();
+        self.queued = None;
+        self.launching = None;
+        if playing {
+            self.power_off("another app took over, or the receiver was closed");
         }
         Ok(())
+    }
+
+    /// Turn the player off (see [`Self::app_gone`]).
+    fn power_off(&self, why: &str) {
+        let Some(p) = self.server.player(&self.mac).filter(|p| p.power()) else {
+            return;
+        };
+        info!("chromecast {}: turned off: {why}", self.mac);
+        let ctrl = p.controller();
+        let alone = ctrl
+            .lock()
+            .all_players()
+            .iter()
+            .all(|o| o.id == p.id || !o.power());
+        self.server.set_power(&p, false, true);
+        // what it played is gone from the TV: playing again starts the track afresh,
+        // rather than resuming nothing
+        if alone {
+            let mut c = ctrl.lock();
+            if c.is_paused() {
+                c.stop();
+            }
+        }
     }
 
     async fn on_media_status(&mut self, payload: &Value) -> anyhow::Result<()> {
@@ -1224,10 +1277,13 @@ impl Cast {
                 "IDLE" => {
                     match st["idleReason"].as_str().unwrap_or_default() {
                         "FINISHED" => return self.finished().await,
+                        // stopped on the device (its remote, Google Home): as when another
+                        // app takes over, not the end of the track
                         "CANCELLED" => {
                             self.media = None;
                             self.next = None;
-                            return self.report(FromRenderer::Ended).await;
+                            self.power_off("stopped on the device");
+                            return Ok(());
                         }
                         "ERROR" => {
                             self.media = None;
