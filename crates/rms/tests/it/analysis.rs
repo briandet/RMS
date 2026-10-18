@@ -54,6 +54,10 @@ fn analysis_of_a_track_and_the_library() {
     assert_eq!(a["track_id"], id);
     assert_eq!(a["title"], "One");
     assert_eq!(a["artist"], "Band");
+    // its album, with the album's artist (for the page's breadcrumb)
+    assert_eq!(a["album"]["title"], "Album", "{a}");
+    assert_eq!(a["album"]["artist"], "Band");
+    assert!(a["album"]["id"].is_i64() && a["album"]["artist_id"].is_i64());
     assert_eq!(a["file"]["format"], "flc");
     assert!(a["file"]["path"].as_str().unwrap().ends_with("01 One.flac"));
     assert!(a["file"]["fingerprint"].is_string());

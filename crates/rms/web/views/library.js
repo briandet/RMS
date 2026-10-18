@@ -109,7 +109,8 @@ const ROUTES = {
     const ul = list('Artists');
     v.body.append(ul);
     let lastKey = null;
-    pager(v, ul, (offset, limit) => getArtists({ offset, limit }), (a) => {
+    // album artists: the artists albums are filed under, not everyone who guests on a track
+    pager(v, ul, (offset, limit) => getArtists({ offset, limit, role: 'album' }), (a) => {
       const out = [];
       if (a.letter && a.letter !== lastKey) {
         lastKey = a.letter;

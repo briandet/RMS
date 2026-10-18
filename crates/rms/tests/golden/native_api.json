@@ -52,6 +52,31 @@
       ]
     }
   },
+  "GET /api/v1/artists?role=album (album artists)": {
+    "status": 200,
+    "body": {
+      "total": 2,
+      "offset": 0,
+      "items": [
+        {
+          "id": 2,
+          "name": "Alpha Band",
+          "letter": "A"
+        },
+        {
+          "id": 3,
+          "name": "Beta Singer",
+          "letter": "B"
+        }
+      ]
+    }
+  },
+  "GET /api/v1/artists?role=composer (unknown role)": {
+    "status": 400,
+    "body": {
+      "error": "unknown role \"composer\" (album, or none for every artist)"
+    }
+  },
   "GET /api/v1/artists/2 (artist)": {
     "status": 200,
     "body": {

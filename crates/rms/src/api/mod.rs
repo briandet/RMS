@@ -434,7 +434,10 @@ fn library_reply<T: Serialize>(r: Result<T, LibraryError>, what: &str) -> Respon
 
 // ---------------------------------------------------------------- library
 
-async fn get_artists(State(s): State<Arc<Server>>, ApiQuery(p): ApiQuery<ListParams>) -> Response {
+async fn get_artists(
+    State(s): State<Arc<Server>>,
+    ApiQuery(p): ApiQuery<library::ArtistParams>,
+) -> Response {
     library_reply(library::artists(&s, p).await, "artist")
 }
 

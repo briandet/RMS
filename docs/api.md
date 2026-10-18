@@ -34,7 +34,7 @@ own conventions:
 | `GET`, `PATCH /api/v1/players/{id}/settings` | [player settings](#player-settings) |
 | `GET /api/v1/events` | [event stream](#events) |
 | `GET /api/v1/browser-player` | WebSocket: [this browser as a player](#browser-player) |
-| `GET /api/v1/artists?q=` | page of [Artist](#artist) |
+| `GET /api/v1/artists?q=&role=` | page of [Artist](#artist); `role=album`: album artists only (the artists albums are filed under, as Lyrion's album artists list) |
 | `GET /api/v1/artists/{id}` | [Artist](#artist) |
 | `GET /api/v1/artists/{id}/top-tracks` | [Track](#track)s: the artist's most played |
 | `GET /api/v1/artists/{id}/similar` | `[{"name", "artist"?: Artist}]`: similar artists ([ListenBrainz](#listenbrainz)) |
@@ -680,6 +680,7 @@ audio's fingerprint, so a moved or renamed file keeps them, and copies of one fi
 
 ```json
 {"track_id": 1234, "title": "Teardrop", "artist": "Massive Attack",
+ "album": {"id": 56, "title": "Mezzanine", "artist": "Massive Attack", "artist_id": 12, "…": "…"},
  "file": {"url": "file:///music/…", "path": "/music/…", "fingerprint": "c8a3e450…",
           "format": "flc", "size": 31457280, "bitrate": 911000, "vbr": true,
           "sample_rate": 44100, "sample_size": 16, "channels": 2, "lossless": true,

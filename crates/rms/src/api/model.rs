@@ -286,6 +286,9 @@ pub struct TrackAnalysis {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artist: Option<String>,
+    /// Its album, with the album's artist.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<Album>,
     pub file: AnalysisFile,
     /// bliss: what it sounds like, which drives similar songs and mixes; loudness.
     pub bliss: AnalysisStage<BlissAnalysis>,

@@ -254,7 +254,11 @@ export function render(v) {
         'aria-sort': s ? (s.desc ? 'descending' : 'ascending') : 'none',
         title: 'Sort (Shift: add to the sort)',
         onclick: (e) => { if (!e.target.closest('.tbl-grip')) sortBy(c, e.shiftKey); },
-        onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(c, e.shiftKey); } },
+        onkeydown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sortBy(c, e.shiftKey); }
+          else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); columnMenu(c, e.currentTarget); }
+        },
+        oncontextmenu: (e) => { e.preventDefault(); columnMenu(c, { x: e.clientX, y: e.clientY }); },
       }, h('span', { class: 'tbl-th-label' }, label(c)),
       s && h('span', { class: 'tbl-sort' }, s.desc ? '▾' : '▴', st.sort.length > 1 ? h('sub', {}, i + 1) : null));
       const grip = h('span', { class: 'tbl-grip', 'aria-hidden': 'true' });
@@ -274,6 +278,76 @@ export function render(v) {
       cell.append(grip);
       return cell;
     }), h('div', { class: 'tbl-th tbl-th-end' }));
+  }
+
+  /** A column's menu: group by it, sort by it, hide it. */
+  function columnMenu(c, at) {
+    const desc = numeric(F[c]) || c === 'count' || F[c]?.kind === 'time';
+    const sortOn = (d) => () => { st.sort = [{ field: c, desc: d }]; update(false); };
+    openMenu(at, label(c), [
+      F[c]?.next && st.group !== c && { label: `Group by ${label(c).toLowerCase()}`, icon: 'columns', run: () => groupBy(c) },
+      st.group !== 'track' && st.group === c && { label: 'Show tracks', icon: 'note', run: () => groupBy('track') },
+      { label: desc ? 'Sort, highest first' : 'Sort A–Z', checked: st.sort.length === 1 && st.sort[0].field === c && !!st.sort[0].desc === desc, run: sortOn(desc) },
+      { label: desc ? 'Sort, lowest first' : 'Sort Z–A', checked: st.sort.length === 1 && st.sort[0].field === c && !!st.sort[0].desc !== desc, run: sortOn(!desc) },
+      cols.length > 1 && 'sep',
+      cols.length > 1 && { label: 'Hide this column', icon: 'close', run: () => {
+        st.columns = cols.filter((x) => x !== c);
+        storage.set(colStore(), JSON.stringify(st.columns));
+        update(false);
+      } },
+    ]);
+  }
+
+  /** Show the rows grouped by `c` (`track`: not grouped), keeping the query. */
+  function groupBy(c) {
+    st.group = c;
+    st.columns = null;
+    st.sort = [];
+    st.view = '';
+    update(true);
+  }
+
+  // ---- filters from a cell's value
+  /** Query words that find tracks with value `v` in column `c`, or null where that means nothing. */
+  function filterTerms(c, v) {
+    const f = F[c];
+    if (!f || c === 'count' || (v && typeof v === 'object')) return []; // a range, or what varies
+    if (v == null || v === '') return [{ only: `missing:${c}`, not: `has:${c}`, shown: `no ${label(c).toLowerCase()}` }];
+    const quote = (x) => `"${String(x).replace(/"/g, '\\"')}"`;
+    switch (f.kind) {
+      case 'text': {
+        // a genre cell lists the track's genres; each is found on its own
+        const values = c === 'genre' ? String(v).split('; ').filter(Boolean) : [String(v)];
+        return values.slice(0, 4).map((x) => ({ only: `${c}:=${quote(x)}`, shown: c === 'format' ? FORMATS[x] || x : x }));
+      }
+      case 'bool': return [{ only: `${c}:${v ? 'yes' : 'no'}`, shown: v ? 'yes' : 'no' }];
+      case 'int': return [{ only: `${c}:=${v}`, shown: show(f, v) }];
+      case 'time': return [{ only: `${c}:${DATE(v)}`, shown: DATE(v) }];
+      default: return []; // lengths, sizes, scores: a range says more than one value
+    }
+  }
+
+  function addFilter(term) {
+    st.q = [st.q, term].filter(Boolean).join(' ');
+    input.value = st.q;
+    st.view = '';
+    update(false);
+  }
+
+  /** Menu entries filtering by the value in column `k` of row `r`. */
+  function cellEntries(r, k) {
+    const c = cols[k];
+    const terms = filterTerms(c, r.cells[k]);
+    if (!terms.length) return [];
+    const short = (x) => (x.length > 40 ? `${x.slice(0, 39)}…` : x);
+    const name = label(c).toLowerCase();
+    return [
+      ...terms.flatMap((t) => [
+        { label: `Only ${name} “${short(t.shown)}”`, icon: 'search', run: () => addFilter(t.only) },
+        { label: `Not ${name} “${short(t.shown)}”`, icon: 'close', run: () => addFilter(t.not || `-${t.only}`) },
+      ]),
+      'sep',
+    ];
   }
 
   function sortBy(c, add) {
@@ -345,14 +419,19 @@ export function render(v) {
       const f = F[cols[k]];
       const content = cols[k] === 'count' ? (+v).toLocaleString() : cellNode(f || { kind: 'text', name: cols[k] }, v);
       const text = typeof content === 'string' ? content : '';
-      el.append(h('div', { class: `tbl-td${numeric(f) || cols[k] === 'count' ? ' num' : ''}${cols[k] === 'rating' ? ' stars' : ''}`, role: 'gridcell', title: text.length > 24 ? text : null }, content));
+      el.append(h('div', { class: `tbl-td${numeric(f) || cols[k] === 'count' ? ' num' : ''}${cols[k] === 'rating' ? ' stars' : ''}`, role: 'gridcell', 'data-col': k, title: text.length > 24 ? text : null }, content));
     });
     const more = h('button', { class: 'icon-btn tbl-more', type: 'button', 'aria-label': 'More', title: 'More', tabindex: '-1',
       onclick: (e) => { e.stopPropagation(); rowMenu(r, more); } }, icon('more'));
     el.append(h('div', { class: 'tbl-td tbl-td-end' }, more));
     el.addEventListener('click', () => setFocus(i));
     el.addEventListener('dblclick', () => activate(r));
-    el.addEventListener('contextmenu', (e) => { e.preventDefault(); setFocus(i); rowMenu(r, { x: e.clientX, y: e.clientY }); });
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      setFocus(i);
+      const k = e.target.closest('[data-col]')?.dataset.col;
+      rowMenu(r, { x: e.clientX, y: e.clientY }, k == null ? [] : cellEntries(r, +k));
+    });
     return el;
   }
 
@@ -378,11 +457,13 @@ export function render(v) {
     v.ctx.navigate(hashFor({ q: rowQuery(r), group: next, columns: null, sort: [], title }));
   }
 
-  function rowMenu(r, at) {
+  /** A row's menu; `filters`: entries for the cell it was opened on, first. */
+  function rowMenu(r, at, filters = []) {
     const name = String(rowName(r));
     if (r.id != null) {
       const go = (action) => () => v.ctx.playItem(action, 'track_id', r.id, name);
       openMenu(at, name, [
+        ...filters,
         { label: 'Play now', icon: 'play', run: go('load') },
         { label: 'Play next', icon: 'playnext', run: go('insert') },
         { label: 'Add to queue', icon: 'add', run: go('add') },
@@ -395,6 +476,7 @@ export function render(v) {
     const item = { q: rowQuery(r), sort: [] };
     const go = (action) => () => v.ctx.playItem(action, 'query', item, name);
     openMenu(at, name, [
+      ...filters,
       { label: `Show its ${r.next === 'album' ? 'albums' : 'tracks'}`, icon: 'chevron', run: () => drill(r) },
       'sep',
       { label: 'Play now', icon: 'play', run: go('load') },
@@ -490,12 +572,8 @@ export function render(v) {
     fit();
   });
   groupSel.addEventListener('change', () => {
-    st.group = groupSel.value;
-    st.columns = null;
-    st.sort = [];
-    st.view = '';
     st.title = '';
-    update(true);
+    groupBy(groupSel.value);
   });
   const queryItem = () => ({ q: st.q, sort: st.sort });
   const what = () => st.title.split(' › ').pop() || st.view || st.q || 'the library';

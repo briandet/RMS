@@ -914,6 +914,8 @@ fn native_api() {
 
     get!("artists", "/api/v1/artists");
     get!("artists page", "/api/v1/artists?offset=1&limit=2",);
+    get!("album artists", "/api/v1/artists?role=album");
+    get!("unknown role", "/api/v1/artists?role=composer");
     get!("artist", "/api/v1/artists/2");
     get!("unknown artist", "/api/v1/artists/999");
     get!("albums", "/api/v1/albums");

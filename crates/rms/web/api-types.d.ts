@@ -267,7 +267,11 @@ export type TrackKind = { styles: Array<Label>, moods: Array<Label>, themes: Arr
 
 export type Label = { name: string, score: number, };
 
-export type TrackAnalysis = { track_id: number, title: string, artist?: string, file: AnalysisFile, 
+export type TrackAnalysis = { track_id: number, title: string, artist?: string, 
+/**
+ * Its album, with the album's artist.
+ */
+album?: Album, file: AnalysisFile, 
 /**
  * bliss: what it sounds like, which drives similar songs and mixes; loudness.
  */

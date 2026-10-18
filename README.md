@@ -273,7 +273,9 @@ The script builds a release binary (the web UI is built in), installs it as
   the tags, columns show what MusicBrainz says (the matched release's titles, label, catalogue
   number, country, medium, original year, …) and EffNet's style and mood scores; they are chosen, ordered, sorted
   and resized; double-click opens a row (artist → albums → tracks) or plays a track; views
-  can be saved.  Rows load as they scroll into view, so a big library scrolls freely.  The
+  can be saved.  Right-click a column's heading to group by it (or sort by it, or hide it),
+  or a cell to keep only the rows with that value, or leave them out (`year:=1959`,
+  `-artist:="Bill Evans"`, `missing:year`).  Rows load as they scroll into view, so a big library scrolls freely.  The
   same queries are in the API ([docs/api.md](docs/api.md#the-table)) and can be queued.
 * **Spectrum bars** (not in Lyrion): a playing player shows four little bars, bass to
   treble, moving with the music, in the web UI's player menu and now playing.  They are
