@@ -65,6 +65,8 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const LINK_FIRST: usize = 8;
 /// How long a receiver that's ready waits for those answers before playing all the same.
 const LINK_WAIT: Duration = Duration::from_secs(2);
+/// How long the receiver app may take to close when the driver closes it.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_EVERY: Duration = Duration::from_secs(5);
 /// A device silent for this long is gone.
 const SILENCE: Duration = Duration::from_secs(30);
@@ -569,6 +571,9 @@ struct Cast {
     /// Whether the receiver app is on screen (as it says): Google TV keeps it playing behind
     /// the home screen after Home is pressed.
     visible: Option<bool>,
+    /// Since when the receiver app is being closed by the driver itself (the player turned
+    /// off, or to launch it afresh in front): its going isn't someone taking the TV.
+    closing: Option<Instant>,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -647,6 +652,7 @@ impl Cast {
             status_seen: false,
             off_pending: None,
             visible: None,
+            closing: None,
             link: ClockLink::new(),
             launching: None,
             queued: None,
@@ -731,6 +737,21 @@ impl Cast {
                     }
                     // the receiver app's clock (and, for Cast's media, the position heard)
                     self.ping().await?;
+                    // the player turned off: the TV is free again, as a Squeezebox's speakers
+                    if let Some(p) = self.server.player(&self.mac).filter(|p| !p.power()) {
+                        if self.app.as_ref().is_some_and(|a| a.id == self.want_app) && self.closing.is_none() {
+                            self.close_app("the player was turned off").await?;
+                            forget_paused(&p);
+                        }
+                    }
+                    if self.closing.is_some_and(|t| t.elapsed() > CLOSE_TIMEOUT) {
+                        // it didn't close: play in it as it is, rather than not at all
+                        self.closing = None;
+                        self.visible = None;
+                        if let Some(item) = self.queued.take() {
+                            self.load_or_launch(item).await?;
+                        }
+                    }
                     if let Some(why) = self.off_pending.take() {
                         if !self.power_off(&why) {
                             self.off_pending = Some(why);
@@ -786,20 +807,6 @@ impl Cast {
                 if app != self.want_app {
                     self.launching = None;
                     self.want_app = app;
-                }
-                // playing again while the receiver is behind the home screen: launching it
-                // brings it to the front (then it's connected to afresh, as a new one)
-                if self.visible == Some(false)
-                    && self.app.as_ref().is_some_and(|a| a.id == self.want_app)
-                {
-                    info!(
-                        "chromecast {}: bringing the receiver to the front",
-                        self.mac
-                    );
-                    self.app = None;
-                    self.media = None;
-                    self.engine_active = false;
-                    self.visible = None;
                 }
                 let mode = crate::viz::mode(&self.server, &self.mac);
                 if mode == crate::viz::Mode::Video {
@@ -870,6 +877,19 @@ impl Cast {
 
     /// Load `item`, launching the media receiver app first if it isn't running.
     async fn load_or_launch(&mut self, item: Item) -> anyhow::Result<()> {
+        // behind Google TV's home screen, where launching it again doesn't bring it back
+        // (nothing a sender asks does): closed and launched afresh, it comes up in front
+        if self.visible == Some(false) && self.app.as_ref().is_some_and(|a| a.id == self.want_app) {
+            self.queued = Some(item);
+            return self
+                .close_app("it's behind the home screen: closing it to start it afresh")
+                .await;
+        }
+        if self.closing.is_some() {
+            // (launched once it has closed)
+            self.queued = Some(item);
+            return Ok(());
+        }
         if self.app.as_ref().is_some_and(|a| a.id == self.want_app) {
             if self.engine.is_none() {
                 // what the app can do comes first
@@ -891,6 +911,25 @@ impl Cast {
             return Ok(());
         }
         self.launch().await
+    }
+
+    /// Close the receiver app (its going is then the driver's own doing).
+    async fn close_app(&mut self, why: &str) -> anyhow::Result<()> {
+        let Some(app) = self.app.clone().filter(|a| a.id == self.want_app) else {
+            return Ok(());
+        };
+        if self.closing.is_some() {
+            return Ok(());
+        }
+        info!("chromecast {}: closing the receiver: {why}", self.mac);
+        self.closing = Some(Instant::now());
+        self.request(
+            RECEIVER,
+            NS_RECEIVER,
+            json!({"type": "STOP", "sessionId": app.session}),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Start the receiver app, for the queued track.
@@ -1220,9 +1259,17 @@ impl Cast {
         self.engine = None;
         self.hello_asked = None;
         self.ready_held = None;
+        self.visible = None;
         let playing = std::mem::take(&mut self.engine_active) || self.media.take().is_some();
-        self.queued = None;
         self.launching = None;
+        if self.closing.take().is_some() {
+            // closed by the driver: launched afresh if there's a track for it
+            if self.queued.is_some() {
+                self.launch().await?;
+            }
+            return Ok(());
+        }
+        self.queued = None;
         if playing {
             self.power_off("another app took over, or the receiver was closed");
         }
@@ -1238,21 +1285,8 @@ impl Cast {
             return true;
         }
         info!("chromecast {}: turned off: {why}", self.mac);
-        let ctrl = p.controller();
-        let alone = ctrl
-            .lock()
-            .all_players()
-            .iter()
-            .all(|o| o.id == p.id || !o.power());
         self.server.set_power(&p, false, true);
-        // what it played is gone from the TV: playing again starts the track afresh,
-        // rather than resuming nothing
-        if alone {
-            let mut c = ctrl.lock();
-            if c.is_paused() {
-                c.stop();
-            }
-        }
+        forget_paused(&p);
         true
     }
 
@@ -1336,7 +1370,9 @@ impl Cast {
                         "CANCELLED" => {
                             self.media = None;
                             self.next = None;
-                            self.power_off("stopped on the device");
+                            if self.closing.is_none() {
+                                self.power_off("stopped on the device");
+                            }
                             return Ok(());
                         }
                         "ERROR" => {
@@ -1886,6 +1922,17 @@ fn track_info(meta: &Option<Value>, duration: Option<f64>) -> Value {
         "art": m["images"][0]["url"],
         "duration": duration,
     })
+}
+
+/// What a player that's off on its own was paused at is gone from the TV with the receiver:
+/// playing again starts the track afresh, rather than resuming nothing.
+fn forget_paused(p: &Arc<crate::player::Player>) {
+    let ctrl = p.controller();
+    let mut c = ctrl.lock();
+    let alone = c.all_players().iter().all(|o| o.id == p.id || !o.power());
+    if alone && c.is_paused() {
+        c.stop();
+    }
 }
 
 /// The stream at `url`, for a device that can't take raw samples (`pcm`) bare: in a WAV

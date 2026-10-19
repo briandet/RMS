@@ -54,8 +54,10 @@ console.
     to leave the browser.
   - `visible` (in `HELLO` and `PONG`, and `{"type": "VISIBLE", "visible": false}` when it
     changes) says whether the page is on screen.  Google TV keeps a cast app playing behind
-    its home screen after Home is pressed. When RMS starts playing while the page is
-    hidden, it launches the app again, which brings it back to the front.
+    its home screen after Home is pressed, and nothing a sender asks brings it back (not
+    even launching it again). When RMS starts playing while the page is hidden, it closes
+    the app and launches it afresh, in front.  Turning the player off in RMS closes the
+    app too, which frees the TV.
   - In the visualiser video, RMS sends `{"type": "TRACK", "title", "artist", "album",
     "art", "duration", "start"}` as each track begins (`start`: where in the stream), for
     the track info.
