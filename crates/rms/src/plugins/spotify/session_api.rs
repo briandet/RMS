@@ -7,7 +7,7 @@
 //! [`session_get`] when the Web API fails.  Results have the Web API's JSON shape (only the
 //! fields this plugin reads), so the menus work unchanged.  Saved albums and followed artists
 //! come from the collection service the apps sync with.  Not available this way: search,
-//! recently played, top tracks/artists, new releases.
+//! top tracks/artists, new releases.
 
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
@@ -313,6 +313,85 @@ async fn context_tracks(session: &Session, context: &str) -> Result<Vec<String>,
     Ok(ids)
 }
 
+/// The albums, playlists and artists the user played from lately, newest first, as the
+/// apps' "Recently played" shows them (the Web API's recently played lists tracks instead).
+/// Each in its Web API shape with a `type`.
+pub async fn recently_played(session: &Session) -> Result<Vec<Value>, String> {
+    let user = session.username();
+    let path = format!(
+        "/recently-played/v3/user/{user}/recently-played?format=json&limit=50&filter=default"
+    );
+    let bytes = session
+        .spclient()
+        .request_as_json(&axum::http::Method::GET, &path, None, None)
+        .await
+        .map_err(|e| format!("Spotify recently played: {e}"))?;
+    let v: Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("Spotify recently played: {e}"))?;
+    let uris = recent_contexts(&v);
+    let of = |kind: &str| -> Vec<String> {
+        uris.iter()
+            .filter(|u| u.starts_with(&format!("spotify:{kind}:")))
+            .cloned()
+            .collect()
+    };
+    let mut found = std::collections::HashMap::new();
+    for a in albums(session, &of("album")).await? {
+        found.insert(
+            format!("spotify:album:{}", a["id"].as_str().unwrap_or("")),
+            a,
+        );
+    }
+    for a in artists(session, &of("artist")).await? {
+        found.insert(
+            format!("spotify:artist:{}", a["id"].as_str().unwrap_or("")),
+            a,
+        );
+    }
+    for u in of("playlist") {
+        // one gone or private since is left out
+        if let Ok(pl) = Playlist::get(session, &uri(&u)?).await {
+            let id = u.trim_start_matches("spotify:playlist:");
+            found.insert(
+                u.clone(),
+                json!({ "id": id, "name": pl.name(), "images": [] }),
+            );
+        }
+    }
+    Ok(in_order(&uris, found))
+}
+
+/// The album, playlist and artist URIs of a `recently-played` answer, in its order, once
+/// each (other contexts, such as Liked Songs or a radio station, are left out).
+fn recent_contexts(v: &Value) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    v["playContexts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["uri"].as_str())
+        .filter(|u| {
+            ["spotify:album:", "spotify:playlist:", "spotify:artist:"]
+                .iter()
+                .any(|k| u.starts_with(k))
+        })
+        .filter(|u| seen.insert(u.to_string()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The `found` objects for `uris`, in that order, each with its `type`; any not found are
+/// left out.
+fn in_order(uris: &[String], mut found: std::collections::HashMap<String, Value>) -> Vec<Value> {
+    uris.iter()
+        .filter_map(|u| {
+            let mut v = found.remove(u)?;
+            v["type"] = json!(u.split(':').nth(1)?);
+            Some(v)
+        })
+        .collect()
+}
+
 /// Pages of a collection set, at most.
 const COLLECTION_PAGES: usize = 20;
 
@@ -478,6 +557,55 @@ mod tests {
             }
             os.write_string(4, "spotify:context:unknown-field")
         })
+    }
+
+    #[test]
+    fn recently_played_keeps_albums_playlists_and_artists_once_each_newest_first() {
+        let v = json!({ "playContexts": [
+            { "uri": "spotify:playlist:p1", "lastPlayedTrackUri": "spotify:track:t1" },
+            { "uri": "spotify:user:me:collection" },
+            { "uri": "spotify:artist:a1" },
+            { "uri": "spotify:album:b1" },
+            { "uri": "spotify:station:album:b1" },
+            { "uri": "spotify:playlist:p1" },
+            { "lastPlayedTime": 1 },
+        ]});
+        assert_eq!(
+            recent_contexts(&v),
+            [
+                "spotify:playlist:p1",
+                "spotify:artist:a1",
+                "spotify:album:b1"
+            ]
+        );
+        assert!(recent_contexts(&json!({})).is_empty());
+    }
+
+    #[test]
+    fn recently_played_lists_what_was_found_in_the_played_order_with_its_type() {
+        let uris = [
+            "spotify:album:b1",
+            "spotify:playlist:gone",
+            "spotify:artist:a1",
+        ]
+        .map(String::from);
+        let found = [
+            ("spotify:artist:a1", json!({ "id": "a1", "name": "Auve" })),
+            (
+                "spotify:album:b1",
+                json!({ "id": "b1", "name": "Walking on a Dream" }),
+            ),
+        ]
+        .into_iter()
+        .map(|(u, v)| (u.to_string(), v))
+        .collect();
+        assert_eq!(
+            in_order(&uris, found),
+            [
+                json!({ "id": "b1", "name": "Walking on a Dream", "type": "album" }),
+                json!({ "id": "a1", "name": "Auve", "type": "artist" }),
+            ]
+        );
     }
 
     #[test]
