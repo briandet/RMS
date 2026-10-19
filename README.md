@@ -204,7 +204,10 @@ The script builds a release binary (the web UI is built in), installs it as
   (Netflix, YouTube) or it's stopped on the TV or from Google Home, the player turns off,
   so the queue doesn't go on and take the TV back (in a sync group the others play on).
   One that has another app on it when it connects isn't pulled into its sync group's
-  playback.  Playing to it turns it on and takes the TV again.
+  playback.  Playing to it turns it on and takes the TV again.  Turning it off in RMS
+  closes the receiver app; and since Google TV keeps a cast app playing behind its home
+  screen after Home is pressed (where nothing brings it back), playing to one hidden that
+  way closes the receiver and starts it afresh, in front.
   A device found several ways (a WiiM is a Squeezebox player, a UPnP renderer and a
   Chromecast) is one player, by its IP address: a Squeezebox player wins, then Chromecast,
   then UPnP, then AirPlay.  The others come back when it disconnects.

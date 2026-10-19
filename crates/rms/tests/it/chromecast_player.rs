@@ -398,7 +398,13 @@ async fn serve(
                                    "reason": "NOT_FOUND"}),
                         ));
                     }
-                    (NS_RECEIVER, kind @ ("GET_STATUS" | "LAUNCH" | "SET_VOLUME")) => {
+                    (NS_RECEIVER, kind @ ("GET_STATUS" | "LAUNCH" | "SET_VOLUME" | "STOP")) => {
+                        if kind == "STOP" {
+                            // the app quits
+                            launched = None;
+                            media = None;
+                            visible = true;
+                        }
                         if kind == "LAUNCH" {
                             // (the app that ran gives way to it)
                             launched = Some(p["appId"].as_str().unwrap().to_string());
@@ -484,7 +490,10 @@ async fn serve(
                                 }
                             }
                             "PAUSE" | "PLAY" | "STOP" => {
-                                let me = media.as_mut().unwrap();
+                                // (for media that's gone with the app: nothing to do)
+                                let Some(me) = media.as_mut() else {
+                                    continue;
+                                };
                                 assert_eq!(p["mediaSessionId"], me.session);
                                 me.freeze();
                                 if kind == "PLAY" {
@@ -1869,8 +1878,8 @@ async fn a_busy_chromecast_plays_when_asked() {
     assert_eq!(launch["appId"], TEST_APP);
 }
 
-/// The receiver plays on behind Google TV's home screen after Home is pressed: playing
-/// again brings it back to the front.
+/// The receiver plays on behind Google TV's home screen after Home is pressed, where
+/// nothing brings it back: playing again closes it and launches it afresh, in front.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hidden_receiver_comes_to_the_front_to_play() {
     need_ffmpeg!();
@@ -1891,8 +1900,46 @@ async fn a_hidden_receiver_comes_to_the_front_to_play() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     command(http, &id, json!({"command": "stop"})).await;
     command(http, &id, json!({"command": "play"})).await;
+    let stop = dev.expect_type(NS_RECEIVER, "STOP").await;
+    assert_eq!(stop["sessionId"], "s-1");
     let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
     assert_eq!(launch["appId"], TEST_APP);
     dev.expect_type(NS_MEDIA, "LOAD").await;
-    wait_player(http, &id, "playing again", |p| p["mode"] == "play").await;
+    wait_player(http, &id, "playing again", |p| {
+        p["mode"] == "play" && p["power"] == true
+    })
+    .await;
+}
+
+/// Turning a Chromecast off in RMS closes the receiver: the TV is free again.
+#[tokio::test(flavor = "multi_thread")]
+async fn turning_a_chromecast_off_closes_the_receiver() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    dev.expect_type(NS_MEDIA, "LOAD").await;
+    wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
+
+    command(http, &id, json!({"command": "power", "on": false})).await;
+    dev.expect_within(Duration::from_secs(5), "the receiver closed", |v| {
+        v["ns"] == NS_RECEIVER && v["type"] == "STOP"
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    while let Ok(v) = dev.log.try_recv() {
+        assert!(v["type"] != "LAUNCH", "{v}");
+    }
+    let p = get(http, &format!("/api/v1/players/{}", id.replace(':', "%3A"))).await;
+    assert_eq!(p["power"], false, "{p}");
+
+    // on again and playing: launched afresh
+    command(http, &id, json!({"command": "play"})).await;
+    dev.expect_type(NS_RECEIVER, "LAUNCH").await;
 }
