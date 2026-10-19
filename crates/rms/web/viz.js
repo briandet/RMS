@@ -488,6 +488,7 @@ export class TrackOverlay {
 
   /** Where the track is (seconds), and its length if known. */
   progress(t, d) {
+    if (!Number.isFinite(d) || d <= 0) d = 0; // (a stream's length: Infinity)
     this.barEl.style.width = d ? `${Math.min(100, (t / d) * 100)}%` : '0';
     this.timeEl.textContent = d ? `${clock(t)} / ${clock(d)}` : clock(t);
   }

@@ -261,12 +261,20 @@ setInterval(() => {
 
 // -------------------------------------------------------------- track info
 let duration = 0;
+// the length RMS gave with the media handling's LOAD
+let loadedDuration = 0;
 
 function showTrack(t) {
   if (!overlay) return;
   overlay.track(t);
   if (t.art) $('backdrop').style.backgroundImage = `url("${t.art.replace(/"/g, '%22')}")`;
-  duration = Number(t.duration) || 0;
+  duration = known(t.duration);
+}
+
+/** A length, or 0 when it isn't known (a stream's is Infinity). */
+function known(d) {
+  const n = Number(d);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 function fromMetadata(meta, length) {
@@ -382,6 +390,8 @@ function startCast() {
       engineActive = false;
       engine.handle({ type: 'stop' });
     }
+    // the track's length from the library: Cast's own for a stream is Infinity
+    loadedDuration = known(req.media?.duration);
     const rms = (req.customData && req.customData.rms) || {};
     const video = String(req.media?.contentType || '').startsWith('video/');
     setMode(video ? 'video' : rms.visualizer);
@@ -391,7 +401,7 @@ function startCast() {
   player.addEventListener(framework.events.EventType.PLAYER_LOAD_COMPLETE, () => {
     const info = player.getMediaInformation() || {};
     trackStart = 0;
-    showTrack(fromMetadata(info.metadata, info.duration));
+    showTrack(fromMetadata(info.metadata, known(info.duration) || loadedDuration));
   });
   const options = new framework.CastReceiverOptions();
   options.customNamespaces = { [NS]: framework.system.MessageType.JSON };
