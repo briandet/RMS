@@ -16,6 +16,7 @@ use librespot_protocol::extension_kind::ExtensionKind;
 use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::{EnumOrUnknown, Message};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 /// Entities per extended-metadata request.
 const BATCH: usize = 200;
@@ -348,15 +349,25 @@ pub async fn recently_played(session: &Session) -> Result<Vec<Value>, String> {
             a,
         );
     }
+    let (mut lists, mut contents) = (Vec::new(), HashMap::new());
     for u in of("playlist") {
         // one gone or private since is left out
         if let Ok(pl) = Playlist::get(session, &uri(&u)?).await {
-            let id = u.trim_start_matches("spotify:playlist:");
-            found.insert(
-                u.clone(),
-                json!({ "id": id, "name": pl.name(), "images": [] }),
-            );
+            let id = u.trim_start_matches("spotify:playlist:").to_string();
+            lists.push(json!({
+                "id": id,
+                "name": pl.name(),
+                "images": playlist_picture(&pl.attributes.picture, &sizes(&pl.attributes.picture_sizes)),
+            }));
+            contents.insert(id, first_tracks(&pl));
         }
+    }
+    add_mosaics(session, &mut lists, contents).await;
+    for p in lists {
+        found.insert(
+            format!("spotify:playlist:{}", p["id"].as_str().unwrap_or("")),
+            p,
+        );
     }
     Ok(in_order(&uris, found))
 }
@@ -492,6 +503,7 @@ async fn playlists(session: &Session) -> Result<Value, String> {
         .map_err(|e| format!("Spotify playlists: {e}"))?;
     let list = SelectedListContent::parse_from_bytes(&bytes).map_err(|e| e.to_string())?;
     let owner = session.username();
+    let mut contents = HashMap::new();
     if list.contents.meta_items.len() != list.contents.items.len() {
         // no per-item attributes to pair with: look each playlist up
         let mut items = Vec::new();
@@ -504,13 +516,15 @@ async fn playlists(session: &Session) -> Result<Value, String> {
                     "id": id,
                     "name": pl.name(),
                     "owner": { "display_name": owner },
-                    "images": [],
+                    "images": playlist_picture(&pl.attributes.picture, &sizes(&pl.attributes.picture_sizes)),
                 }));
+                contents.insert(id.to_string(), first_tracks(&pl));
             }
         }
+        add_mosaics(session, &mut items, contents).await;
         return page(items, |p| p);
     }
-    let items = list
+    let mut items = list
         .contents
         .items
         .iter()
@@ -522,15 +536,151 @@ async fn playlists(session: &Session) -> Result<Value, String> {
             } else {
                 owner.as_str()
             };
+            let a = &meta.attributes;
+            let sizes: Vec<(String, String)> = a
+                .picture_size
+                .iter()
+                .map(|s| (s.target_name().to_string(), s.url().to_string()))
+                .collect();
             Some(json!({
                 "id": id,
-                "name": meta.attributes.name(),
+                "name": a.name(),
                 "owner": { "display_name": who },
-                "images": [],
+                "images": playlist_picture(a.picture(), &sizes),
             }))
         })
         .collect::<Vec<_>>();
+    add_mosaics(session, &mut items, contents).await;
     page(items, |p| p)
+}
+
+/// A playlist's own picture: one uploaded for it, or the sizes Spotify's own playlists
+/// come with.  Empty when it has neither (the apps then show a mosaic, see [`mosaic`]).
+fn playlist_picture(picture: &[u8], sizes: &[(String, String)]) -> Value {
+    if !picture.is_empty() {
+        let hex: String = picture.iter().map(|b| format!("{b:02x}")).collect();
+        return json!([{ "url": format!("https://i.scdn.co/image/{hex}") }]);
+    }
+    Value::Array(
+        sizes
+            .iter()
+            .filter(|(_, url)| !url.is_empty())
+            .map(|(target, url)| {
+                let width = match target.as_str() {
+                    "small" => 60,
+                    "large" => 640,
+                    "xlarge" => 1280,
+                    _ => 300,
+                };
+                json!({ "url": url, "width": width })
+            })
+            .collect(),
+    )
+}
+
+fn sizes(s: &librespot_metadata::image::PictureSizes) -> Vec<(String, String)> {
+    s.iter()
+        .map(|p| (p.target_name.clone(), p.url.clone()))
+        .collect()
+}
+
+/// Tracks of a playlist looked at for its mosaic, at most.
+const MOSAIC_TRACKS: usize = 50;
+
+fn first_tracks(pl: &Playlist) -> Vec<String> {
+    pl.tracks()
+        .filter_map(|u| u.to_uri().ok())
+        .filter(|u| u.starts_with("spotify:track:"))
+        .take(MOSAIC_TRACKS)
+        .collect()
+}
+
+/// The picture the apps show for a playlist without one, from its tracks (Web API shape,
+/// in order): the covers of its first four albums in a grid, or the first cover when there
+/// are fewer.
+fn mosaic(tracks: &[Value]) -> Value {
+    let mut covers: Vec<&str> = Vec::new();
+    for t in tracks {
+        let cover = t["album"]["images"]
+            .as_array()
+            .and_then(|i| i.iter().max_by_key(|i| i["width"].as_u64().unwrap_or(0)))
+            .and_then(|i| i["url"].as_str()?.strip_prefix("https://i.scdn.co/image/"));
+        if let Some(c) = cover.filter(|c| !covers.contains(c)) {
+            covers.push(c);
+            if covers.len() == 4 {
+                return json!([{
+                    "url": format!("https://mosaic.scdn.co/640/{}", covers.concat()),
+                    "width": 640,
+                }]);
+            }
+        }
+    }
+    match covers.first() {
+        Some(c) => json!([{ "url": format!("https://i.scdn.co/image/{c}") }]),
+        None => json!([]),
+    }
+}
+
+/// Playlists looked up at once for their mosaics.
+const MOSAIC_LOOKUPS: usize = 8;
+
+/// Give each of `lists` (Web API playlists) without a picture its [`mosaic`], from its first
+/// tracks: in `contents` (track URIs by playlist id), or else looked up.  Best effort: a
+/// playlist that can't be looked up keeps no picture.
+async fn add_mosaics(
+    session: &Session,
+    lists: &mut [Value],
+    mut contents: HashMap<String, Vec<String>>,
+) {
+    use futures::StreamExt;
+    let bare: Vec<String> = lists
+        .iter()
+        .filter(|p| p["images"].as_array().is_none_or(|i| i.is_empty()))
+        .filter_map(|p| p["id"].as_str().map(str::to_string))
+        .collect();
+    let missing: Vec<String> = bare
+        .iter()
+        .filter(|id| !contents.contains_key(*id))
+        .cloned()
+        .collect();
+    let looked_up: Vec<(String, Vec<String>)> = futures::stream::iter(missing)
+        .map(|id| async move {
+            let pl = match uri(&format!("spotify:playlist:{id}")) {
+                Ok(u) => Playlist::get(session, &u).await.ok(),
+                Err(_) => None,
+            };
+            (id, pl.as_ref().map(first_tracks).unwrap_or_default())
+        })
+        .buffered(MOSAIC_LOOKUPS)
+        .collect()
+        .await;
+    contents.extend(looked_up);
+    let mut wanted: Vec<String> = bare
+        .iter()
+        .flat_map(|id| contents.get(id).into_iter().flatten().cloned())
+        .collect();
+    wanted.sort();
+    wanted.dedup();
+    let Ok(found) = tracks(session, &wanted).await else {
+        return;
+    };
+    let by_id: HashMap<&str, &Value> = found
+        .iter()
+        .filter_map(|t| Some((t["id"].as_str()?, t)))
+        .collect();
+    for p in lists.iter_mut() {
+        let Some(id) = p["id"].as_str().filter(|id| bare.iter().any(|b| b == id)) else {
+            continue;
+        };
+        let ts: Vec<Value> = contents
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter_map(|u| by_id.get(u.trim_start_matches("spotify:track:")))
+            .map(|t| (*t).clone())
+            .collect();
+        p["images"] = mosaic(&ts);
+    }
 }
 
 #[cfg(test)]
@@ -557,6 +707,59 @@ mod tests {
             }
             os.write_string(4, "spotify:context:unknown-field")
         })
+    }
+
+    fn track_on(cover: &str) -> Value {
+        json!({ "album": { "images": [
+            { "url": format!("https://i.scdn.co/image/small{cover}"), "width": 64 },
+            { "url": format!("https://i.scdn.co/image/{cover}"), "width": 640 },
+        ]}})
+    }
+
+    #[test]
+    fn a_playlist_without_a_picture_gets_a_mosaic_of_its_first_four_albums() {
+        let ts: Vec<Value> = ["a", "a", "b", "c", "b", "d", "e"]
+            .into_iter()
+            .map(track_on)
+            .collect();
+        assert_eq!(
+            mosaic(&ts),
+            json!([{ "url": "https://mosaic.scdn.co/640/abcd", "width": 640 }])
+        );
+    }
+
+    #[test]
+    fn a_playlist_of_fewer_than_four_albums_shows_the_first_cover() {
+        let ts: Vec<Value> = ["b", "b", "c", "b", "b"]
+            .into_iter()
+            .map(track_on)
+            .collect();
+        assert_eq!(mosaic(&ts), json!([{ "url": "https://i.scdn.co/image/b" }]));
+        assert_eq!(mosaic(&[json!({ "album": {} })]), json!([]));
+    }
+
+    #[test]
+    fn a_playlist_shows_its_uploaded_picture_or_spotifys_sizes() {
+        let sizes = [
+            ("small", "s.jpg"),
+            ("default", "d.jpg"),
+            ("xlarge", "x.jpg"),
+            ("large", ""),
+        ]
+        .map(|(t, u)| (t.to_string(), u.to_string()));
+        assert_eq!(
+            playlist_picture(&[0xab, 0x67, 0x0f], &sizes),
+            json!([{ "url": "https://i.scdn.co/image/ab670f" }])
+        );
+        assert_eq!(
+            playlist_picture(&[], &sizes),
+            json!([
+                { "url": "s.jpg", "width": 60 },
+                { "url": "d.jpg", "width": 300 },
+                { "url": "x.jpg", "width": 1280 },
+            ])
+        );
+        assert_eq!(playlist_picture(&[], &[]), json!([]));
     }
 
     #[test]
