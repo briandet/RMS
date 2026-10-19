@@ -123,6 +123,8 @@ enum Ctl {
     OtherApp,
     /// The device drops the connection (it was turned off, or lost the network).
     Drop,
+    /// Home is pressed: the receiver plays on behind the home screen.
+    Hide,
 }
 
 /// Another app's id (Netflix's).
@@ -296,6 +298,8 @@ async fn serve(
     let mut ticks = 0u64;
     let offset = engine_opts.map_or(0.0, |e| e.offset);
     let mut launched: Option<String> = busy.then(|| OTHER_APP.to_string());
+    // the receiver is on screen (launching it brings it to the front)
+    let mut visible = true;
     let mut volume = json!({"level": 1.0, "muted": false});
     let mut media: Option<Playing> = None;
     let mut sessions = 0;
@@ -325,7 +329,8 @@ async fn serve(
                     (NS_VIZ, "HELLO") => out.push(reply(
                         NS_VIZ,
                         json!({"type": "HELLO", "version": 3, "engine": engine_opts.is_some(),
-                               "screen": true, "webgl2": true, "size": "1920x1080"}),
+                               "screen": true, "webgl2": true, "size": "1920x1080",
+                               "visible": visible}),
                     )),
                     (NS_VIZ, "RENDER") => {
                         let cmd = &p["cmd"];
@@ -376,8 +381,8 @@ async fn serve(
                         // the receiver app: its clock, and for a live device where Cast's
                         // media plays (one that isn't live only moves when the test says,
                         // so the driver goes by its statuses)
-                        let mut pong =
-                            json!({"type": "PONG", "id": p["id"], "t": stamp_ms() + offset});
+                        let mut pong = json!({"type": "PONG", "id": p["id"], "t": stamp_ms() + offset,
+                                   "visible": visible});
                         if let (Some(m), Some(_)) = (media.as_ref(), live) {
                             pong["position"] = json!(m.now());
                             pong["playing"] = json!(m.state == "PLAYING" && m.since.is_some());
@@ -398,6 +403,7 @@ async fn serve(
                             // (the app that ran gives way to it)
                             launched = Some(p["appId"].as_str().unwrap().to_string());
                             media = None;
+                            visible = true;
                         }
                         if kind == "SET_VOLUME" {
                             for k in ["level", "muted"] {
@@ -551,6 +557,19 @@ async fn serve(
                 if let Ctl::Drop = c {
                     return;
                 }
+                if let Ctl::Hide = c {
+                    visible = false;
+                    let m = CastMessage {
+                        source: TRANSPORT.into(),
+                        destination: "*".into(),
+                        namespace: NS_VIZ.into(),
+                        payload: json!({"type": "VISIBLE", "visible": false}).to_string(),
+                    };
+                    if tls.write_all(&encode(&m)).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if let Ctl::OtherApp = c {
                     launched = Some(OTHER_APP.to_string());
                     media = None;
@@ -588,7 +607,7 @@ async fn serve(
                             me.since = Some(Instant::now());
                         }
                     }
-                    Ctl::Slow | Ctl::OtherApp | Ctl::Drop => {}
+                    Ctl::Slow | Ctl::OtherApp | Ctl::Drop | Ctl::Hide => {}
                     Ctl::Finish => {
                         me.since = None;
                         me.time = LENGTH;
@@ -1800,4 +1819,80 @@ async fn a_busy_chromecast_isnt_taken_over_by_its_sync_group() {
     )
     .await;
     assert_eq!(pa["mode"], "play");
+}
+
+/// A Chromecast busy with another app when it connects is turned off; playing to it then
+/// takes the TV.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_chromecast_plays_when_asked() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let m = dir.path();
+    for (i, t) in ["One", "Two"].iter().enumerate() {
+        make_audio(
+            &m.join(format!("A/Album/0{} {t}.flac", i + 1)),
+            i as u32 + 1,
+            &[
+                ("title", t),
+                ("artist", "A"),
+                ("album", "Album"),
+                ("track", &(i + 1).to_string()),
+            ],
+        );
+    }
+    let server = start_server(m);
+    let http = server.http;
+    for _ in 0..100 {
+        if get(http, "/api/v1/server").await["library"]["tracks"] == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut dev = Fake::start().await;
+    dev.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+    let hosts = json!([format!("127.0.0.1:{}", dev.port)]).to_string();
+    pref(http, "chromecastHosts", &hosts).await;
+    pref(http, "visualizerReceiverApp", TEST_APP).await;
+    pref(http, "bridgeChromecast", "1").await;
+    let id = cast_players(http, 1).await.remove(0).1;
+    dev.expect_type(NS_RECEIVER, "GET_STATUS").await;
+    wait_player(http, &id, "turned off", |p| p["power"] == false).await;
+
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    command(http, &id, json!({"command": "play"})).await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], TEST_APP);
+}
+
+/// The receiver plays on behind Google TV's home screen after Home is pressed: playing
+/// again brings it back to the front.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hidden_receiver_comes_to_the_front_to_play() {
+    need_ffmpeg!();
+    let dir = tempfile::tempdir().unwrap();
+    let (server, mut dev, id) = one_cast(dir.path()).await;
+    let http = server.http;
+    command(
+        http,
+        &id,
+        json!({"command": "enqueue", "item": {"type": "album", "id": 1}}),
+    )
+    .await;
+    dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    dev.expect_type(NS_MEDIA, "LOAD").await;
+    wait_player(http, &id, "playing", |p| p["mode"] == "play").await;
+
+    dev.ctl.send(Ctl::Hide).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    command(http, &id, json!({"command": "stop"})).await;
+    command(http, &id, json!({"command": "play"})).await;
+    let launch = dev.expect_type(NS_RECEIVER, "LAUNCH").await;
+    assert_eq!(launch["appId"], TEST_APP);
+    dev.expect_type(NS_MEDIA, "LOAD").await;
+    wait_player(http, &id, "playing again", |p| p["mode"] == "play").await;
 }
