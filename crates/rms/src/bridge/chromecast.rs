@@ -1597,7 +1597,7 @@ impl Cast {
             return Ok(());
         }
         let engine = p["engine"] == true && p["version"].as_u64().is_some_and(|v| v >= 3);
-        debug!(
+        info!(
             "chromecast {}: the receiver plays on {} (screen {}, WebGL 2 {}, {})",
             self.mac,
             if engine {
