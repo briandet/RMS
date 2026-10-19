@@ -20,7 +20,8 @@
 // On NS, RMS asks what it can do (HELLO), asks the time (PING, answered with PONG: this
 // clock, and for the media element the position being heard, less what the audio takes
 // to come out of the browser), tells it the next track of the visualiser video (TRACK),
-// and hears how fast it draws (STATS) and what went wrong (ERROR), for its log.
+// and hears how fast it draws (STATS) and what went wrong (ERROR), for its log, and whether
+// it's on screen (VISIBLE, and in HELLO and PONG).
 //
 // Open it in a browser with ?dev&src=<audio url>[&title=…&artist=…&album=…&art=<url>]
 // [&visualizer=draw|off] to try it without a Chromecast; add &engine to play it on the
@@ -319,6 +320,16 @@ function hasWebGL2() {
   }
 }
 
+// Whether the page is on screen: Google TV keeps a cast app playing behind its home screen
+// after Home is pressed.  RMS brings it back to the front when it starts playing.
+let visible = !document.hidden;
+function noteVisible(v) {
+  if (v === visible) return;
+  visible = v;
+  report('VISIBLE', { visible });
+}
+document.addEventListener('visibilitychange', () => noteVisible(!document.hidden));
+
 let canEngine = null;
 decodableFormats().then((d) => { canEngine = d.includes('flc') ? d : []; }).catch(() => { canEngine = []; });
 
@@ -333,6 +344,7 @@ function onMessage(data, from) {
       position: heardPosition(),
       rate: media.playbackRate,
       playing: !media.paused && !media.ended,
+      visible,
     }, from);
   } else if (data.type === 'HELLO') {
     const answer = () => report('HELLO', {
@@ -342,6 +354,7 @@ function onMessage(data, from) {
       webgl2: hasWebGL2(),
       size: `${Math.round(window.screen.width * (window.devicePixelRatio || 1))}x${Math.round(window.screen.height * (window.devicePixelRatio || 1))}`,
       decodes: canEngine || [],
+      visible,
     }, from);
     if (canEngine) answer();
     else setTimeout(answer, 300);
@@ -388,6 +401,7 @@ function startCast() {
   // playing on Web Audio isn't Cast media: stay up while it plays
   options.disableIdleTimeout = true;
   context.addCustomMessageListener(NS, (e) => onMessage(e.data, e.senderId));
+  context.addEventListener(framework.system.EventType.VISIBILITY_CHANGED, (e) => noteVisible(e.isVisible !== false));
   context.start(options);
   send = (data, to) => context.sendCustomMessage(NS, to, data);
   started = true;

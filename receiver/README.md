@@ -46,11 +46,16 @@ console.
     "msg": {...}}`: `ready`, `started`, `progress` (with `jiffies` of this page's clock),
     `fetched`, `paused`, `resumed`, `ended`, `error`.
   - RMS sends `{"type": "PING", "id": 7}` a second. The page answers at once with
-    `{"type": "PONG", "id": 7, "t": 123456.7, "position": 12.345, "rate": 1, "playing": true}`.
+    `{"type": "PONG", "id": 7, "t": 123456.7, "position": 12.345, "rate": 1, "playing": true,
+    "visible": true}`.
     `t` is its clock (`performance.now()`): RMS takes it as true halfway between asking
     and hearing back, and the quickest answers line the clocks up. `position` (for Cast's
     media handling) is the one being heard: the media's, less what the audio still takes
     to leave the browser.
+  - `visible` (in `HELLO` and `PONG`, and `{"type": "VISIBLE", "visible": false}` when it
+    changes) says whether the page is on screen.  Google TV keeps a cast app playing behind
+    its home screen after Home is pressed. When RMS starts playing while the page is
+    hidden, it launches the app again, which brings it back to the front.
   - In the visualiser video, RMS sends `{"type": "TRACK", "title", "artist", "album",
     "art", "duration", "start"}` as each track begins (`start`: where in the stream), for
     the track info.

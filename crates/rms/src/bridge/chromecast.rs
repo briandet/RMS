@@ -563,6 +563,12 @@ struct Cast {
     ready_held: Option<Instant>,
     /// The device has said what runs on it (until then, nothing is launched).
     status_seen: bool,
+    /// Another app was on it when it connected, before the player was there to turn off:
+    /// why, to turn it off once it is (and launch nothing meanwhile).
+    off_pending: Option<String>,
+    /// Whether the receiver app is on screen (as it says): Google TV keeps it playing behind
+    /// the home screen after Home is pressed.
+    visible: Option<bool>,
     /// When a LAUNCH was sent and the app isn't there yet.
     launching: Option<Instant>,
     /// To load once the app runs.
@@ -639,6 +645,8 @@ impl Cast {
             engine_active: false,
             ready_held: None,
             status_seen: false,
+            off_pending: None,
+            visible: None,
             link: ClockLink::new(),
             launching: None,
             queued: None,
@@ -723,6 +731,11 @@ impl Cast {
                     }
                     // the receiver app's clock (and, for Cast's media, the position heard)
                     self.ping().await?;
+                    if let Some(why) = self.off_pending.take() {
+                        if !self.power_off(&why) {
+                            self.off_pending = Some(why);
+                        }
+                    }
                     if self.ready_held.is_some_and(|t| t.elapsed() >= LINK_WAIT) {
                         self.ready_held = None;
                         self.report(FromRenderer::Ready).await?;
@@ -773,6 +786,20 @@ impl Cast {
                 if app != self.want_app {
                     self.launching = None;
                     self.want_app = app;
+                }
+                // playing again while the receiver is behind the home screen: launching it
+                // brings it to the front (then it's connected to afresh, as a new one)
+                if self.visible == Some(false)
+                    && self.app.as_ref().is_some_and(|a| a.id == self.want_app)
+                {
+                    info!(
+                        "chromecast {}: bringing the receiver to the front",
+                        self.mac
+                    );
+                    self.app = None;
+                    self.media = None;
+                    self.engine_active = false;
+                    self.visible = None;
                 }
                 let mode = crate::viz::mode(&self.server, &self.mac);
                 if mode == crate::viz::Mode::Video {
@@ -859,11 +886,21 @@ impl Cast {
         if !self.status_seen {
             return Ok(());
         }
+        if self.off_pending.is_some() {
+            self.queued = None;
+            return Ok(());
+        }
         self.launch().await
     }
 
     /// Start the receiver app, for the queued track.
     async fn launch(&mut self) -> anyhow::Result<()> {
+        // not for a player that's off (turned off as another app took the TV, with the
+        // group's track already on its way): playing to it turns it on first
+        if self.server.player(&self.mac).is_some_and(|p| !p.power()) {
+            self.queued = None;
+            return Ok(());
+        }
         if self.launching.is_none() {
             self.launching = Some(Instant::now());
             let app = self.want_app.clone();
@@ -1070,7 +1107,17 @@ impl Cast {
                     self.report(FromRenderer::Ready).await?;
                 }
             }
-            (NS_VIZ, "HELLO") => self.on_hello(&payload).await?,
+            (NS_VIZ, "HELLO") => {
+                self.visible = payload["visible"].as_bool();
+                self.on_hello(&payload).await?
+            }
+            (NS_VIZ, "VISIBLE") => {
+                self.visible = payload["visible"].as_bool();
+                debug!(
+                    "chromecast {}: receiver visible: {:?}",
+                    self.mac, self.visible
+                );
+            }
             (NS_VIZ, "SLOW") => {
                 let why = format!("{} fps at {}", payload["fps"], payload["size"]);
                 self.too_slow(&why);
@@ -1113,7 +1160,10 @@ impl Cast {
             if let Some(other) = busy {
                 let name = other["displayName"].as_str().unwrap_or("another app");
                 self.queued = None;
-                self.power_off(&format!("{name} is playing on it"));
+                let why = format!("{name} is playing on it");
+                if !self.power_off(&why) {
+                    self.off_pending = Some(why);
+                }
             } else if self.queued.is_some() && self.app.is_none() {
                 self.launch().await?;
             }
@@ -1179,11 +1229,14 @@ impl Cast {
         Ok(())
     }
 
-    /// Turn the player off (see [`Self::app_gone`]).
-    fn power_off(&self, why: &str) {
-        let Some(p) = self.server.player(&self.mac).filter(|p| p.power()) else {
-            return;
+    /// Turn the player off (see [`Self::app_gone`]); false while the server hasn't the player.
+    fn power_off(&self, why: &str) -> bool {
+        let Some(p) = self.server.player(&self.mac) else {
+            return false;
         };
+        if !p.power() {
+            return true;
+        }
         info!("chromecast {}: turned off: {why}", self.mac);
         let ctrl = p.controller();
         let alone = ctrl
@@ -1200,6 +1253,7 @@ impl Cast {
                 c.stop();
             }
         }
+        true
     }
 
     async fn on_media_status(&mut self, payload: &Value) -> anyhow::Result<()> {
@@ -1443,6 +1497,9 @@ impl Cast {
             return;
         }
         self.ping = None;
+        if let Some(v) = p["visible"].as_bool() {
+            self.visible = Some(v);
+        }
         let received = self.clock.secs(Instant::now());
         if let Some(t) = p["t"].as_f64() {
             self.link.add(sent, received, t);
