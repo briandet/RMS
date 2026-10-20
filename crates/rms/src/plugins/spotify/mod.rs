@@ -282,6 +282,21 @@ pub fn meta_from_track(t: &Value) -> TrackMeta {
 }
 
 /// The largest image of a Web API `images` array.
+/// A Web API list page: `/me/following` wraps it in `artists`, `/browse/new-releases` in
+/// `albums`.
+fn unwrap_page(page: Value) -> Value {
+    if page.get("items").is_some() {
+        return page;
+    }
+    match ["artists", "albums"]
+        .into_iter()
+        .find(|k| page.get(k).is_some())
+    {
+        Some(k) => page[k].clone(),
+        None => page,
+    }
+}
+
 pub fn best_image(images: &Value) -> Option<String> {
     images
         .as_array()?
@@ -679,6 +694,8 @@ impl Spotify {
                 .await
         } else if let Some(query) = path.strip_prefix("/search?") {
             self.search(&session, query).await
+        } else if path.starts_with("/browse/new-releases") {
+            self.new_releases(&session).await
         } else {
             session_api::session_get(&session, path).await
         };
@@ -715,6 +732,20 @@ impl Spotify {
             serde_json::json!({ "items": items, "next": null }),
         );
         Ok(Value::Object(answer))
+    }
+
+    /// `/browse/new-releases`: the albums Spotify's editors picked, from Browse's New Releases
+    /// page (through the GraphQL API, see [`pathfinder`]), in the Web API's shape.
+    async fn new_releases(&self, session: &Session) -> Result<Value, String> {
+        let vars = pathfinder::new_releases_variables();
+        let data = self
+            .pathfinder
+            .query(&self.http, session, "browsePage", vars)
+            .await?;
+        let uris = pathfinder::new_release_uris(&data)
+            .ok_or("Spotify's New Releases page has no albums section any more")?;
+        let items = session_api::albums(session, &uris).await?;
+        Ok(serde_json::json!({ "albums": { "items": items, "next": null } }))
     }
 
     /// The user's Release Radar (playlist id: one for each user, for good, its tracks
@@ -847,13 +878,7 @@ impl Spotify {
         let mut items = Vec::new();
         let mut next = Some(path.to_string());
         while let Some(p) = next.take() {
-            let page = self.api(&p).await?;
-            // `/me/following` wraps its page in `artists`
-            let page = if page.get("artists").is_some() && page.get("items").is_none() {
-                page["artists"].clone()
-            } else {
-                page
-            };
+            let page = unwrap_page(self.api(&p).await?);
             items.extend(page["items"].as_array().cloned().unwrap_or_default());
             if items.len() < max {
                 next = page["next"].as_str().map(str::to_string);
@@ -1091,6 +1116,17 @@ mod tests {
         assert_eq!(back.client_id, own.client_id);
     }
     use super::*;
+
+    #[test]
+    fn list_pages_are_unwrapped_from_artists_or_albums() {
+        let page = serde_json::json!({ "items": [1], "next": null });
+        assert_eq!(unwrap_page(serde_json::json!({ "artists": page })), page);
+        assert_eq!(unwrap_page(serde_json::json!({ "albums": page })), page);
+        assert_eq!(unwrap_page(page.clone()), page);
+        // saved albums: items holding albums
+        let saved = serde_json::json!({ "items": [{ "album": {} }], "next": null });
+        assert_eq!(unwrap_page(saved.clone()), saved);
+    }
 
     #[test]
     fn playability_follows_librespot() {

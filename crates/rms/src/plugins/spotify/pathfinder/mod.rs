@@ -1,6 +1,6 @@
 //! Spotify's own GraphQL API ("pathfinder"), for what neither the Web API (rate-limited on
 //! the shared client id) nor the session's services offer: the user's top tracks and artists,
-//! search, and where the user's Release Radar is.
+//! search, new releases, and where the user's Release Radar is.
 //!
 //! It answers the session's login5 token, with the client token and a Spotify user agent
 //! (librespot's; others are refused).  Queries go by ID (the hash of a "persisted query"),
@@ -328,7 +328,7 @@ pub fn search_playlists(data: &Value) -> Vec<Value> {
 }
 
 /// Browse's New Releases page (its id from `browseAll`, where its card is titled "New
-/// Releases"); it lists the user's Release Radar.
+/// Releases"): the new albums Spotify's editors picked, and the user's Release Radar.
 const NEW_RELEASES_PAGE: &str = "spotify:page:0JQ5DAqbMKFGaKcChsSgUO";
 
 /// `browsePage`'s variables for the New Releases page.
@@ -358,6 +358,24 @@ pub fn release_radar(data: &Value) -> Option<String> {
         .as_str()?
         .strip_prefix("spotify:playlist:")
         .map(str::to_string)
+}
+
+/// The albums of the New Releases page (a `browsePage` answer): its first section that has
+/// only albums ("Hand-picked new releases"), newest picks first.
+pub fn new_release_uris(data: &Value) -> Option<Vec<String>> {
+    data["browse"]["sections"]["items"]
+        .as_array()?
+        .iter()
+        .filter_map(|s| s["sectionItems"]["items"].as_array())
+        .find(|items| {
+            !items.is_empty()
+                && items
+                    .iter()
+                    .all(|i| i["content"]["data"]["__typename"] == "Album")
+        })?
+        .iter()
+        .map(|i| i["content"]["data"]["uri"].as_str().map(str::to_string))
+        .collect()
 }
 
 #[cfg(test)]
@@ -606,6 +624,33 @@ mod tests {
         );
         assert_eq!(release_radar(&json!({ "browse": null })), None);
         assert_eq!(new_releases_variables()["uri"], NEW_RELEASES_PAGE);
+    }
+
+    #[test]
+    fn new_releases_are_the_first_section_of_only_albums() {
+        let item = |kind: &str, id: &str| {
+            json!({ "content": { "data": {
+                "__typename": kind, "uri": format!("spotify:{}:{id}", kind.to_lowercase()),
+            }}})
+        };
+        let data = json!({ "browse": { "sections": { "items": [
+            { "sectionItems": { "items": [item("Playlist", "nmf"), item("Playlist", "rr")] } },
+            { "sectionItems": { "items": [] } },
+            { "sectionItems": { "items": [item("Album", "a1"), item("Playlist", "x")] } },
+            { "sectionItems": { "items": [item("Album", "b1"), item("Album", "b2")] } },
+            { "sectionItems": { "items": [item("Album", "c1")] } },
+        ]}}});
+        assert_eq!(
+            new_release_uris(&data),
+            Some(vec![
+                "spotify:album:b1".to_string(),
+                "spotify:album:b2".to_string()
+            ])
+        );
+        let none = json!({ "browse": { "sections": { "items": [
+            { "sectionItems": { "items": [item("Playlist", "nmf")] } },
+        ]}}});
+        assert_eq!(new_release_uris(&none), None);
     }
 
     #[test]
