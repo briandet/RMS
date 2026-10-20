@@ -551,7 +551,61 @@ async fn playlists(session: &Session) -> Result<Value, String> {
         })
         .collect::<Vec<_>>();
     add_mosaics(session, &mut items, contents).await;
+    name_unnamed(session, &mut items).await;
     page(items, |p| p)
+}
+
+/// Name the playlists that have none after their owner, as the apps do: the owner's display
+/// name, else their username (what `owner.display_name` holds here).
+async fn name_unnamed(session: &Session, items: &mut [Value]) {
+    let mut names = HashMap::new();
+    for owner in unnamed_owners(items) {
+        let shown = session
+            .spclient()
+            .get_user_profile(&owner, Some(0), Some(0))
+            .await
+            .ok()
+            .and_then(|b| profile_name(&b))
+            .unwrap_or_else(|| owner.clone());
+        names.insert(owner, shown);
+    }
+    name_after_owners(items, &names);
+}
+
+fn is_unnamed(p: &Value) -> bool {
+    p["name"].as_str().is_some_and(|n| n.trim().is_empty())
+}
+
+/// The owners of the playlists without a name, once each.
+fn unnamed_owners(items: &[Value]) -> Vec<String> {
+    let mut owners: Vec<String> = items
+        .iter()
+        .filter(|p| is_unnamed(p))
+        .filter_map(|p| p["owner"]["display_name"].as_str().map(str::to_string))
+        .collect();
+    owners.sort();
+    owners.dedup();
+    owners
+}
+
+/// Give the playlists without a name their owner's (from `names`, by username).
+fn name_after_owners(items: &mut [Value], names: &HashMap<String, String>) {
+    for p in items.iter_mut().filter(|p| is_unnamed(p)) {
+        if let Some(n) = p["owner"]["display_name"]
+            .as_str()
+            .and_then(|o| names.get(o))
+        {
+            p["name"] = json!(n);
+        }
+    }
+}
+
+/// The display name in a user profile (`user-profile-view`).
+fn profile_name(bytes: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(bytes).ok()?["name"]
+        .as_str()
+        .filter(|n| !n.trim().is_empty())
+        .map(str::to_string)
 }
 
 /// A playlist's own picture: one uploaded for it, or the sizes Spotify's own playlists
@@ -760,6 +814,40 @@ mod tests {
             ])
         );
         assert_eq!(playlist_picture(&[], &[]), json!([]));
+    }
+
+    #[test]
+    fn a_playlist_without_a_name_is_named_after_its_owner() {
+        let mut items = vec![
+            json!({ "id": "p1", "name": "", "owner": { "display_name": "thatpeytonkid" } }),
+            json!({ "id": "p2", "name": "Bardcore Covers", "owner": { "display_name": "adaptable" } }),
+            json!({ "id": "p3", "name": " ", "owner": { "display_name": "thatpeytonkid" } }),
+            json!({ "id": "p4", "name": "", "owner": { "display_name": "nobody" } }),
+        ];
+        assert_eq!(unnamed_owners(&items), ["nobody", "thatpeytonkid"]);
+        let names = [("thatpeytonkid", "Peyton Ryan White"), ("nobody", "nobody")]
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .into_iter()
+            .collect();
+        name_after_owners(&mut items, &names);
+        let shown: Vec<&str> = items.iter().map(|p| p["name"].as_str().unwrap()).collect();
+        assert_eq!(
+            shown,
+            [
+                "Peyton Ryan White",
+                "Bardcore Covers",
+                "Peyton Ryan White",
+                "nobody"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_profile_gives_its_display_name() {
+        let profile = br#"{ "uri": "spotify:user:thatpeytonkid", "name": "Peyton Ryan White" }"#;
+        assert_eq!(profile_name(profile).as_deref(), Some("Peyton Ryan White"));
+        assert_eq!(profile_name(br#"{ "name": "" }"#), None);
+        assert_eq!(profile_name(b"not json"), None);
     }
 
     #[test]
