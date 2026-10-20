@@ -203,6 +203,10 @@ impl Library {
         weights: Weights,
         rng: &mut impl Rng,
     ) -> Vec<i64> {
+        // The indexes first: loading one takes a connection of its own, and a second
+        // connection taken while holding one can wait on a pool that is all held that way.
+        let index = self.sound_index();
+        let style_index = self.style_index();
         let Ok(c) = self.conn() else {
             return Vec::new();
         };
@@ -240,14 +244,13 @@ impl Library {
             pool.extend(query_ids(&c, &sql, &artists));
         }
         // songs that sound like the seeds, whatever their tags
-        let index = self.sound_index();
         let sound = index.closeness(seeds);
         if let Some(sound) = &sound {
             pool.extend(sound.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
         }
         profile.sound = sound.map(|s| s.rank);
         // songs of the same kind (EffNet), when the seeds have been analysed
-        let style = self.style_index().closeness(seeds);
+        let style = style_index.closeness(seeds);
         if let Some(style) = &style {
             pool.extend(style.nearest.iter().take(SOUND_POOL.max(20 * n)).copied());
         }
@@ -265,7 +268,7 @@ impl Library {
         let mut seen = HashSet::new();
         pool.retain(|id| !exclude.contains(id) && !seed_set.contains(id) && seen.insert(*id));
         // the library's copy of a streamed song is the one to play
-        let owned = self.remote_with_local_copy(&pool);
+        let owned = crate::remote::with_local_copy(&c, &pool);
         pool.retain(|id| !owned.contains(id));
 
         let candidates = load_candidates(&c, &pool);
@@ -824,5 +827,46 @@ mod tests {
         assert_eq!(got.len(), 14);
         let unique: HashSet<_> = got.iter().collect();
         assert_eq!(unique.len(), 14);
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    /// A mix needs one connection, not two: with all but one of the pool's connections busy
+    /// (the analysis, other requests) it still answers at once instead of waiting for a
+    /// second connection that only its own kind could free.
+    #[test]
+    fn similar_songs_with_the_pool_nearly_exhausted() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::open(&dir.path().join("lib.db"), &dir.path().join("cache")).unwrap();
+        {
+            let c = lib.conn().unwrap();
+            c.execute(
+                "INSERT INTO files (id, url, kind) VALUES (1, 'file:///m', 'dir')",
+                [],
+            )
+            .unwrap();
+            for i in 1..=5 {
+                c.execute(
+                    "INSERT INTO tracks (id, file_id, url, title, title_sort, title_search,
+                                         format, added_at, updated_at)
+                     VALUES (?1, 1, 'file:///m/' || ?1 || '.flac', 'T', 'T', 't', 'flc', 0, 0)",
+                    [i],
+                )
+                .unwrap();
+            }
+        }
+        let held: Vec<_> = (0..7).map(|_| lib.conn().unwrap()).collect();
+        let started = std::time::Instant::now();
+        let mix = lib.similar_tracks(&[1], 3, &HashSet::new());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "waited {:?} for a second connection",
+            started.elapsed()
+        );
+        assert!(!mix.is_empty());
+        drop(held);
     }
 }

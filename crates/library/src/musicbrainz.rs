@@ -160,7 +160,9 @@ impl Library {
                 [],
             )
             .unwrap_or(0);
-        n + self.apply_genres(&c).unwrap_or(0) + self.apply_releases()
+        n += self.apply_genres(&c).unwrap_or(0);
+        drop(c);
+        n + self.apply_releases()
     }
 
     /// Genres for tracks whose only genre is "No Genre".

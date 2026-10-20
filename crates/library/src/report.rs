@@ -249,12 +249,16 @@ fn stage_from<T>(current: i64, found: Option<(i64, Option<i64>, Option<T>)>) -> 
 }
 
 impl Library {
-    /// Everything the analyses know about library track `id` (`None` for no such track).
+    /// Everything the analyses know about library track `id` (`None` for no such track; an
+    /// error when the library can't be read, e.g. no connection free in time).
     /// `effnet_on`: whether the EffNet models are in use, so a missing analysis reads `off`
     /// rather than `pending`; `musicbrainz_on` likewise.
-    pub fn analysis_report(&self, id: i64, musicbrainz_on: bool) -> Option<Report> {
-        let c = self.conn().ok()?;
-        let file = c
+    pub fn analysis_report(&self, id: i64, musicbrainz_on: bool) -> anyhow::Result<Option<Report>> {
+        // the indexes before the connection: loading one takes a connection of its own
+        let index = self.sound_index();
+        let style_index = self.style_index();
+        let c = self.conn()?;
+        let Some(file) = c
             .query_row(
                 "SELECT t.url, t.fingerprint, t.format, f.size, t.bitrate, t.vbr, t.sample_rate,
                         t.sample_size, t.channels, t.lossless, t.duration, t.cue_start, t.cue_end,
@@ -283,9 +287,10 @@ impl Library {
                     })
                 },
             )
-            .optional()
-            .ok()
-            .flatten()?;
+            .optional()?
+        else {
+            return Ok(None);
+        };
         let effnet_on = self.effnet().is_some();
         let too_long = file.duration.unwrap_or(0.0) > crate::sonic::MAX_SECS;
         fn skipped<T>(mut s: Stage<T>, too_long: bool) -> Stage<T> {
@@ -302,7 +307,7 @@ impl Library {
                     ..Stage::new(v)
                 }
             }
-            return Some(Report {
+            return Ok(Some(Report {
                 track_id: id,
                 file,
                 sound: skip(crate::sonic::version()),
@@ -310,7 +315,7 @@ impl Library {
                 print: skip(crate::print::VERSION),
                 kind: skip(crate::effnet::VERSION),
                 musicbrainz: skip(0),
-            });
+            }));
         };
 
         let sound = row(
@@ -337,7 +342,6 @@ impl Library {
             },
         );
         let mut sound = skipped(stage_from(crate::sonic::version(), sound), too_long);
-        let index = self.sound_index();
         if let Some(s) = sound.data.as_mut() {
             s.nearest = index.nearest(id, 10);
         }
@@ -430,7 +434,7 @@ impl Library {
             kind.status = Status::Off;
         }
         if let Some(k) = kind.data.as_mut() {
-            k.nearest = self.style_index().nearest(id, 10);
+            k.nearest = style_index.nearest(id, 10);
         }
 
         let mb = row(
@@ -470,7 +474,7 @@ impl Library {
             musicbrainz.status = Status::Failed;
         }
 
-        Some(Report {
+        Ok(Some(Report {
             track_id: id,
             file,
             sound,
@@ -478,7 +482,7 @@ impl Library {
             print,
             kind,
             musicbrainz,
-        })
+        }))
     }
 
     /// A library track's stored fingerprint (current version).

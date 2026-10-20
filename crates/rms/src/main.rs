@@ -31,13 +31,25 @@ use tracing::{error, info};
 /// so we report the Lyrion release whose protocol we implement.
 pub const VERSION: &str = "9.2.0";
 
+/// The log filter, with the decoders quietened unless it says otherwise: symphonia logs each
+/// damaged frame it recovers from ("count1 overrun, malformed bitstream", "invalid
+/// main_data_begin"), which the background analysis of a large library turns into a flood.
+/// Errors that matter come back to us as `Err` anyway.
+fn log_filter(filter: &str) -> String {
+    if filter.contains("symphonia") {
+        filter.to_string()
+    } else {
+        format!("{filter},symphonia=error")
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = config::Config::parse();
     {
         use tracing_subscriber::prelude::*;
-        let filter = tracing_subscriber::EnvFilter::try_new(&config.log)
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+        let filter = tracing_subscriber::EnvFilter::try_new(log_filter(&config.log))
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_filter("info")));
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer().with_filter(filter))
             // Spotify's refused keys, whatever is logged
