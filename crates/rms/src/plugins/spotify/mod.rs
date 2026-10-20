@@ -13,6 +13,7 @@
 pub mod connect;
 pub mod learn;
 pub mod menu;
+pub mod pathfinder;
 pub mod session_api;
 pub mod stream;
 
@@ -147,6 +148,8 @@ pub struct Spotify {
     user: Mutex<Option<String>>,
     /// The Web API failed (rate limit, no usable token): use the session until then.
     web_api_down_until: Mutex<Option<Instant>>,
+    /// The GraphQL queries' IDs, for top tracks and artists.
+    pathfinder: pathfinder::Ids,
     /// The server, for what plays (learning tracks, [`learn`]).
     server: std::sync::OnceLock<std::sync::Weak<crate::server::Server>>,
 }
@@ -163,6 +166,7 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
         .get_or_init(|| {
             let dir = data_dir.join("spotify");
             let (oauth, playback) = load_sign_ins(&dir);
+            let pathfinder = pathfinder::Ids::new(&dir, http.clone());
             Arc::new(Spotify {
                 dir,
                 http,
@@ -174,6 +178,7 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
                 lists: Mutex::new(Default::default()),
                 user: Mutex::new(None),
                 web_api_down_until: Mutex::new(None),
+                pathfinder,
                 server: std::sync::OnceLock::new(),
             })
         })
@@ -666,9 +671,30 @@ impl Spotify {
             }
         };
         let session = self.session().await?;
-        session_api::session_get(&session, path)
-            .await
-            .map_err(|e| format!("{e} ({web_err})"))
+        let answer = match path.strip_prefix("/me/top/") {
+            Some(rest) => {
+                self.top(&session, rest.split('?').next().unwrap_or(""))
+                    .await
+            }
+            None => session_api::session_get(&session, path).await,
+        };
+        answer.map_err(|e| format!("{e} ({web_err})"))
+    }
+
+    /// `/me/top/tracks` or `/me/top/artists` (`kind`): the last four weeks', through the
+    /// GraphQL API (see [`pathfinder`]), in the Web API's shape.
+    async fn top(&self, session: &Session, kind: &str) -> Result<Value, String> {
+        let vars = pathfinder::top_variables(kind, 50);
+        let data = self
+            .pathfinder
+            .query(&self.http, session, "userTopContent", vars)
+            .await?;
+        let uris = pathfinder::top_uris(&data, kind);
+        let items = match kind {
+            "tracks" => session_api::tracks(session, &uris).await?,
+            _ => session_api::artists(session, &uris).await?,
+        };
+        Ok(serde_json::json!({ "items": items, "next": null }))
     }
 
     /// What Spotify plays next on the account's active device (a player's Connect device,
