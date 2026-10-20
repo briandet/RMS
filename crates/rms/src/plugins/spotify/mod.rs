@@ -150,6 +150,8 @@ pub struct Spotify {
     web_api_down_until: Mutex<Option<Instant>>,
     /// The GraphQL queries' IDs, for top tracks and artists.
     pathfinder: pathfinder::Ids,
+    /// The user's Release Radar (playlist id), once found.
+    release_radar: Mutex<Option<String>>,
     /// The server, for what plays (learning tracks, [`learn`]).
     server: std::sync::OnceLock<std::sync::Weak<crate::server::Server>>,
 }
@@ -179,6 +181,7 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
                 user: Mutex::new(None),
                 web_api_down_until: Mutex::new(None),
                 pathfinder,
+                release_radar: Mutex::new(None),
                 server: std::sync::OnceLock::new(),
             })
         })
@@ -712,6 +715,24 @@ impl Spotify {
             serde_json::json!({ "items": items, "next": null }),
         );
         Ok(Value::Object(answer))
+    }
+
+    /// The user's Release Radar (playlist id: one for each user, for good, its tracks
+    /// changing each Friday), from Browse's New Releases page the first time.
+    pub async fn release_radar(&self) -> Result<String, String> {
+        if let Some(id) = self.release_radar.lock().clone() {
+            return Ok(id);
+        }
+        let session = self.session().await?;
+        let vars = pathfinder::new_releases_variables();
+        let data = self
+            .pathfinder
+            .query(&self.http, &session, "browsePage", vars)
+            .await?;
+        let id = pathfinder::release_radar(&data)
+            .ok_or("Release Radar wasn't found on Spotify's New Releases page")?;
+        *self.release_radar.lock() = Some(id.clone());
+        Ok(id)
     }
 
     /// `/me/top/tracks` or `/me/top/artists` (`kind`): the last four weeks', through the

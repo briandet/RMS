@@ -1,6 +1,6 @@
 //! Spotify's own GraphQL API ("pathfinder"), for what neither the Web API (rate-limited on
 //! the shared client id) nor the session's services offer: the user's top tracks and artists,
-//! and search.
+//! search, and where the user's Release Radar is.
 //!
 //! It answers the session's login5 token, with the client token and a Spotify user agent
 //! (librespot's; others are refused).  Queries go by ID (the hash of a "persisted query"),
@@ -327,6 +327,39 @@ pub fn search_playlists(data: &Value) -> Vec<Value> {
         .collect()
 }
 
+/// Browse's New Releases page (its id from `browseAll`, where its card is titled "New
+/// Releases"); it lists the user's Release Radar.
+const NEW_RELEASES_PAGE: &str = "spotify:page:0JQ5DAqbMKFGaKcChsSgUO";
+
+/// `browsePage`'s variables for the New Releases page.
+pub fn new_releases_variables() -> Value {
+    json!({
+        "uri": NEW_RELEASES_PAGE,
+        "pagePagination": { "offset": 0, "limit": 10 },
+        "sectionPagination": { "offset": 0, "limit": 50 },
+        "browseEndUserIntegration": "INTEGRATION_WEB_PLAYER",
+        "includeEpisodeContentRatingsV2": false,
+    })
+}
+
+/// The user's Release Radar (playlist id) on a `browsePage` answer: Spotify's playlist of
+/// that name.
+pub fn release_radar(data: &Value) -> Option<String> {
+    data["browse"]["sections"]["items"]
+        .as_array()?
+        .iter()
+        .flat_map(|s| s["sectionItems"]["items"].as_array().into_iter().flatten())
+        .map(|i| &i["content"]["data"])
+        .find(|p| {
+            p["__typename"] == "Playlist"
+                && p["name"] == "Release Radar"
+                && p["ownerV2"]["data"]["name"] == "Spotify"
+        })?["uri"]
+        .as_str()?
+        .strip_prefix("spotify:playlist:")
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,6 +579,33 @@ mod tests {
         );
         assert_eq!(search_op("episode"), None);
         assert_eq!(search_variables("auve", 50)["searchTerm"], "auve");
+    }
+
+    #[test]
+    fn release_radar_is_spotifys_playlist_of_that_name_on_the_new_releases_page() {
+        let playlist = |name: &str, owner: &str, id: &str| {
+            json!({ "content": { "data": {
+                "__typename": "Playlist", "name": name, "uri": format!("spotify:playlist:{id}"),
+                "ownerV2": { "data": { "name": owner } },
+            }}})
+        };
+        let album = json!({ "content": { "data": {
+            "__typename": "Album", "name": "Release Radar", "uri": "spotify:album:b1",
+        }}});
+        let data = json!({ "browse": { "sections": { "items": [
+            { "sectionItems": { "items": [album] } },
+            { "sectionItems": { "items": [
+                playlist("New Music Friday", "Spotify", "nmf"),
+                playlist("Release Radar", "someone", "fake"),
+                playlist("Release Radar", "Spotify", "37i9dQZEVXbdMVaBDLbwqJ"),
+            ]}},
+        ]}}});
+        assert_eq!(
+            release_radar(&data).as_deref(),
+            Some("37i9dQZEVXbdMVaBDLbwqJ")
+        );
+        assert_eq!(release_radar(&json!({ "browse": null })), None);
+        assert_eq!(new_releases_variables()["uri"], NEW_RELEASES_PAGE);
     }
 
     #[test]
