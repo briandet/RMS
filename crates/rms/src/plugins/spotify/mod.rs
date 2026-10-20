@@ -671,14 +671,47 @@ impl Spotify {
             }
         };
         let session = self.session().await?;
-        let answer = match path.strip_prefix("/me/top/") {
-            Some(rest) => {
-                self.top(&session, rest.split('?').next().unwrap_or(""))
-                    .await
-            }
-            None => session_api::session_get(&session, path).await,
+        let answer = if let Some(rest) = path.strip_prefix("/me/top/") {
+            self.top(&session, rest.split('?').next().unwrap_or(""))
+                .await
+        } else if let Some(query) = path.strip_prefix("/search?") {
+            self.search(&session, query).await
+        } else {
+            session_api::session_get(&session, path).await
         };
         answer.map_err(|e| format!("{e} ({web_err})"))
+    }
+
+    /// `/search?type=…&q=…` (one type): through the GraphQL API (see [`pathfinder`]), in
+    /// the Web API's shape.
+    async fn search(&self, session: &Session, query: &str) -> Result<Value, String> {
+        let params: std::collections::HashMap<String, String> =
+            url::form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect();
+        let kind = params.get("type").map_or("", String::as_str);
+        let term = params.get("q").map_or("", String::as_str);
+        let (op, field) = pathfinder::search_op(kind)
+            .ok_or_else(|| format!("searching for {kind} needs the Spotify Web API"))?;
+        let vars = pathfinder::search_variables(term, 50);
+        let data = self.pathfinder.query(&self.http, session, op, vars).await?;
+        let items = match kind {
+            "playlist" => pathfinder::search_playlists(&data),
+            _ => {
+                let uris = pathfinder::search_uris(&data, field);
+                match kind {
+                    "track" => session_api::tracks(session, &uris).await?,
+                    "album" => session_api::albums(session, &uris).await?,
+                    _ => session_api::artists(session, &uris).await?,
+                }
+            }
+        };
+        let mut answer = serde_json::Map::new();
+        answer.insert(
+            format!("{kind}s"),
+            serde_json::json!({ "items": items, "next": null }),
+        );
+        Ok(Value::Object(answer))
     }
 
     /// `/me/top/tracks` or `/me/top/artists` (`kind`): the last four weeks', through the

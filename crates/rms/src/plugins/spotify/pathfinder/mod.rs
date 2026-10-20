@@ -1,5 +1,6 @@
 //! Spotify's own GraphQL API ("pathfinder"), for what neither the Web API (rate-limited on
-//! the shared client id) nor the session's services offer: the user's top tracks and artists.
+//! the shared client id) nor the session's services offer: the user's top tracks and artists,
+//! and search.
 //!
 //! It answers the session's login5 token, with the client token and a Spotify user agent
 //! (librespot's; others are refused).  Queries go by ID (the hash of a "persisted query"),
@@ -257,6 +258,75 @@ pub fn top_variables(kind: &str, limit: usize) -> Value {
     })
 }
 
+/// The search query for a kind of `/search` result (the Web API's `type`), and the field of
+/// its answer the results are in.
+pub fn search_op(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "track" => Some(("searchTracks", "tracksV2")),
+        "album" => Some(("searchAlbums", "albumsV2")),
+        "artist" => Some(("searchArtists", "artists")),
+        "playlist" => Some(("searchPlaylists", "playlists")),
+        _ => None,
+    }
+}
+
+/// A search query's variables.
+pub fn search_variables(term: &str, limit: usize) -> Value {
+    json!({
+        "searchTerm": term,
+        "offset": 0,
+        "limit": limit,
+        "numberOfTopResults": 5,
+        "includeAudiobooks": false,
+    })
+}
+
+/// The results in `field` of a search answer (tracks wrap theirs one level deeper).
+fn search_results<'a>(data: &'a Value, field: &str) -> impl Iterator<Item = &'a Value> {
+    data["searchV2"][field]["items"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|i| {
+            if i["item"].is_object() {
+                &i["item"]["data"]
+            } else {
+                &i["data"]
+            }
+        })
+}
+
+/// The URIs of the results in `field` of a search answer.
+pub fn search_uris(data: &Value, field: &str) -> Vec<String> {
+    search_results(data, field)
+        .filter_map(|d| d["uri"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// The playlists of a `searchPlaylists` answer, in the Web API's shape (from the answer
+/// itself: looking each up through the session would take too long).
+pub fn search_playlists(data: &Value) -> Vec<Value> {
+    search_results(data, "playlists")
+        .filter_map(|d| {
+            let id = d["uri"].as_str()?.strip_prefix("spotify:playlist:")?;
+            let images: Vec<Value> = d["images"]["items"]
+                .as_array()
+                .and_then(|i| i.first())
+                .and_then(|i| i["sources"].as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|s| Some(json!({ "url": s["url"].as_str()?, "width": s["width"] })))
+                .collect();
+            Some(json!({
+                "id": id,
+                "name": d["name"].as_str()?,
+                "owner": { "display_name": d["ownerV2"]["data"]["name"] },
+                "images": images,
+            }))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,6 +487,65 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("less than an hour ago"), "{err}");
+    }
+
+    #[test]
+    fn search_results_are_found_whether_wrapped_or_not() {
+        let data = json!({ "searchV2": {
+            "tracksV2": { "items": [
+                { "item": { "data": { "__typename": "Track", "uri": "spotify:track:t1" } } },
+                { "item": { "data": { "__typename": "Track", "uri": "spotify:track:t2" } } },
+            ]},
+            "albumsV2": { "items": [
+                { "data": { "__typename": "Album", "uri": "spotify:album:b1" } },
+                { "data": { "__typename": "Album" } },
+            ]},
+        }});
+        assert_eq!(
+            search_uris(&data, "tracksV2"),
+            ["spotify:track:t1", "spotify:track:t2"]
+        );
+        assert_eq!(search_uris(&data, "albumsV2"), ["spotify:album:b1"]);
+        assert!(search_uris(&data, "artists").is_empty());
+    }
+
+    #[test]
+    fn searched_playlists_come_with_their_owner_and_pictures() {
+        let data = json!({ "searchV2": { "playlists": { "items": [
+            { "data": {
+                "uri": "spotify:playlist:p1", "name": "Bardcore",
+                "ownerV2": { "data": { "name": "J.Fla" } },
+                "images": { "items": [{ "sources": [
+                    { "url": "https://mosaic.scdn.co/640/abc", "width": 640 },
+                    { "url": "https://mosaic.scdn.co/300/abc", "width": 300 },
+                ]}]},
+            }},
+            { "data": { "uri": "spotify:playlist:p2", "name": "Bare", "images": { "items": [] } } },
+            { "data": { "uri": "spotify:user:u1", "name": "not a playlist" } },
+        ]}}});
+        assert_eq!(
+            search_playlists(&data),
+            [
+                json!({ "id": "p1", "name": "Bardcore", "owner": { "display_name": "J.Fla" },
+                        "images": [
+                            { "url": "https://mosaic.scdn.co/640/abc", "width": 640 },
+                            { "url": "https://mosaic.scdn.co/300/abc", "width": 300 },
+                        ] }),
+                json!({ "id": "p2", "name": "Bare", "owner": { "display_name": null },
+                        "images": [] }),
+            ]
+        );
+    }
+
+    #[test]
+    fn each_kind_of_search_has_its_query() {
+        assert_eq!(search_op("track"), Some(("searchTracks", "tracksV2")));
+        assert_eq!(
+            search_op("playlist"),
+            Some(("searchPlaylists", "playlists"))
+        );
+        assert_eq!(search_op("episode"), None);
+        assert_eq!(search_variables("auve", 50)["searchTerm"], "auve");
     }
 
     #[test]
