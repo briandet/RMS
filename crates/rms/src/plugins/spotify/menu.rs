@@ -4,7 +4,7 @@
 //! OPML feed, so they work in Squeezer/SqueezePlay, the web UI and on the player's screen.
 //! Item ids are index paths; each level is fetched again (from a short cache) to descend.
 
-use super::{best_image, url_for, Spotify};
+use super::{best_image, session_api, url_for, Spotify};
 use crate::control::dispatch::{DispatchTable, Handler};
 use crate::control::jive::xmlbrowser::{
     self, component_index, component_search, split_item_id, Ctx, Feed, Item, Level,
@@ -13,6 +13,7 @@ use crate::control::request::Request;
 use crate::server::Server;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub fn register(t: &mut DispatchTable) {
     t.add(
@@ -207,13 +208,7 @@ impl Spotify {
                 .iter()
                 .filter_map(artist_item)
                 .collect(),
-            "recent" => tracks(
-                self.api_all("/me/player/recently-played?limit=50", 50)
-                    .await?
-                    .into_iter()
-                    .map(|i| i["track"].clone())
-                    .collect(),
-            ),
+            "recent" => self.recently_played().await?,
             "toptracks" => tracks(self.api_all("/me/top/tracks?limit=50", 100).await?),
             "topartists" => self
                 .api_all("/me/top/artists?limit=50", 100)
@@ -286,6 +281,34 @@ impl Spotify {
             }
             _ => Vec::new(),
         })
+    }
+
+    /// Recently Played: the albums, playlists and artists played from lately, through the
+    /// session (kept for a few minutes, like [`Self::api_all`]'s lists).
+    async fn recently_played(&self) -> Result<Vec<Item>, String> {
+        let key = "session:recently-played".to_string();
+        let cached = self
+            .lists
+            .lock()
+            .get(&key)
+            .filter(|(at, _)| at.elapsed() < Duration::from_secs(300))
+            .map(|(_, v)| v.clone());
+        let list = match cached {
+            Some(v) => v,
+            None => {
+                let v = session_api::recently_played(&self.session().await?).await?;
+                self.lists.lock().insert(key, (Instant::now(), v.clone()));
+                v
+            }
+        };
+        Ok(list
+            .iter()
+            .filter_map(|c| match c["type"].as_str()? {
+                "album" => album_item(c),
+                "playlist" => playlist_item(c),
+                _ => artist_item(c),
+            })
+            .collect())
     }
 
     /// The level an item id leads to (`descend` for this dynamic tree).
