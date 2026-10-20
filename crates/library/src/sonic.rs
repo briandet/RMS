@@ -118,57 +118,43 @@ impl Library {
         let halt = || stop.load(Ordering::Relaxed) || self.is_scanning();
         std::thread::scope(|s| {
             for _ in 0..threads.max(1) {
-                s.spawn(|| {
-                    let Ok(c) = self.conn() else { return };
-                    loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
-                        if i >= total || halt() {
-                            return;
-                        }
-                        let job = &jobs[i];
-                        let samples = decode(job, ffmpeg);
-                        if let Err(e) = &samples {
-                            debug!("sonic analysis of {}: {}", job.url, e);
-                        }
-                        let samples = samples.ok();
-                        if job.rhythm {
-                            let rhythm = samples.as_deref().map(crate::rhythm::analyze);
-                            let _ = store_rhythm(&c, &job.fingerprint, rhythm.as_ref());
-                        }
-                        if job.print {
-                            let print = samples
-                                .as_deref()
-                                .and_then(|s| crate::print::fingerprint(s, SAMPLE_RATE));
-                            let _ = crate::print::store(
-                                &c,
-                                &job.fingerprint,
-                                print.as_deref(),
-                                job.secs,
-                            );
-                            if let Some(p) = &print {
-                                let _ =
-                                    crate::print::match_local(&c, &job.fingerprint, p, job.secs);
-                            }
-                        }
-                        if job.spectrum {
-                            let curve = samples
-                                .as_deref()
-                                .map(|s| crate::spectrum::curve(s, SAMPLE_RATE));
-                            let _ = crate::spectrum::store(&c, &job.fingerprint, curve.as_deref());
-                        }
-                        if let (true, Some(m)) = (job.effnet, &effnet) {
-                            let a = samples.as_deref().and_then(|s| {
-                                crate::effnet::analyze(m, s, SAMPLE_RATE)
-                                    .map_err(|e| debug!("EffNet analysis of {}: {}", job.url, e))
-                                    .ok()
-                                    .flatten()
-                            });
-                            self.store_effnet(&c, &job.fingerprint, a.as_ref());
-                        }
-                        if !job.features {
-                            done.fetch_add(1, Ordering::Relaxed);
-                            continue;
-                        }
+                s.spawn(|| loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= total || halt() {
+                        return;
+                    }
+                    let job = &jobs[i];
+                    // Decode and analyse without a database connection: that takes seconds a
+                    // track, and a connection held through it is one the API and the players
+                    // can't have (the pool is small, and these threads run for hours).
+                    let samples = decode(job, ffmpeg);
+                    if let Err(e) = &samples {
+                        debug!("sonic analysis of {}: {}", job.url, e);
+                    }
+                    let samples = samples.ok();
+                    let rhythm = job
+                        .rhythm
+                        .then(|| samples.as_deref().map(crate::rhythm::analyze));
+                    let print = job.print.then(|| {
+                        samples
+                            .as_deref()
+                            .and_then(|s| crate::print::fingerprint(s, SAMPLE_RATE))
+                    });
+                    let curve = job.spectrum.then(|| {
+                        samples
+                            .as_deref()
+                            .map(|s| crate::spectrum::curve(s, SAMPLE_RATE))
+                    });
+                    let kind = match (job.effnet, &effnet) {
+                        (true, Some(m)) => Some(samples.as_deref().and_then(|s| {
+                            crate::effnet::analyze(m, s, SAMPLE_RATE)
+                                .map_err(|e| debug!("EffNet analysis of {}: {}", job.url, e))
+                                .ok()
+                                .flatten()
+                        })),
+                        _ => None,
+                    };
+                    let sound = job.features.then(|| {
                         let features = samples.as_deref().and_then(|s| {
                             Song::analyze(s)
                                 .map(|a| a.as_vec())
@@ -179,17 +165,40 @@ impl Library {
                         if let Err(e) = &loudness {
                             debug!("loudness of {}: {}", job.url, e);
                         }
-                        let loudness = loudness.ok();
-                        let ok = features.is_some() || loudness.is_some();
-                        let _ = store_features(&c, &job.fingerprint, features.as_deref(), loudness);
-                        if let Some(f) = features {
-                            self.add_to_sound_index(&c, &job.fingerprint, f);
+                        (features, loudness.ok())
+                    });
+                    drop(samples);
+
+                    let Ok(c) = self.conn() else { continue };
+                    if let Some(rhythm) = &rhythm {
+                        let _ = store_rhythm(&c, &job.fingerprint, rhythm.as_ref());
+                    }
+                    if let Some(print) = &print {
+                        let _ =
+                            crate::print::store(&c, &job.fingerprint, print.as_deref(), job.secs);
+                        if let Some(p) = print {
+                            let _ = crate::print::match_local(&c, &job.fingerprint, p, job.secs);
                         }
-                        if ok {
-                            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                            if n.is_multiple_of(250) {
-                                info!("sonic analysis: {} of {} tracks", n, total);
-                            }
+                    }
+                    if let Some(curve) = &curve {
+                        let _ = crate::spectrum::store(&c, &job.fingerprint, curve.as_deref());
+                    }
+                    if let Some(a) = &kind {
+                        self.store_effnet(&c, &job.fingerprint, a.as_ref());
+                    }
+                    let Some((features, loudness)) = sound else {
+                        done.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    };
+                    let ok = features.is_some() || loudness.is_some();
+                    let _ = store_features(&c, &job.fingerprint, features.as_deref(), loudness);
+                    if let Some(f) = features {
+                        self.add_to_sound_index(&c, &job.fingerprint, f);
+                    }
+                    if ok {
+                        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+                        if n.is_multiple_of(250) {
+                            info!("sonic analysis: {} of {} tracks", n, total);
                         }
                     }
                 });

@@ -2132,7 +2132,7 @@ fn analysis_report_and_progress() {
     )
     .unwrap();
 
-    let r = f.lib.analysis_report(a, true).unwrap();
+    let r = f.lib.analysis_report(a, true).unwrap().unwrap();
     assert_eq!(r.sound.status, Status::Done);
     let sound = r.sound.data.unwrap();
     assert_eq!(sound.features[0].0, "tempo");
@@ -2152,15 +2152,15 @@ fn analysis_report_and_progress() {
     assert_eq!(mb.genres, ["rock", "indie"]);
     assert_eq!(r.musicbrainz.status, Status::Done);
 
-    let r = f.lib.analysis_report(b, true).unwrap();
+    let r = f.lib.analysis_report(b, true).unwrap().unwrap();
     assert_eq!(r.rhythm.status, Status::Stale);
     assert_eq!(r.musicbrainz.status, Status::Failed);
     // nothing analysed yet
-    let r = f.lib.analysis_report(all[3].id, false).unwrap();
+    let r = f.lib.analysis_report(all[3].id, false).unwrap().unwrap();
     assert_eq!(r.sound.status, Status::Pending);
     assert_eq!(r.musicbrainz.status, Status::Off);
     assert!(r.file.fingerprint.is_some());
-    assert!(f.lib.analysis_report(-12345, false).is_none());
+    assert!(f.lib.analysis_report(-12345, false).unwrap().is_none());
 
     let p = f.lib.analysis_progress();
     assert_eq!(p.sound.done, 3);

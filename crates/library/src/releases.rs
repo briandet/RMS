@@ -659,7 +659,7 @@ fn round3(x: f64) -> f64 {
     (x * 1000.0).round() / 1000.0
 }
 
-fn cached_release(c: &rusqlite::Connection, mbid: &str, since: i64) -> Option<Release> {
+pub(crate) fn cached_release(c: &rusqlite::Connection, mbid: &str, since: i64) -> Option<Release> {
     let body: String = c
         .query_row(
             "SELECT body FROM mb_releases WHERE mbid = ? AND fetched_at >= ?",

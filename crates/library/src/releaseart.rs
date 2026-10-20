@@ -202,7 +202,7 @@ impl Library {
             }
             out.push(ArtJob {
                 release_group: group.or_else(|| {
-                    self.cached_release(&release, i64::MAX)
+                    crate::releases::cached_release(&c, &release, 0)
                         .map(|r| r.release_group)
                         .filter(|g| !g.is_empty())
                 }),
@@ -457,11 +457,12 @@ impl Library {
 
     /// The folder's tracks are all of this one album (so a picture there is the album's).
     pub fn folder_is_album(&self, dir: &Path, album_id: i64) -> bool {
-        let Ok(c) = self.conn() else { return false };
         if self.is_no_album(album_id) {
             return false;
         }
-        self.audio_files_in(dir).iter().all(|u| {
+        let files = self.audio_files_in(dir);
+        let Ok(c) = self.conn() else { return false };
+        files.iter().all(|u| {
             c.query_row(
                 "SELECT 1 FROM tracks WHERE (url = ?1 OR url LIKE ?1 || '#%') AND album_id = ?2",
                 params![u, album_id],

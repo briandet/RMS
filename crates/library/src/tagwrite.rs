@@ -670,7 +670,7 @@ impl crate::Library {
         tx.commit()?;
         // saved playlists' files list the new places too
         for id in playlists {
-            let Some((_, purl, urls)) = self.playlist_by_id(id) else {
+            let Some((_, purl, urls)) = crate::playlist_by_id_in(&c, id) else {
                 continue;
             };
             if let Some(path) = crate::url::path_from_file_url(&purl) {

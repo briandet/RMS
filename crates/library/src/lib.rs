@@ -494,11 +494,15 @@ impl Library {
 
     /// Batch version of [`track_row`] preserving the order of `ids`.
     pub fn track_rows(&self, ids: &[i64], tags: &str) -> Vec<Row> {
+        self.try_track_rows(ids, tags).unwrap_or_default()
+    }
+
+    /// [`Library::track_rows`], telling a library that can't be read from tracks that aren't
+    /// there.
+    pub fn try_track_rows(&self, ids: &[i64], tags: &str) -> anyhow::Result<Vec<Row>> {
         let cfg = self.config();
-        match self.conn() {
-            Ok(c) => songdata::sql_rows(&c, &cfg, ids, tags).unwrap_or_default(),
-            Err(_) => Vec::new(),
-        }
+        let c = self.conn()?;
+        songdata::sql_rows(&c, &cfg, ids, tags)
     }
 
     pub fn tracks_for(&self, f: &TrackFilter) -> anyhow::Result<Vec<Track>> {
@@ -660,12 +664,7 @@ impl Library {
     /// (name, url, track urls) of a playlist.
     pub fn playlist_by_id(&self, id: i64) -> Option<(String, String, Vec<String>)> {
         let c = self.conn().ok()?;
-        let (name, u): (String, String) = c
-            .query_row("SELECT name, url FROM playlists WHERE id = ?", [id], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .ok()?;
-        Some((name, u, playlist_urls(&c, id).ok()?))
+        playlist_by_id_in(&c, id)
     }
 
     /// Id of the playlist stored at `u`.
@@ -949,4 +948,17 @@ pub(crate) fn playlist_urls(
         c.prepare_cached("SELECT url FROM playlist_items WHERE playlist_id = ? ORDER BY position")?;
     let rows = st.query_map([playlist], |r| r.get(0))?;
     rows.collect()
+}
+
+/// [`Library::playlist_by_id`] on a connection the caller holds.
+pub(crate) fn playlist_by_id_in(
+    c: &rusqlite::Connection,
+    id: i64,
+) -> Option<(String, String, Vec<String>)> {
+    let (name, u): (String, String) = c
+        .query_row("SELECT name, url FROM playlists WHERE id = ?", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .ok()?;
+    Some((name, u, playlist_urls(c, id).ok()?))
 }

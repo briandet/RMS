@@ -348,7 +348,7 @@ impl Library {
             Err(_) => Vec::new(),
         };
         let ids: Vec<i64> = out.iter().map(|t| t.id).collect();
-        let local = self.remote_with_local_copy(&ids);
+        let local = with_local_copy(&c, &ids);
         for t in &mut out {
             t.in_library = local.contains(&t.id);
         }
@@ -391,26 +391,10 @@ impl Library {
     /// Of these remote mix ids, those the library has a copy of: the same audio fingerprint,
     /// the same ISRC, or the same first artist and title within 3 seconds of the same length.
     pub fn remote_with_local_copy(&self, ids: &[i64]) -> std::collections::HashSet<i64> {
-        let mut out = std::collections::HashSet::new();
-        let Ok(c) = self.conn() else { return out };
-        let Ok(mut st) = c.prepare_cached(
-            "SELECT 1 FROM remote_tracks r WHERE r.id = ?1 AND (
-               (r.local_match IS NOT NULL
-                  AND EXISTS (SELECT 1 FROM tracks t WHERE t.fingerprint = r.local_match))
-               OR (r.isrc IS NOT NULL AND EXISTS (SELECT 1 FROM tracks t WHERE t.isrc = r.isrc))
-               OR EXISTS (SELECT 1 FROM tracks t JOIN artists a ON a.id = t.artist_id
-                          WHERE (a.name_search || '|' || t.title_search) = r.match_key
-                            AND (r.duration IS NULL OR t.duration IS NULL
-                                 OR ABS(t.duration - r.duration) <= 3)))",
-        ) else {
-            return out;
-        };
-        for id in ids.iter().filter(|id| is_remote(**id)) {
-            if st.exists([-id]).unwrap_or(false) {
-                out.insert(*id);
-            }
+        match self.conn() {
+            Ok(c) => with_local_copy(&c, ids),
+            Err(_) => std::collections::HashSet::new(),
         }
-        out
     }
 
     fn add_remote_to_sound_index(&self, row: i64, features: Vec<f32>) {
@@ -430,6 +414,29 @@ impl Library {
 /// `tracks.title_search`).
 fn match_key(artist: &str, title: &str) -> String {
     format!("{artist}|{title}")
+}
+
+/// [`Library::remote_with_local_copy`] on a connection the caller holds.
+pub(crate) fn with_local_copy(c: &Connection, ids: &[i64]) -> std::collections::HashSet<i64> {
+    let mut out = std::collections::HashSet::new();
+    let Ok(mut st) = c.prepare_cached(
+        "SELECT 1 FROM remote_tracks r WHERE r.id = ?1 AND (
+           (r.local_match IS NOT NULL
+              AND EXISTS (SELECT 1 FROM tracks t WHERE t.fingerprint = r.local_match))
+           OR (r.isrc IS NOT NULL AND EXISTS (SELECT 1 FROM tracks t WHERE t.isrc = r.isrc))
+           OR EXISTS (SELECT 1 FROM tracks t JOIN artists a ON a.id = t.artist_id
+                      WHERE (a.name_search || '|' || t.title_search) = r.match_key
+                        AND (r.duration IS NULL OR t.duration IS NULL
+                             OR ABS(t.duration - r.duration) <= 3)))",
+    ) else {
+        return out;
+    };
+    for id in ids.iter().filter(|id| is_remote(**id)) {
+        if st.exists([-id]).unwrap_or(false) {
+            out.insert(*id);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

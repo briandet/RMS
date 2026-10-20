@@ -657,8 +657,10 @@ pub async fn tracks(server: &Arc<Server>, p: TrackParams) -> Result<Page<Track>,
 /// Library tracks in the order of `ids` (ids that aren't tracks are left out).
 async fn tracks_by_ids(server: &Arc<Server>, ids: Vec<i64>) -> Result<Vec<Track>, LibraryError> {
     let lib = server.library.clone();
-    let rows = crate::util::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
+    // a library that can't be read is an error, not "no such track"
+    let rows = crate::util::spawn_blocking(move || lib.try_track_rows(&ids, TRACK_TAGS))
         .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     Ok(rows.iter().filter_map(track).collect())
 }
@@ -929,8 +931,10 @@ pub async fn folder(
         .map(|e| e.id)
         .collect();
     let lib = server.library.clone();
-    let rows = crate::util::spawn_blocking(move || lib.track_rows(&ids, TRACK_TAGS))
+    // a library that can't be read is an error, not "no such track"
+    let rows = crate::util::spawn_blocking(move || lib.try_track_rows(&ids, TRACK_TAGS))
         .await
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
         .map_err(|e| LibraryError::Failed(e.to_string()))?;
     let mut tracks: std::collections::HashMap<i64, Track> = rows
         .iter()
@@ -1004,8 +1008,10 @@ pub async fn track_analysis(
     let prefs = &server.prefs.server;
     let sonic_on = prefs.get_bool("sonicAnalysis");
     let musicbrainz_on = prefs.get_bool(crate::plugins::musicbrainz::PREF);
-    let (report, titles) = crate::util::spawn_blocking(move || {
-        let r = lib.analysis_report(id, musicbrainz_on)?;
+    let found = crate::util::spawn_blocking(move || {
+        let Some(r) = lib.analysis_report(id, musicbrainz_on)? else {
+            return Ok(None);
+        };
         let mut ids = vec![id];
         if let Some(s) = &r.sound.data {
             ids.extend(s.nearest.iter().map(|n| n.0));
@@ -1017,11 +1023,13 @@ pub async fn track_analysis(
             ids.extend(k.nearest.iter().map(|n| n.0));
         }
         let titles = lib.titles(&ids);
-        Some((r, titles))
+        anyhow::Ok(Some((r, titles)))
     })
     .await
-    .map_err(|e| LibraryError::Failed(e.to_string()))?
-    .ok_or(LibraryError::NotFound)?;
+    .map_err(|e| LibraryError::Failed(e.to_string()))?;
+    let (report, titles) = found
+        .map_err(|e| LibraryError::Failed(e.to_string()))?
+        .ok_or(LibraryError::NotFound)?;
 
     let title = |id: i64| titles.get(&id).cloned().unwrap_or_default();
     let neighbours = |v: Vec<(i64, f32)>| -> Vec<Neighbour> {
