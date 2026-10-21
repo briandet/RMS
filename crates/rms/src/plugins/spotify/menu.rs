@@ -169,6 +169,7 @@ fn root_items() -> Vec<Item> {
         link("Albums", "albums", None),
         link("Artists", "artists", None),
         link("Recently Played", "recent", None),
+        link("Release Radar", "releaseradar", None),
         link("Top Tracks", "toptracks", None),
         link("Top Artists", "topartists", None),
         link("New Releases", "new", None),
@@ -209,6 +210,10 @@ impl Spotify {
                 .filter_map(artist_item)
                 .collect(),
             "recent" => self.recently_played().await?,
+            "releaseradar" => {
+                let id = self.release_radar().await?;
+                tracks(self.tracks(&url_for("playlist", &id)).await?)
+            }
             "toptracks" => tracks(self.api_all("/me/top/tracks?limit=50", 100).await?),
             "topartists" => self
                 .api_all("/me/top/artists?limit=50", 100)
