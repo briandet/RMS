@@ -6,8 +6,8 @@
 //! to ask.  The session needs nothing beyond signing in, so [`Spotify::api`] falls back to
 //! [`session_get`] when the Web API fails.  Results have the Web API's JSON shape (only the
 //! fields this plugin reads), so the menus work unchanged.  Saved albums and followed artists
-//! come from the collection service the apps sync with.  Not available this way: search
-//! and new releases (top tracks and artists come from [`super::pathfinder`]).
+//! come from the collection service the apps sync with.  Not available this way: new
+//! releases (top tracks and artists, and search, come from [`super::pathfinder`]).
 
 use librespot_core::{Session, SpotifyUri};
 use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
@@ -215,7 +215,7 @@ pub async fn tracks(session: &Session, uris: &[String]) -> Result<Vec<Value>, St
     Ok(out)
 }
 
-async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
+pub async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
     let mut out = Vec::with_capacity(uris.len());
     for (u, bytes) in batch(session, uris, ExtensionKind::ALBUM_V4).await? {
         let Ok(msg) = librespot_protocol::metadata::Album::parse_from_bytes(&bytes) else {
