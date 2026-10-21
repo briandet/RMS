@@ -1,6 +1,6 @@
-//! Spotify's own GraphQL API ("pathfinder"), for what neither the Web API (rate-limited on
-//! the shared client id) nor the session's services offer: the user's top tracks and artists,
-//! search, new releases, and where the user's Release Radar is.
+//! Spotify's own GraphQL API ("pathfinder"), for what the session's services ([`super::browse`])
+//! don't offer: the user's top tracks and artists, search, new releases, and where the user's
+//! Release Radar is.
 //!
 //! It answers the session's login5 token, with the client token and a Spotify user agent
 //! (librespot's; others are refused).  Queries go by ID (the hash of a "persisted query"),
@@ -13,6 +13,7 @@
 
 pub mod scrape;
 
+use super::model::{Playlist, SearchKind};
 use futures::future::BoxFuture;
 use librespot_core::Session;
 use parking_lot::Mutex;
@@ -258,15 +259,13 @@ pub fn top_variables(kind: &str, limit: usize) -> Value {
     })
 }
 
-/// The search query for a kind of `/search` result (the Web API's `type`), and the field of
-/// its answer the results are in.
-pub fn search_op(kind: &str) -> Option<(&'static str, &'static str)> {
+/// The search query for a kind of result, and the field of its answer the results are in.
+pub fn search_op(kind: SearchKind) -> (&'static str, &'static str) {
     match kind {
-        "track" => Some(("searchTracks", "tracksV2")),
-        "album" => Some(("searchAlbums", "albumsV2")),
-        "artist" => Some(("searchArtists", "artists")),
-        "playlist" => Some(("searchPlaylists", "playlists")),
-        _ => None,
+        SearchKind::Track => ("searchTracks", "tracksV2"),
+        SearchKind::Album => ("searchAlbums", "albumsV2"),
+        SearchKind::Artist => ("searchArtists", "artists"),
+        SearchKind::Playlist => ("searchPlaylists", "playlists"),
     }
 }
 
@@ -303,26 +302,27 @@ pub fn search_uris(data: &Value, field: &str) -> Vec<String> {
         .collect()
 }
 
-/// The playlists of a `searchPlaylists` answer, in the Web API's shape (from the answer
-/// itself: looking each up through the session would take too long).
-pub fn search_playlists(data: &Value) -> Vec<Value> {
+/// The playlists of a `searchPlaylists` answer, from the answer itself (looking each up
+/// through the session would take too long), with the largest of their pictures.
+pub fn search_playlists(data: &Value) -> Vec<Playlist> {
     search_results(data, "playlists")
         .filter_map(|d| {
             let id = d["uri"].as_str()?.strip_prefix("spotify:playlist:")?;
-            let images: Vec<Value> = d["images"]["items"]
+            let picture = d["images"]["items"]
                 .as_array()
                 .and_then(|i| i.first())
                 .and_then(|i| i["sources"].as_array())
                 .into_iter()
                 .flatten()
-                .filter_map(|s| Some(json!({ "url": s["url"].as_str()?, "width": s["width"] })))
-                .collect();
-            Some(json!({
-                "id": id,
-                "name": d["name"].as_str()?,
-                "owner": { "display_name": d["ownerV2"]["data"]["name"] },
-                "images": images,
-            }))
+                .max_by_key(|s| s["width"].as_u64().unwrap_or(0))
+                .and_then(|s| s["url"].as_str())
+                .map(str::to_string);
+            Some(Playlist {
+                id: id.to_string(),
+                name: d["name"].as_str()?.to_string(),
+                owner: d["ownerV2"]["data"]["name"].as_str().map(str::to_string),
+                picture,
+            })
         })
         .collect()
 }
@@ -577,25 +577,29 @@ mod tests {
         assert_eq!(
             search_playlists(&data),
             [
-                json!({ "id": "p1", "name": "Bardcore", "owner": { "display_name": "J.Fla" },
-                        "images": [
-                            { "url": "https://mosaic.scdn.co/640/abc", "width": 640 },
-                            { "url": "https://mosaic.scdn.co/300/abc", "width": 300 },
-                        ] }),
-                json!({ "id": "p2", "name": "Bare", "owner": { "display_name": null },
-                        "images": [] }),
+                Playlist {
+                    id: "p1".into(),
+                    name: "Bardcore".into(),
+                    owner: Some("J.Fla".into()),
+                    picture: Some("https://mosaic.scdn.co/640/abc".into()),
+                },
+                Playlist {
+                    id: "p2".into(),
+                    name: "Bare".into(),
+                    owner: None,
+                    picture: None,
+                },
             ]
         );
     }
 
     #[test]
     fn each_kind_of_search_has_its_query() {
-        assert_eq!(search_op("track"), Some(("searchTracks", "tracksV2")));
+        assert_eq!(search_op(SearchKind::Track), ("searchTracks", "tracksV2"));
         assert_eq!(
-            search_op("playlist"),
-            Some(("searchPlaylists", "playlists"))
+            search_op(SearchKind::Playlist),
+            ("searchPlaylists", "playlists")
         );
-        assert_eq!(search_op("episode"), None);
         assert_eq!(search_variables("auve", 50)["searchTerm"], "auve");
     }
 

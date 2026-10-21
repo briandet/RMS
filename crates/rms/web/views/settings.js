@@ -199,20 +199,6 @@ export function render(node, { ctx }) {
 
   // ---------------------------------------------------------------- spotify
   let spotifyPoll = null;
-  // The user's own Spotify app: the shared default client id is rate-limited by Spotify.
-  function spotifyClientIdField(settings) {
-    const id = fieldId();
-    const input = h('input', { id, type: 'text', value: settings?.spotify_client_id ?? '', placeholder: '32 hex digits', spellcheck: 'false', autocomplete: 'off' });
-    return h('form', { class: 'field', onsubmit: async (e) => {
-      e.preventDefault();
-      const v = input.value.trim();
-      if (v && !/^[0-9a-fA-F]{32}$/.test(v)) { toast('A client ID is 32 hexadecimal digits', 'error'); return; }
-      await saveServer({ spotify_client_id: v }, 'Saved: sign out and sign in again to use it');
-    } },
-    h('label', { for: id }, 'Client ID of your own Spotify app (recommended)'),
-    h('p', { class: 'muted small' }, 'Spotify limits the shared client ID RMS uses by default, so browsing and track names may not load. Create an app at developer.spotify.com/dashboard with the redirect URI http://127.0.0.1:5588/login and the Web API, paste its client ID here, then sign in with your app. It is for browsing only: playback and Spotify Connect keep a sign-in with Spotify’s own app, since Spotify refuses other apps for them.'),
-    h('div', { class: 'inline-row' }, input, h('button', { class: 'btn', type: 'submit' }, 'Save')));
-  }
 
   async function renderSpotify() {
     const head = h('h2', { id: 'set-spotify' }, 'Spotify');
@@ -226,8 +212,6 @@ export function render(node, { ctx }) {
       spotifySection.replaceChildren(head, h('p', { class: 'muted' }, err ? `Could not get the Spotify status: ${err.message}` : 'Spotify is not available.'));
       return;
     }
-    // an own client id: two sign-ins, Spotify's own app for playback and the user's for browsing
-    const own = !!settings?.spotify_client_id?.trim();
     if (st.signed_in) {
       clearInterval(spotifyPoll);
       const normId = fieldId();
@@ -235,10 +219,6 @@ export function render(node, { ctx }) {
       spotifySection.replaceChildren(...[head,
         h('p', {}, 'Signed in', st.user ? [' as ', h('strong', {}, st.user)] : '', st.product ? ` (${st.product})` : '', '.'),
         st.error && h('p', { class: 'muted small' }, st.error),
-        !st.playback && h('p', { class: 'muted small' }, 'Playback and Spotify Connect need a sign-in with Spotify’s own app (Spotify refuses other apps for them).'),
-        ...(!st.playback ? spotifySignIn('Sign in for playback', false, true) : []),
-        own && !st.browsing_own_app && h('p', { class: 'muted small' }, 'Browsing uses the shared client ID until you sign in with your app.'),
-        ...(own && !st.browsing_own_app ? spotifySignIn('Sign in with your app', false) : []),
         st.connect_error && h('p', { class: 'muted small' }, st.connect_error, '. RMS tries again later.'),
         st.product && st.product !== 'premium' && h('p', { class: 'muted small' }, 'Playback needs Spotify Premium.'),
         selectField('Streaming quality', [[96, 'Low (96 kbps)'], [160, 'Normal (160 kbps)'], [320, 'High (320 kbps)']],
@@ -262,9 +242,7 @@ export function render(node, { ctx }) {
           renderSpotify();
         } }, 'Forget learned tracks')) : null,
         h('p', {}, h('a', { href: '#/library/spotify' }, 'Browse Spotify'), ' · also in the player menus and Squeezer.'),
-        spotifyClientIdField(settings),
-        ...(st.playback ? spotifySignIn(own ? 'Sign in for playback again' : 'Sign in again', false, true) : []),
-        ...(own && st.browsing_own_app ? spotifySignIn('Sign in with your app again', false) : []),
+        ...spotifySignIn('Sign in again', false),
         h('div', { class: 'button-row' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
           if (!confirm('Sign out of Spotify on this server?')) return;
           try { await spotifyLogout(); } catch (e) { toast(`Could not sign out: ${e.message}`, 'error'); }
@@ -275,15 +253,12 @@ export function render(node, { ctx }) {
     spotifySection.replaceChildren(...[head,
       h('p', {}, 'Play Spotify on your players and browse it from the player menus, Squeezer and here. Needs Spotify Premium.'),
       st.error && h('p', { class: 'muted small' }, st.error),
-      ...spotifySignIn(own ? 'Sign in for playback' : 'Sign in with Spotify', true, true),
-      own && h('p', { class: 'muted small' }, 'Then sign in with your app too, for browsing.'),
-      spotifyClientIdField(settings)].filter(Boolean));
+      ...spotifySignIn('Sign in with Spotify', true)].filter(Boolean));
   }
 
   // Sign-in button plus the "paste the redirected address" form.  `poll`: also finish by
   // itself when the browser runs on the server (only meaningful while signed out).
-  // `playback`: the sign-in with Spotify's own client id (else the own one, if set).
-  function spotifySignIn(label, poll, playback = false) {
+  function spotifySignIn(label, poll) {
     const pasteId = fieldId();
     const paste = h('input', { id: pasteId, type: 'url', placeholder: 'http://127.0.0.1:5588/login?code=…', spellcheck: 'false' });
     const msg = h('p', { class: 'muted small', role: 'status', 'aria-live': 'polite' });
@@ -306,7 +281,7 @@ export function render(node, { ctx }) {
     msg);
     const button = h('div', { class: 'button-row' }, h('button', { class: poll ? 'btn btn-primary' : 'btn', type: 'button', onclick: async () => {
       let r;
-      try { r = await spotifyLogin(null, playback); } catch (e) { toast(`Could not start the Spotify sign-in: ${e.message}`, 'error'); return; }
+      try { r = await spotifyLogin(null); } catch (e) { toast(`Could not start the Spotify sign-in: ${e.message}`, 'error'); return; }
       if (!r?.url) { toast('Could not start the Spotify sign-in', 'error'); return; }
       window.open(r.url, '_blank', 'noopener');
       finish.hidden = false;

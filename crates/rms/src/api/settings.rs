@@ -34,7 +34,6 @@ pub fn server_settings(server: &Arc<Server>) -> ServerSettings {
         radio_direct: prefs.get_bool("radioDirect"),
         art_folder: prefs.get_str("artfolder"),
         online_artist_images: prefs.get_bool("onlineArtistImages"),
-        spotify_client_id: prefs.get_str("spotifyClientId"),
         spotify_bitrate: if bitrate > 0 { bitrate } else { 320 },
         spotify_normalisation: prefs.get_bool("spotifyNormalisation"),
         musicbrainz: prefs.get_bool(crate::plugins::musicbrainz::PREF),
@@ -204,13 +203,6 @@ pub async fn update_server_settings(
             ));
         }
     }
-    if let Some(id) = patch.spotify_client_id.as_deref().map(str::trim) {
-        if !id.is_empty() && (id.len() != 32 || !id.chars().all(|c| c.is_ascii_hexdigit())) {
-            return Err(CommandError::Invalid(
-                "spotify_client_id must be 32 hexadecimal digits".into(),
-            ));
-        }
-    }
     let mut changes: Vec<(&str, String)> = Vec::new();
     if let Some(v) = patch.library_name {
         changes.push(("libraryname", v.trim().to_string()));
@@ -242,9 +234,6 @@ pub async fn update_server_settings(
     }
     if let Some(v) = patch.online_artist_images {
         changes.push(("onlineArtistImages", flag(v)));
-    }
-    if let Some(v) = patch.spotify_client_id {
-        changes.push(("spotifyClientId", v.trim().to_string()));
     }
     if let Some(v) = patch.spotify_bitrate {
         changes.push(("spotifyBitrate", v.to_string()));

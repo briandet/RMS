@@ -11,7 +11,8 @@
 //! * Player → app: stopping, pausing or playing something else on the player (remote, web
 //!   UI, other controllers) pauses the Connect device, and resuming resumes it.
 //! * Next and previous on the player (remote, web UI, other controllers) move through the
-//!   app's queue: the player's own queue holds only the stream.
+//!   app's queue: the player's own queue holds only the stream.  What the app's queue plays
+//!   next is what Spotify last told the device ([`up_next`]).
 //! * Cast and UPnP players show a track's title and artwork from when its stream loads, so
 //!   for them the stream starts afresh for each track (after the last one's buffered audio
 //!   has played out), not gaplessly, and the bridges take what plays from the device
@@ -19,10 +20,8 @@
 //! * Devices are registered with the account (no zeroconf), so they are only visible to the
 //!   account RMS is signed in with.  Credentials Spotify hands a session only work for its
 //!   device id, and only with the client id they were issued for: each device keeps its own
-//!   (`spotify/connect/<player>/`), got the first time with the playback sign-in's token
-//!   (Spotify's own client id: login5, where Connect gets its token, refuses developer
-//!   apps).  A device that can't be set up is tried again later and later, and the Spotify
-//!   settings say why.
+//!   (`spotify/connect/<player>/`), got the first time with the sign-in's token.  A device
+//!   that can't be set up is tried again later and later, and the Spotify settings say why.
 
 use super::Spotify;
 use crate::control::request::Source;
@@ -31,6 +30,7 @@ use dashmap::DashMap;
 use librespot_connect::{ConnectConfig, Spirc};
 use librespot_core::authentication::Credentials;
 use librespot_core::cache::Cache;
+use librespot_core::dealer::protocol::Message;
 use librespot_core::{Session, SessionConfig};
 use librespot_playback::audio_backend::{Sink, SinkResult};
 use librespot_playback::config::PlayerConfig;
@@ -38,6 +38,7 @@ use librespot_playback::convert::Converter;
 use librespot_playback::decoder::AudioPacket;
 use librespot_playback::mixer::{Mixer, MixerConfig, NoOpVolume};
 use librespot_playback::player::{Player, PlayerEvent};
+use librespot_protocol::connect::ClusterUpdate;
 use parking_lot::Mutex;
 use slimproto::MacAddress;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -124,7 +125,7 @@ fn failed(k: &str, player: &str, error: String) {
     f.retry_at = Instant::now() + wait;
 }
 
-/// A new playback sign-in: set up the devices that failed now, not after their wait.
+/// A new sign-in: set up the devices that failed now, not after their wait.
 pub fn signed_in_again() {
     failures().clear();
 }
@@ -361,6 +362,9 @@ struct Device {
     starting: AtomicBool,
     /// What the player plays now.
     audible: Mutex<Option<Audible>>,
+    /// The tracks Spotify plays next on the device (URIs), while it is the account's active
+    /// device.
+    next: Arc<Mutex<Vec<String>>>,
 }
 
 /// A track of the app's queue, as the player shows it.
@@ -377,6 +381,33 @@ pub struct Audible {
 pub fn audible(url: &str) -> Option<Audible> {
     let k = url.strip_prefix("spotify://connect:")?;
     devices().get(k)?.audible.lock().clone()
+}
+
+/// What plays next on the Connect device of a player (`key`) while it plays there: the
+/// track URIs of the app's queue, then of what it plays from.  Empty when it plays elsewhere.
+pub fn up_next(key: &str) -> Vec<String> {
+    devices()
+        .get(key)
+        .map(|d| d.next.lock().clone())
+        .unwrap_or_default()
+}
+
+/// The tracks a cluster update says play next on device `id`: none when another device
+/// plays.
+fn next_tracks(update: &ClusterUpdate, id: &str) -> Vec<String> {
+    let Some(cluster) = update.cluster.as_ref() else {
+        return Vec::new();
+    };
+    if cluster.active_device_id != id {
+        return Vec::new();
+    }
+    cluster
+        .player_state
+        .next_tracks
+        .iter()
+        .map(|t| t.uri.clone())
+        .filter(|u| u.starts_with("spotify:track:"))
+        .collect()
 }
 
 /// Next (`by` > 0) or previous (the start of the track, or the one before) on a player
@@ -558,11 +589,11 @@ async fn add_device(
     let k = key(&p.id);
     let dir = sp.dir.join("connect").join(&k);
     let cache = Cache::new(Some(dir.clone()), None, None, None).ok();
-    // A device logs in with the playback sign-in's token the first time and keeps the
+    // A device logs in with the sign-in's token the first time and keeps the
     // credentials Spotify gives it (they only work for its device id), of Spotify's own
     // client id, kept with them (`client_id`): ones of another id (from before the two
     // sign-ins) are dropped, as are ones Spotify refuses.
-    let client_id = super::DEFAULT_CLIENT_ID.to_string();
+    let client_id = super::CLIENT_ID.to_string();
     let id_file = dir.join("client_id");
     let stored = cache
         .as_ref()
@@ -573,7 +604,7 @@ async fn add_device(
         Some(c) => c,
         None => {
             let _ = std::fs::remove_file(dir.join("credentials.json"));
-            let token = sp.playback_token().await?;
+            let token = sp.token().await?;
             Credentials::with_access_token(token)
         }
     };
@@ -644,6 +675,7 @@ async fn start_device(
         forward: AtomicBool::new(false),
     });
     let mut events = player.get_player_event_channel();
+    let state_session = session.clone();
     let (spirc, task) = Spirc::new(
         ConnectConfig {
             name: name.clone(),
@@ -682,8 +714,32 @@ async fn start_device(
         natural: AtomicBool::new(false),
         starting: AtomicBool::new(false),
         audible: Mutex::new(None),
+        next: Arc::new(Mutex::new(Vec::new())),
     });
     devices().insert(k, dev.clone());
+    // What Spotify plays next, from the cluster updates the device gets (as Spirc does).
+    // They end with the device: Spirc closes its session's dealer.
+    let updates = state_session.dealer().listen_for(
+        "hm://connect-state/v1/cluster",
+        Message::from_raw::<ClusterUpdate>,
+    );
+    let id = state_session.device_id().to_string();
+    drop(state_session);
+    match updates {
+        Ok(mut updates) => {
+            let next = dev.next.clone();
+            crate::util::spawn(async move {
+                use futures::StreamExt;
+                while let Some(update) = updates.next().await {
+                    match update {
+                        Ok(u) => *next.lock() = next_tracks(&u, &id),
+                        Err(e) => debug!("Spotify Connect: a cluster update: {e}"),
+                    }
+                }
+            });
+        }
+        Err(e) => warn!("Spotify Connect: \"{name}\" won't know what plays next: {e}"),
+    }
     info!("Spotify Connect: device \"{name}\" ready");
 
     // App → player
@@ -1027,6 +1083,40 @@ mod tests {
         assert!(waited >= Duration::from_millis(250), "{waited:?}");
         assert!(waited < Duration::from_secs(5), "{waited:?}");
         assert_eq!(sink.generation(), Some(4));
+    }
+
+    #[test]
+    fn what_plays_next_is_the_tracks_of_the_cluster_while_the_device_plays() {
+        use librespot_protocol::connect::Cluster;
+        use librespot_protocol::player::{PlayerState, ProvidedTrack};
+        let track = |uri: &str| ProvidedTrack {
+            uri: uri.into(),
+            ..Default::default()
+        };
+        let update = |active: &str| ClusterUpdate {
+            cluster: Some(Cluster {
+                active_device_id: active.into(),
+                player_state: Some(PlayerState {
+                    next_tracks: vec![
+                        track("spotify:track:q1"),
+                        track("spotify:delimiter"),
+                        track("spotify:episode:e1"),
+                        track("spotify:track:c1"),
+                    ],
+                    ..Default::default()
+                })
+                .into(),
+                ..Default::default()
+            })
+            .into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            next_tracks(&update("me"), "me"),
+            ["spotify:track:q1", "spotify:track:c1"]
+        );
+        assert!(next_tracks(&update("phone"), "me").is_empty());
+        assert!(next_tracks(&ClusterUpdate::default(), "me").is_empty());
     }
 
     #[test]

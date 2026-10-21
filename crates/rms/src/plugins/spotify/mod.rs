@@ -4,17 +4,21 @@
 //!   (as librespot does).  Spotify redirects to `http://127.0.0.1:5588/login`; when the
 //!   browser runs on this machine we catch that request, otherwise the user pastes the
 //!   redirected address into the web UI.  The access token logs a librespot session in once;
-//!   librespot's reusable credentials are kept for later sessions and the refresh token for
-//!   Web API access.
-//! * Browsing ([`menu`]): the Spotify Web API, presented through the XMLBrowser menus.
+//!   librespot's reusable credentials are kept for later sessions, and the refresh token for
+//!   the Connect devices' first log-in.
+//! * Browsing ([`menu`]): through the session ([`browse`]) and Spotify's GraphQL API
+//!   ([`pathfinder`]), as the official apps do, presented through the XMLBrowser menus.  The
+//!   Web API isn't used: the shared client id is rate-limited to the point of being useless,
+//!   and apps of one's own lost the endpoints RMS needs in February 2026.
 //! * Playback ([`stream`]): a librespot player per stream decodes the track to 16-bit PCM,
 //!   which goes to the player like any other stream (`spotify://track:<id>` URLs).
 
+pub mod browse;
 pub mod connect;
 pub mod learn;
 pub mod menu;
+pub mod model;
 pub mod pathfinder;
-pub mod session_api;
 pub mod stream;
 
 use base64::Engine;
@@ -22,42 +26,34 @@ use dashmap::DashMap;
 use librespot_core::authentication::Credentials;
 use librespot_core::cache::Cache;
 use librespot_core::{Session, SessionConfig};
+use model::{Album, Artist, Context, Found, Playlist, SearchKind, Track};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
-/// Spotify's desktop client id, which librespot uses for its OAuth flow.  Shared by every
-/// librespot-based app, so Spotify rate-limits its Web API traffic hard (HTTP 429 even on
-/// the first request); the `spotifyClientId` pref replaces it with the user's own app.
-const DEFAULT_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
-/// Rate-limit waits longer than this fail the request instead of blocking the caller.
-const MAX_RATE_LIMIT_WAIT: u64 = 3;
-
-/// The client id to sign in with: the user's own (`spotifyClientId` pref) or the default.
-pub fn client_id_or_default(pref: &str) -> String {
-    let id = pref.trim();
-    if id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-        id.to_ascii_lowercase()
-    } else {
-        DEFAULT_CLIENT_ID.to_string()
-    }
-}
-
-fn default_client_id() -> String {
-    DEFAULT_CLIENT_ID.to_string()
-}
+/// Spotify's desktop client id, which librespot uses for its OAuth flow: login5, which
+/// sessions and Connect devices get their tokens from, refuses any other.
+const CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 const REDIRECT_PORT: u16 = 5588;
-const API: &str = "https://api.spotify.com/v1";
+/// The sign-in (its refresh token).  Named from when there was a second sign-in, with the
+/// user's own app, for the Web API.
+const OAUTH_FILE: &str = "oauth_playback.json";
+/// Where the sign-in was kept before that (of Spotify's client id), or the second sign-in
+/// (of the user's own app, no use now): read once, then removed.
+const OLD_OAUTH_FILE: &str = "oauth.json";
+/// How long browsed lists are kept.
+const LIST_TTL: Duration = Duration::from_secs(300);
 
 /// Scopes requested at sign-in (librespot's set, without the write scopes).
 const SCOPES: &[&str] = &[
     "streaming",
-    // the queue of a Connect device ([`Spotify::queue`])
     "user-read-playback-state",
     "user-read-currently-playing",
     "user-read-private",
@@ -88,10 +84,10 @@ pub struct TrackMeta {
 #[derive(Serialize, Deserialize, Default)]
 struct OAuthState {
     refresh_token: String,
-    /// The client id the refresh token belongs to (files from before it was stored used
-    /// the default one).
-    #[serde(default = "default_client_id")]
-    client_id: String,
+    /// The client id the refresh token belongs to, in files from when a sign-in could be of
+    /// the user's own app (absent: Spotify's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    client_id: Option<String>,
     #[serde(skip)]
     access_token: Option<(String, Instant)>,
 }
@@ -99,56 +95,23 @@ struct OAuthState {
 struct PendingLogin {
     verifier: String,
     state: String,
-    client_id: String,
 }
 
-/// The two sign-ins.  Playback (the librespot session, Spotify Connect) only works with
-/// Spotify's own client id: login5, which Connect gets its token from, refuses developer
-/// apps.  Browsing (the Web API) works with either, and the user's own app has its own
-/// rate limit.  Without an own client id one sign-in (playback's) serves both.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Slot {
-    /// The user's own app: the Web API.
-    Browsing,
-    /// Spotify's own client id: the session and Connect devices (and the Web API when there
-    /// is no browsing sign-in).
-    Playback,
-}
-
-impl Slot {
-    fn file(self) -> &'static str {
-        match self {
-            Slot::Browsing => "oauth.json",
-            Slot::Playback => "oauth_playback.json",
-        }
-    }
-
-    fn for_client_id(client_id: &str) -> Slot {
-        if client_id == DEFAULT_CLIENT_ID {
-            Slot::Playback
-        } else {
-            Slot::Browsing
-        }
-    }
-}
+/// A browsed list, kept for [`LIST_TTL`].
+type Cached = Arc<dyn std::any::Any + Send + Sync>;
 
 pub struct Spotify {
     dir: PathBuf,
     http: reqwest::Client,
     session: tokio::sync::Mutex<Option<Session>>,
-    /// The browsing sign-in ([`Slot::Browsing`]).
     oauth: Mutex<Option<OAuthState>>,
-    /// The playback sign-in ([`Slot::Playback`]).
-    playback: Mutex<Option<OAuthState>>,
     pending: Mutex<Option<PendingLogin>>,
     /// Track metadata by `spotify://track:<id>` URL.
     pub meta: DashMap<String, TrackMeta>,
-    /// Web API list responses (`ref` → items), briefly.
-    lists: Mutex<std::collections::HashMap<String, (Instant, Vec<Value>)>>,
+    /// Browsed lists by what they are (`playlists`, `album:<id>`, …), briefly.
+    lists: Mutex<HashMap<String, (Instant, Cached)>>,
     user: Mutex<Option<String>>,
-    /// The Web API failed (rate limit, no usable token): use the session until then.
-    web_api_down_until: Mutex<Option<Instant>>,
-    /// The GraphQL queries' IDs, for top tracks and artists.
+    /// The GraphQL queries' IDs.
     pathfinder: pathfinder::Ids,
     /// The user's Release Radar (playlist id), once found.
     release_radar: Mutex<Option<String>>,
@@ -167,19 +130,17 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
     INSTANCE
         .get_or_init(|| {
             let dir = data_dir.join("spotify");
-            let (oauth, playback) = load_sign_ins(&dir);
+            let oauth = load_sign_in(&dir);
             let pathfinder = pathfinder::Ids::new(&dir, http.clone());
             Arc::new(Spotify {
                 dir,
                 http,
                 session: tokio::sync::Mutex::new(None),
                 oauth: Mutex::new(oauth),
-                playback: Mutex::new(playback),
                 pending: Mutex::new(None),
                 meta: DashMap::new(),
-                lists: Mutex::new(Default::default()),
+                lists: Mutex::new(HashMap::new()),
                 user: Mutex::new(None),
-                web_api_down_until: Mutex::new(None),
                 pathfinder,
                 release_radar: Mutex::new(None),
                 server: std::sync::OnceLock::new(),
@@ -188,31 +149,30 @@ pub fn init(data_dir: &std::path::Path, http: reqwest::Client) -> Arc<Spotify> {
         .clone()
 }
 
-/// The browsing and playback sign-ins saved in `dir`.  A sign-in of the default client id
-/// from before there were two is playback's (moved to its file).
-fn load_sign_ins(dir: &std::path::Path) -> (Option<OAuthState>, Option<OAuthState>) {
-    let read = |slot: Slot| -> Option<OAuthState> {
-        std::fs::read_to_string(dir.join(slot.file()))
+/// The sign-in saved in `dir`.  One in [`OLD_OAUTH_FILE`] is moved to [`OAUTH_FILE`] when it
+/// is Spotify's client id's and there is none there yet; that file goes either way.
+fn load_sign_in(dir: &std::path::Path) -> Option<OAuthState> {
+    let read = |file: &str| -> Option<OAuthState> {
+        std::fs::read_to_string(dir.join(file))
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
     };
-    let mut oauth = read(Slot::Browsing);
-    let mut playback = read(Slot::Playback);
-    if playback.is_none()
-        && oauth
-            .as_ref()
-            .is_some_and(|o| Slot::for_client_id(&o.client_id) == Slot::Playback)
-    {
-        playback = oauth.take();
-        if let Some(o) = &playback {
-            let _ = std::fs::write(
-                dir.join(Slot::Playback.file()),
-                serde_json::to_string(o).unwrap_or_default(),
-            );
+    let mut oauth = read(OAUTH_FILE);
+    if dir.join(OLD_OAUTH_FILE).exists() {
+        let old = read(OLD_OAUTH_FILE)
+            .filter(|o| o.client_id.as_deref().is_none_or(|id| id == CLIENT_ID));
+        if oauth.is_none() {
+            if let Some(o) = &old {
+                let _ = std::fs::write(
+                    dir.join(OAUTH_FILE),
+                    serde_json::to_string(o).unwrap_or_default(),
+                );
+            }
+            oauth = old;
         }
-        let _ = std::fs::remove_file(dir.join(Slot::Browsing.file()));
+        let _ = std::fs::remove_file(dir.join(OLD_OAUTH_FILE));
     }
-    (oauth, playback)
+    oauth
 }
 
 /// `spotify://track:ID` / `spotify:track:ID` / open.spotify.com links → (`kind`, `id`).
@@ -266,46 +226,6 @@ fn code_from(input: &str) -> Option<String> {
     }
 }
 
-/// `TrackMeta` from a Web API track object.
-pub fn meta_from_track(t: &Value) -> TrackMeta {
-    let artists: Vec<&str> = t["artists"]
-        .as_array()
-        .map(|a| a.iter().filter_map(|x| x["name"].as_str()).collect())
-        .unwrap_or_default();
-    TrackMeta {
-        title: t["name"].as_str().unwrap_or("").to_string(),
-        artist: artists.join(", "),
-        album: t["album"]["name"].as_str().unwrap_or("").to_string(),
-        secs: t["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0,
-        image: best_image(&t["album"]["images"]),
-    }
-}
-
-/// The largest image of a Web API `images` array.
-/// A Web API list page: `/me/following` wraps it in `artists`, `/browse/new-releases` in
-/// `albums`.
-fn unwrap_page(page: Value) -> Value {
-    if page.get("items").is_some() {
-        return page;
-    }
-    match ["artists", "albums"]
-        .into_iter()
-        .find(|k| page.get(k).is_some())
-    {
-        Some(k) => page[k].clone(),
-        None => page,
-    }
-}
-
-pub fn best_image(images: &Value) -> Option<String> {
-    images
-        .as_array()?
-        .iter()
-        .max_by_key(|i| i["width"].as_u64().unwrap_or(0))
-        .and_then(|i| i["url"].as_str())
-        .map(str::to_string)
-}
-
 impl Spotify {
     fn credentials_cache(&self) -> Option<Cache> {
         Cache::new(Some(&self.dir), None, None, None).ok()
@@ -325,25 +245,17 @@ impl Spotify {
         id
     }
 
-    fn slot(&self, slot: Slot) -> &Mutex<Option<OAuthState>> {
-        match slot {
-            Slot::Browsing => &self.oauth,
-            Slot::Playback => &self.playback,
-        }
-    }
-
-    fn save_oauth(&self, slot: Slot) {
-        let g = self.slot(slot).lock();
+    fn save_oauth(&self) {
+        let g = self.oauth.lock();
         if let Some(o) = g.as_ref() {
             let _ = std::fs::create_dir_all(&self.dir);
             let _ = std::fs::write(
-                self.dir.join(slot.file()),
+                self.dir.join(OAUTH_FILE),
                 serde_json::to_string(o).unwrap_or_default(),
             );
         }
     }
 
-    /// Signed in: credentials for a session exist.
     /// Tell the service which server it plays for (at start).
     pub fn attach(&self, server: &Arc<crate::server::Server>) {
         let _ = self.server.set(Arc::downgrade(server));
@@ -354,46 +266,38 @@ impl Spotify {
         self.server.get().cloned().unwrap_or_default()
     }
 
+    /// Signed in: a session can log in (stored credentials, or the sign-in's token).
     pub fn signed_in(&self) -> bool {
-        self.playback_signed_in() || self.oauth.lock().is_some()
-    }
-
-    /// Signed in for playback: a session can log in (stored credentials, or the playback
-    /// sign-in's token).
-    pub fn playback_signed_in(&self) -> bool {
-        self.dir.join("credentials.json").exists() || self.playback.lock().is_some()
-    }
-
-    /// Browsing goes through the user's own app.
-    pub fn browsing_own_app(&self) -> bool {
-        self.oauth.lock().is_some()
+        self.dir.join("credentials.json").exists() || self.oauth.lock().is_some()
     }
 
     pub fn username(&self) -> Option<String> {
         self.user.lock().clone()
     }
 
+    /// Forget what was browsed (another account signs in, or none).
+    fn forget_browsed(&self) {
+        self.lists.lock().clear();
+        *self.release_radar.lock() = None;
+    }
+
     // ---- sign-in ------------------------------------------------------------------------------
 
     /// Start signing in: the Spotify authorization URL to open.  Also listens on the
     /// redirect port to finish by itself when the browser runs on this machine.
-    pub fn start_login(self: &Arc<Self>, client_id: &str) -> String {
+    pub fn start_login(self: &Arc<Self>) -> String {
         let verifier = random_string(96);
         let state = random_string(16);
         let mut url = url::Url::parse("https://accounts.spotify.com/authorize").expect("url");
         url.query_pairs_mut()
-            .append_pair("client_id", client_id)
+            .append_pair("client_id", CLIENT_ID)
             .append_pair("response_type", "code")
             .append_pair("redirect_uri", &redirect_uri())
             .append_pair("code_challenge_method", "S256")
             .append_pair("code_challenge", &challenge(&verifier))
             .append_pair("scope", &SCOPES.join(" "))
             .append_pair("state", &state);
-        *self.pending.lock() = Some(PendingLogin {
-            verifier,
-            state,
-            client_id: client_id.to_string(),
-        });
+        *self.pending.lock() = Some(PendingLogin { verifier, state });
         let me = self.clone();
         crate::util::spawn(async move { me.listen_for_redirect().await });
         url.to_string()
@@ -453,11 +357,11 @@ impl Spotify {
                 return Err("this sign-in link is outdated; start again".into());
             }
         }
-        let (verifier, client_id) = self
+        let verifier = self
             .pending
             .lock()
             .as_ref()
-            .map(|p| (p.verifier.clone(), p.client_id.clone()))
+            .map(|p| p.verifier.clone())
             .ok_or("no sign-in in progress; start again")?;
         let resp: Value = self
             .http
@@ -466,7 +370,7 @@ impl Spotify {
                 ("grant_type", "authorization_code"),
                 ("code", code.as_str()),
                 ("redirect_uri", redirect_uri().as_str()),
-                ("client_id", client_id.as_str()),
+                ("client_id", CLIENT_ID),
                 ("code_verifier", verifier.as_str()),
             ])
             .send()
@@ -486,45 +390,24 @@ impl Spotify {
             .to_string();
         let expires = resp["expires_in"].as_u64().unwrap_or(3600);
         *self.pending.lock() = None;
-        let slot = Slot::for_client_id(&client_id);
-        *self.slot(slot).lock() = Some(OAuthState {
+        *self.oauth.lock() = Some(OAuthState {
             refresh_token: resp["refresh_token"].as_str().unwrap_or("").to_string(),
-            client_id: client_id.clone(),
+            client_id: None,
             access_token: Some((
                 access.clone(),
                 Instant::now() + Duration::from_secs(expires.saturating_sub(60)),
             )),
         });
-        self.save_oauth(slot);
-        self.lists.lock().clear();
-        if slot == Slot::Browsing {
-            // the user's own app: browsing only (Spotify refuses it for playback)
-            let me: Value = self
-                .http
-                .get(format!("{API}/me"))
-                .bearer_auth(&access)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?
-                .json()
-                .await
-                .unwrap_or(Value::Null);
-            let user = me["display_name"]
-                .as_str()
-                .or(me["id"].as_str())
-                .unwrap_or("")
-                .to_string();
-            info!("Spotify: signed in for browsing as {user} (client id {client_id})");
-            return Ok(user);
-        }
-        // Log a playback session in with the new token; librespot stores reusable
-        // credentials.  The Connect devices log in afresh with it.
+        self.save_oauth();
+        self.forget_browsed();
+        // Log a session in with the new token; librespot stores reusable credentials.  The
+        // Connect devices log in afresh with it.
         let _ = std::fs::remove_file(self.dir.join("credentials.json"));
         *self.session.lock().await = None;
         let session = self.connect(Credentials::with_access_token(access)).await?;
         connect::signed_in_again();
         let user = session.username();
-        info!("Spotify: signed in for playback as {user}");
+        info!("Spotify: signed in as {user}");
         Ok(user)
     }
 
@@ -534,12 +417,11 @@ impl Spotify {
             s.shutdown();
         }
         *self.oauth.lock() = None;
-        *self.playback.lock() = None;
         *self.user.lock() = None;
-        self.lists.lock().clear();
+        self.forget_browsed();
         let _ = std::fs::remove_file(self.dir.join("credentials.json"));
-        let _ = std::fs::remove_file(self.dir.join(Slot::Browsing.file()));
-        let _ = std::fs::remove_file(self.dir.join(Slot::Playback.file()));
+        let _ = std::fs::remove_file(self.dir.join(OAUTH_FILE));
+        let _ = std::fs::remove_file(self.dir.join(OLD_OAUTH_FILE));
         // the Connect devices' own credentials (`connect::add_device`)
         let _ = std::fs::remove_dir_all(self.dir.join("connect"));
     }
@@ -572,43 +454,24 @@ impl Spotify {
         if let Some(creds) = self.credentials_cache().and_then(|c| c.credentials()) {
             match self.connect(creds).await {
                 Ok(s) => return Ok(s),
-                Err(e) => warn!("{e}; trying the playback sign-in"),
+                Err(e) => warn!("{e}; trying the sign-in's token"),
             }
         }
-        let token = self.playback_token().await?;
+        let token = self.token().await?;
         self.connect(Credentials::with_access_token(token)).await
     }
 
-    /// A token of the playback sign-in (Spotify's own client id), for sessions.
-    pub(crate) async fn playback_token(&self) -> Result<String, String> {
-        self.token(Slot::Playback).await
-    }
-
-    /// A Web API access token: the browsing sign-in's, else the playback sign-in's.
-    async fn oauth_token(&self) -> Result<String, String> {
-        if self.oauth.lock().is_some() {
-            self.token(Slot::Browsing).await
-        } else {
-            self.token(Slot::Playback).await
-        }
-    }
-
-    /// An access token of a sign-in, from its refresh token.
-    async fn token(&self, slot: Slot) -> Result<String, String> {
-        let (refresh, client_id) = {
-            let g = self.slot(slot).lock();
-            let o = g.as_ref().ok_or(match slot {
-                Slot::Browsing => "not signed in to Spotify",
-                Slot::Playback => {
-                    "not signed in to Spotify for playback (Settings → Spotify → Sign in for playback)"
-                }
-            })?;
+    /// An access token of the sign-in, from its refresh token (for a session's first log-in).
+    pub(crate) async fn token(&self) -> Result<String, String> {
+        let refresh = {
+            let g = self.oauth.lock();
+            let o = g.as_ref().ok_or("not signed in to Spotify")?;
             if let Some((t, until)) = &o.access_token {
                 if *until > Instant::now() {
                     return Ok(t.clone());
                 }
             }
-            (o.refresh_token.clone(), o.client_id.clone())
+            o.refresh_token.clone()
         };
         if refresh.is_empty() {
             return Err("no Spotify refresh token".into());
@@ -619,7 +482,7 @@ impl Spotify {
             .form(&[
                 ("grant_type", "refresh_token"),
                 ("refresh_token", refresh.as_str()),
-                ("client_id", client_id.as_str()),
+                ("client_id", CLIENT_ID),
             ])
             .send()
             .await
@@ -632,7 +495,7 @@ impl Spotify {
             .ok_or("Spotify refused the refresh token; sign in again")?
             .to_string();
         let expires = resp["expires_in"].as_u64().unwrap_or(3600);
-        if let Some(o) = self.slot(slot).lock().as_mut() {
+        if let Some(o) = self.oauth.lock().as_mut() {
             o.access_token = Some((
                 access.clone(),
                 Instant::now() + Duration::from_secs(expires.saturating_sub(60)),
@@ -641,111 +504,197 @@ impl Spotify {
                 o.refresh_token = r.to_string();
             }
         }
-        self.save_oauth(slot);
+        self.save_oauth();
         Ok(access)
     }
 
-    /// Token for the Web API.
-    async fn api_token(&self) -> Result<String, String> {
-        self.oauth_token().await
+    /// The account's display name (else its username) and product (`premium`, `free`, …).
+    pub async fn account(&self) -> Result<(String, Option<String>), String> {
+        self.cached("account".into(), async {
+            let session = self.session().await?;
+            let user = session.username();
+            let name = browse::display_name(&session, &user).await.unwrap_or(user);
+            Ok((name, session.get_user_attribute("type")))
+        })
+        .await
     }
 
-    // ---- Web API ------------------------------------------------------------------------------
+    // ---- browsing -----------------------------------------------------------------------------
 
-    fn rate_limited_message(&self, wait: u64) -> String {
-        let own = self
-            .oauth
+    /// What `fetch` gives, kept as `key` for [`LIST_TTL`].
+    async fn cached<T>(
+        &self,
+        key: String,
+        fetch: impl Future<Output = Result<T, String>>,
+    ) -> Result<T, String>
+    where
+        T: Clone + Send + Sync + 'static,
+    {
+        let kept = self
+            .lists
             .lock()
-            .as_ref()
-            .is_some_and(|o| o.client_id != DEFAULT_CLIENT_ID);
-        if own {
-            format!("Spotify is rate-limiting your app; try again in {wait}s")
-        } else {
-            format!(
-                "Spotify is rate-limiting the shared client id (retry in {wait}s): \
-                 set your own Spotify app's client id in Settings, then sign in again"
-            )
+            .get(&key)
+            .filter(|(at, _)| at.elapsed() < LIST_TTL)
+            .and_then(|(_, v)| v.downcast_ref::<T>().cloned());
+        if let Some(v) = kept {
+            return Ok(v);
+        }
+        let v = fetch.await?;
+        let mut lists = self.lists.lock();
+        lists.retain(|_, (at, _)| at.elapsed() < LIST_TTL);
+        lists.insert(key, (Instant::now(), Arc::new(v.clone())));
+        Ok(v)
+    }
+
+    pub async fn liked(&self) -> Result<Vec<Track>, String> {
+        self.cached("liked".into(), async {
+            browse::liked(&self.session().await?).await
+        })
+        .await
+    }
+
+    pub async fn playlists(&self) -> Result<Vec<Playlist>, String> {
+        self.cached("playlists".into(), async {
+            browse::playlists(&self.session().await?).await
+        })
+        .await
+    }
+
+    pub async fn saved_albums(&self) -> Result<Vec<Album>, String> {
+        self.cached("albums".into(), async {
+            browse::saved_albums(&self.session().await?).await
+        })
+        .await
+    }
+
+    pub async fn followed_artists(&self) -> Result<Vec<Artist>, String> {
+        self.cached("artists".into(), async {
+            browse::followed_artists(&self.session().await?).await
+        })
+        .await
+    }
+
+    pub async fn recently_played(&self) -> Result<Vec<Context>, String> {
+        self.cached("recent".into(), async {
+            browse::recently_played(&self.session().await?).await
+        })
+        .await
+    }
+
+    pub async fn album_tracks(&self, id: &str) -> Result<Vec<Track>, String> {
+        self.cached(format!("album:{id}"), async {
+            browse::album_tracks(&self.session().await?, id).await
+        })
+        .await
+    }
+
+    pub async fn playlist_tracks(&self, id: &str) -> Result<Vec<Track>, String> {
+        self.cached(format!("playlist:{id}"), async {
+            browse::playlist_tracks(&self.session().await?, id).await
+        })
+        .await
+    }
+
+    pub async fn artist_top_tracks(&self, id: &str) -> Result<Vec<Track>, String> {
+        self.cached(format!("artisttop:{id}"), async {
+            browse::artist_top_tracks(&self.session().await?, id).await
+        })
+        .await
+    }
+
+    pub async fn artist_albums(&self, id: &str) -> Result<Vec<Album>, String> {
+        self.cached(format!("artistalbums:{id}"), async {
+            browse::artist_albums(&self.session().await?, id).await
+        })
+        .await
+    }
+
+    /// The user's top tracks of the last four weeks, through the GraphQL API.
+    pub async fn top_tracks(&self) -> Result<Vec<Track>, String> {
+        self.cached("toptracks".into(), async {
+            let session = self.session().await?;
+            let uris = self.top(&session, "tracks").await?;
+            browse::tracks(&session, &uris).await
+        })
+        .await
+    }
+
+    /// The user's top artists of the last four weeks, through the GraphQL API.
+    pub async fn top_artists(&self) -> Result<Vec<Artist>, String> {
+        self.cached("topartists".into(), async {
+            let session = self.session().await?;
+            let uris = self.top(&session, "artists").await?;
+            browse::artists(&session, &uris).await
+        })
+        .await
+    }
+
+    /// The URIs of the user's top `kind` (tracks or artists).
+    async fn top(&self, session: &Session, kind: &str) -> Result<Vec<String>, String> {
+        let vars = pathfinder::top_variables(kind, 50);
+        let data = self
+            .pathfinder
+            .query(&self.http, session, "userTopContent", vars)
+            .await?;
+        Ok(pathfinder::top_uris(&data, kind))
+    }
+
+    /// Search for one kind of thing, through the GraphQL API.  `term` may use the apps' field
+    /// filters (`artist:"…"`, `isrc:…`).
+    pub async fn search(
+        &self,
+        kind: SearchKind,
+        term: &str,
+        limit: usize,
+    ) -> Result<Found, String> {
+        self.cached(format!("search{}:{limit}:{term}", kind.name()), async {
+            let session = self.session().await?;
+            let (op, field) = pathfinder::search_op(kind);
+            let vars = pathfinder::search_variables(term, limit);
+            let data = self
+                .pathfinder
+                .query(&self.http, &session, op, vars)
+                .await?;
+            let uris = pathfinder::search_uris(&data, field);
+            Ok(match kind {
+                SearchKind::Track => Found::Tracks(browse::tracks(&session, &uris).await?),
+                SearchKind::Album => Found::Albums(browse::albums(&session, &uris).await?),
+                SearchKind::Artist => Found::Artists(browse::artists(&session, &uris).await?),
+                SearchKind::Playlist => Found::Playlists(pathfinder::search_playlists(&data)),
+            })
+        })
+        .await
+    }
+
+    pub async fn search_tracks(&self, term: &str, limit: usize) -> Result<Vec<Track>, String> {
+        match self.search(SearchKind::Track, term, limit).await? {
+            Found::Tracks(t) => Ok(t),
+            _ => Ok(Vec::new()),
         }
     }
 
-    /// GET a Web API path (`/me/playlists?limit=50`): from the Web API, or through the
-    /// session ([`session_api`]) when the Web API is unavailable.
-    pub async fn api(&self, path: &str) -> Result<Value, String> {
-        let down = self
-            .web_api_down_until
-            .lock()
-            .is_some_and(|t| t > Instant::now());
-        let web_err = if down {
-            "Spotify Web API unavailable".to_string()
-        } else {
-            match self.web_api(path).await {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    let wait = if e.contains("rate-limiting") { 60 } else { 600 };
-                    *self.web_api_down_until.lock() =
-                        Some(Instant::now() + Duration::from_secs(wait));
-                    e
-                }
-            }
-        };
-        let session = self.session().await?;
-        let answer = if let Some(rest) = path.strip_prefix("/me/top/") {
-            self.top(&session, rest.split('?').next().unwrap_or(""))
-                .await
-        } else if let Some(query) = path.strip_prefix("/search?") {
-            self.search(&session, query).await
-        } else if path.starts_with("/browse/new-releases") {
-            self.new_releases(&session).await
-        } else {
-            session_api::session_get(&session, path).await
-        };
-        answer.map_err(|e| format!("{e} ({web_err})"))
+    pub async fn search_artists(&self, term: &str, limit: usize) -> Result<Vec<Artist>, String> {
+        match self.search(SearchKind::Artist, term, limit).await? {
+            Found::Artists(a) => Ok(a),
+            _ => Ok(Vec::new()),
+        }
     }
 
-    /// `/search?type=…&q=…` (one type): through the GraphQL API (see [`pathfinder`]), in
-    /// the Web API's shape.
-    async fn search(&self, session: &Session, query: &str) -> Result<Value, String> {
-        let params: std::collections::HashMap<String, String> =
-            url::form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect();
-        let kind = params.get("type").map_or("", String::as_str);
-        let term = params.get("q").map_or("", String::as_str);
-        let (op, field) = pathfinder::search_op(kind)
-            .ok_or_else(|| format!("searching for {kind} needs the Spotify Web API"))?;
-        let vars = pathfinder::search_variables(term, 50);
-        let data = self.pathfinder.query(&self.http, session, op, vars).await?;
-        let items = match kind {
-            "playlist" => pathfinder::search_playlists(&data),
-            _ => {
-                let uris = pathfinder::search_uris(&data, field);
-                match kind {
-                    "track" => session_api::tracks(session, &uris).await?,
-                    "album" => session_api::albums(session, &uris).await?,
-                    _ => session_api::artists(session, &uris).await?,
-                }
-            }
-        };
-        let mut answer = serde_json::Map::new();
-        answer.insert(
-            format!("{kind}s"),
-            serde_json::json!({ "items": items, "next": null }),
-        );
-        Ok(Value::Object(answer))
-    }
-
-    /// `/browse/new-releases`: the albums Spotify's editors picked, from Browse's New Releases
-    /// page (through the GraphQL API, see [`pathfinder`]), in the Web API's shape.
-    async fn new_releases(&self, session: &Session) -> Result<Value, String> {
-        let vars = pathfinder::new_releases_variables();
-        let data = self
-            .pathfinder
-            .query(&self.http, session, "browsePage", vars)
-            .await?;
-        let uris = pathfinder::new_release_uris(&data)
-            .ok_or("Spotify's New Releases page has no albums section any more")?;
-        let items = session_api::albums(session, &uris).await?;
-        Ok(serde_json::json!({ "albums": { "items": items, "next": null } }))
+    /// The albums Spotify's editors picked, from Browse's New Releases page (through the
+    /// GraphQL API).
+    pub async fn new_releases(&self) -> Result<Vec<Album>, String> {
+        self.cached("new".into(), async {
+            let session = self.session().await?;
+            let vars = pathfinder::new_releases_variables();
+            let data = self
+                .pathfinder
+                .query(&self.http, &session, "browsePage", vars)
+                .await?;
+            let uris = pathfinder::new_release_uris(&data)
+                .ok_or("Spotify's New Releases page has no albums section any more")?;
+            browse::albums(&session, &uris).await
+        })
+        .await
     }
 
     /// The user's Release Radar (playlist id: one for each user, for good, its tracks
@@ -766,140 +715,27 @@ impl Spotify {
         Ok(id)
     }
 
-    /// `/me/top/tracks` or `/me/top/artists` (`kind`): the last four weeks', through the
-    /// GraphQL API (see [`pathfinder`]), in the Web API's shape.
-    async fn top(&self, session: &Session, kind: &str) -> Result<Value, String> {
-        let vars = pathfinder::top_variables(kind, 50);
-        let data = self
-            .pathfinder
-            .query(&self.http, session, "userTopContent", vars)
-            .await?;
-        let uris = pathfinder::top_uris(&data, kind);
-        let items = match kind {
-            "tracks" => session_api::tracks(session, &uris).await?,
-            _ => session_api::artists(session, &uris).await?,
-        };
-        Ok(serde_json::json!({ "items": items, "next": null }))
-    }
-
-    /// What Spotify plays next on the account's active device (a player's Connect device,
-    /// while it plays): `spotify://track:…` URLs and what they are.  Straight from the Web
-    /// API, without [`Self::api`]'s fallback, so a refusal (a sign-in from before the
-    /// queue's scopes) doesn't take browsing down with it.
-    pub async fn queue(&self) -> Result<Vec<(String, TrackMeta)>, String> {
-        let v = match self.web_api("/me/player/queue").await {
-            Ok(v) => v,
-            // no active device
-            Err(e) if e.starts_with("Spotify Web API 204") => return Ok(Vec::new()),
-            Err(e) => return Err(e),
-        };
-        Ok(v["queue"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|t| {
-                let id = t["id"].as_str()?;
-                let kind = t["type"].as_str().unwrap_or("track");
-                let mut m = meta_from_track(t);
-                if kind == "episode" {
-                    m.artist = t["show"]["name"].as_str().unwrap_or("").to_string();
-                    m.image = best_image(&t["images"]);
-                }
-                Some((url_for(kind, id), m))
-            })
+    /// What Spotify plays next on a player's Connect device (`key`, see [`connect::key`]),
+    /// as the device last heard from Spotify: `spotify://track:…` URLs and what they are.
+    pub async fn queue(&self, key: &str) -> Result<Vec<(String, TrackMeta)>, String> {
+        let uris = connect::up_next(key);
+        if uris.is_empty() {
+            return Ok(Vec::new());
+        }
+        let tracks = browse::tracks(&self.session().await?, &uris).await?;
+        Ok(tracks
+            .iter()
+            .inspect(|t| self.remember(t))
+            .map(|t| (t.url(), t.meta()))
             .collect())
     }
 
-    async fn web_api(&self, path: &str) -> Result<Value, String> {
-        let url = if path.starts_with("https://") {
-            path.to_string()
-        } else {
-            format!("{API}{path}")
-        };
-        for _attempt in 0..3 {
-            let token = self.api_token().await?;
-            let resp = self
-                .http
-                .get(&url)
-                .bearer_auth(&token)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            let status = resp.status().as_u16();
-            if status != 200 {
-                warn!(
-                    "Spotify Web API {} -> {} (retry-after {:?})",
-                    path,
-                    status,
-                    resp.headers().get("retry-after")
-                );
-            }
-            match status {
-                200 => return resp.json().await.map_err(|e| e.to_string()),
-                401 => {
-                    // token expired early
-                    for slot in [Slot::Browsing, Slot::Playback] {
-                        if let Some(o) = self.slot(slot).lock().as_mut() {
-                            o.access_token = None;
-                        }
-                    }
-                }
-                429 => {
-                    let wait = resp
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(1);
-                    if wait > MAX_RATE_LIMIT_WAIT {
-                        // don't hold the caller (a menu, a track about to play) for it
-                        return Err(self.rate_limited_message(wait));
-                    }
-                    tokio::time::sleep(Duration::from_secs(wait)).await;
-                }
-                s => {
-                    let body: Value = resp.json().await.unwrap_or(Value::Null);
-                    let msg = body["error"]["message"].as_str().unwrap_or("").to_string();
-                    return Err(format!("Spotify Web API {s}: {msg}"));
-                }
-            }
-        }
-        Err("Spotify Web API unavailable".into())
+    /// Remember the metadata of a track seen while browsing.
+    pub fn remember(&self, track: &Track) {
+        self.meta.insert(track.url(), track.meta());
     }
 
-    /// All items of a paged Web API list (following `next`), up to `max`.
-    pub async fn api_all(&self, path: &str, max: usize) -> Result<Vec<Value>, String> {
-        let key = format!("{path}#{max}");
-        if let Some((at, items)) = self.lists.lock().get(&key) {
-            if at.elapsed() < Duration::from_secs(300) {
-                return Ok(items.clone());
-            }
-        }
-        let mut items = Vec::new();
-        let mut next = Some(path.to_string());
-        while let Some(p) = next.take() {
-            let page = unwrap_page(self.api(&p).await?);
-            items.extend(page["items"].as_array().cloned().unwrap_or_default());
-            if items.len() < max {
-                next = page["next"].as_str().map(str::to_string);
-            }
-        }
-        items.truncate(max);
-        self.lists
-            .lock()
-            .insert(key, (Instant::now(), items.clone()));
-        Ok(items)
-    }
-
-    /// Remember the metadata of tracks seen while browsing.
-    pub fn remember(&self, track: &Value) {
-        if let Some(id) = track["id"].as_str() {
-            self.meta
-                .insert(url_for("track", id), meta_from_track(track));
-        }
-    }
-
-    /// Metadata of a track URL, from what was browsed or the Web API.
+    /// Metadata of a track URL, from what was browsed or the session.
     pub async fn track_meta(&self, url: &str) -> Option<TrackMeta> {
         if let Some(m) = self.meta.get(url) {
             return Some(m.clone());
@@ -908,9 +744,13 @@ impl Spotify {
         if kind != "track" {
             return None;
         }
-        let t = self.api(&format!("/tracks/{id}")).await.ok()?;
+        let session = self.session().await.ok()?;
+        let t = browse::tracks(&session, &[format!("spotify:track:{id}")])
+            .await
+            .ok()?
+            .pop()?;
         self.remember(&t);
-        self.meta.get(url).map(|m| m.clone())
+        Some(t.meta())
     }
 
     /// Whether a track can be played, by librespot's rule (`Player::find_available_alternative`):
@@ -966,64 +806,25 @@ impl Spotify {
         if parse_url(url).is_some_and(|(k, _)| k == "connect") {
             return Ok(vec![url.to_string()]);
         }
-        Ok(self
-            .tracks(url)
-            .await?
-            .iter()
-            .filter_map(|t| t["id"].as_str().map(|id| url_for("track", id)))
-            .collect())
+        Ok(self.tracks(url).await?.iter().map(Track::url).collect())
     }
 
-    /// The Web API track objects of an album, playlist, artist (top tracks) or liked songs.
-    pub async fn tracks(&self, url: &str) -> Result<Vec<Value>, String> {
+    /// The tracks of an album, playlist, artist (top tracks), liked songs or a track.
+    pub async fn tracks(&self, url: &str) -> Result<Vec<Track>, String> {
         let (kind, id) = parse_url(url).ok_or("not a Spotify link")?;
-        let tracks: Vec<Value> = match kind.as_str() {
-            "track" => vec![self.api(&format!("/tracks/{id}")).await?],
-            "album" => {
-                let album = self.api(&format!("/albums/{id}")).await?;
-                let mut tracks = album["tracks"]["items"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-                if let Some(next) = album["tracks"]["next"].as_str() {
-                    tracks.extend(self.api_all(next, 1000).await?);
-                }
-                // album tracks lack the album object
-                for t in &mut tracks {
-                    t["album"] =
-                        serde_json::json!({ "name": album["name"], "images": album["images"] });
-                }
-                tracks
+        let tracks = match kind.as_str() {
+            "track" => {
+                let session = self.session().await?;
+                browse::tracks(&session, &[format!("spotify:track:{id}")]).await?
             }
-            "playlist" => self
-                .api_all(&format!("/playlists/{id}/tracks?limit=100"), 2000)
-                .await?
-                .into_iter()
-                .map(|i| i["track"].clone())
-                .collect(),
-            "artist" => {
-                let r = self
-                    .api(&format!("/artists/{id}/top-tracks?market=from_token"))
-                    .await?;
-                r["tracks"].as_array().cloned().unwrap_or_default()
-            }
-            "collection" => self
-                .api_all("/me/tracks?limit=50", 2000)
-                .await?
-                .into_iter()
-                .map(|i| i["track"].clone())
-                .collect(),
+            "album" => self.album_tracks(&id).await?,
+            "playlist" => self.playlist_tracks(&id).await?,
+            "artist" => self.artist_top_tracks(&id).await?,
+            "collection" => self.liked().await?,
             _ => return Err(format!("can't play Spotify {kind} links")),
         };
-        Ok(tracks
-            .into_iter()
-            .filter(|t| {
-                t["id"].is_string()
-                    && t["type"].as_str().unwrap_or("track") == "track"
-                    && !t["is_local"].as_bool().unwrap_or(false)
-            })
-            .inspect(|t| self.remember(t))
-            .collect())
+        tracks.iter().for_each(|t| self.remember(t));
+        Ok(tracks)
     }
 }
 
@@ -1051,81 +852,44 @@ fn playable<T>(available: bool, has_files: bool, alternatives: Vec<T>) -> Playab
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn own_client_id_or_default() {
-        let own = "0123456789ABCDEF0123456789abcdef";
-        assert_eq!(client_id_or_default(own), own.to_ascii_lowercase());
-        assert_eq!(
-            client_id_or_default(&format!("  {own} ")),
-            own.to_ascii_lowercase()
-        );
-        for bad in ["", "abc", "not a client id at all, no no no", &own[1..]] {
-            assert_eq!(client_id_or_default(bad), DEFAULT_CLIENT_ID, "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn a_default_client_id_sign_in_is_playbacks() {
-        let own = "0123456789abcdef0123456789abcdef";
-        assert_eq!(Slot::for_client_id(DEFAULT_CLIENT_ID), Slot::Playback);
-        assert_eq!(Slot::for_client_id(own), Slot::Browsing);
-        let state = |id: &str| {
-            serde_json::to_string(&OAuthState {
-                refresh_token: format!("refresh-{id}"),
-                client_id: id.to_string(),
-                access_token: None,
-            })
-            .unwrap()
-        };
-        // from before the two sign-ins, of the default client id: moved to playback
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("oauth.json"), state(DEFAULT_CLIENT_ID)).unwrap();
-        let (browsing, playback) = load_sign_ins(dir.path());
-        assert!(browsing.is_none());
-        assert_eq!(playback.unwrap().client_id, DEFAULT_CLIENT_ID);
-        assert!(!dir.path().join("oauth.json").exists());
-        assert!(dir.path().join("oauth_playback.json").exists());
-        // of the user's own app: browsing, and no playback sign-in yet
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("oauth.json"), state(own)).unwrap();
-        let (browsing, playback) = load_sign_ins(dir.path());
-        assert_eq!(browsing.unwrap().client_id, own);
-        assert!(playback.is_none());
-        // both
-        std::fs::write(
-            dir.path().join("oauth_playback.json"),
-            state(DEFAULT_CLIENT_ID),
-        )
-        .unwrap();
-        let (browsing, playback) = load_sign_ins(dir.path());
-        assert_eq!(browsing.unwrap().client_id, own);
-        assert_eq!(playback.unwrap().client_id, DEFAULT_CLIENT_ID);
-    }
-
-    #[test]
-    fn oauth_files_without_client_id_use_the_default() {
-        let old: OAuthState = serde_json::from_str(r#"{"refresh_token":"r"}"#).unwrap();
-        assert_eq!(old.client_id, DEFAULT_CLIENT_ID);
-        let own = OAuthState {
-            refresh_token: "r".into(),
-            client_id: "0123456789abcdef0123456789abcdef".into(),
-            access_token: None,
-        };
-        let back: OAuthState = serde_json::from_str(&serde_json::to_string(&own).unwrap()).unwrap();
-        assert_eq!(back.client_id, own.client_id);
-    }
     use super::*;
 
+    fn state(client_id: Option<&str>) -> String {
+        serde_json::to_string(&OAuthState {
+            refresh_token: "r".into(),
+            client_id: client_id.map(str::to_string),
+            access_token: None,
+        })
+        .unwrap()
+    }
+
     #[test]
-    fn list_pages_are_unwrapped_from_artists_or_albums() {
-        let page = serde_json::json!({ "items": [1], "next": null });
-        assert_eq!(unwrap_page(serde_json::json!({ "artists": page })), page);
-        assert_eq!(unwrap_page(serde_json::json!({ "albums": page })), page);
-        assert_eq!(unwrap_page(page.clone()), page);
-        // saved albums: items holding albums
-        let saved = serde_json::json!({ "items": [{ "album": {} }], "next": null });
-        assert_eq!(unwrap_page(saved.clone()), saved);
+    fn an_old_sign_in_of_spotifys_client_id_is_kept_and_one_of_an_own_app_dropped() {
+        // from before the two sign-ins: moved
+        for id in [None, Some(CLIENT_ID)] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join(OLD_OAUTH_FILE), state(id)).unwrap();
+            assert_eq!(load_sign_in(dir.path()).unwrap().refresh_token, "r");
+            assert!(!dir.path().join(OLD_OAUTH_FILE).exists());
+            assert!(load_sign_in(dir.path()).is_some(), "kept in the new file");
+        }
+        // the user's own app (browsing only): dropped
+        let own = "0123456789abcdef0123456789abcdef";
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(OLD_OAUTH_FILE), state(Some(own))).unwrap();
+        assert!(load_sign_in(dir.path()).is_none());
+        assert!(!dir.path().join(OLD_OAUTH_FILE).exists());
+        // both: the playback one stays
+        std::fs::write(dir.path().join(OLD_OAUTH_FILE), state(Some(own))).unwrap();
+        std::fs::write(dir.path().join(OAUTH_FILE), state(Some(CLIENT_ID))).unwrap();
+        let kept = load_sign_in(dir.path()).unwrap();
+        assert_eq!(kept.client_id.as_deref(), Some(CLIENT_ID));
+        assert!(!dir.path().join(OLD_OAUTH_FILE).exists());
+    }
+
+    #[test]
+    fn new_sign_ins_are_saved_without_a_client_id() {
+        assert_eq!(state(None), r#"{"refresh_token":"r"}"#);
     }
 
     #[test]
@@ -1180,19 +944,35 @@ mod tests {
         assert_eq!(random_string(96).len(), 96);
     }
 
-    #[test]
-    fn track_metadata() {
-        let t = serde_json::json!({
-            "id": "abc", "name": "Song", "duration_ms": 215000,
-            "artists": [{ "name": "A" }, { "name": "B" }],
-            "album": { "name": "Album", "images": [{ "url": "s", "width": 64 }, { "url": "l", "width": 640 }] },
-        });
-        let m = meta_from_track(&t);
-        assert_eq!(
-            (m.title.as_str(), m.artist.as_str(), m.album.as_str()),
-            ("Song", "A, B", "Album")
-        );
-        assert_eq!(m.secs, 215.0);
-        assert_eq!(m.image.as_deref(), Some("l"));
+    #[tokio::test]
+    async fn lists_are_kept_for_a_while_and_forgotten_on_sign_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp = Spotify {
+            dir: dir.path().to_path_buf(),
+            http: reqwest::Client::new(),
+            session: tokio::sync::Mutex::new(None),
+            oauth: Mutex::new(None),
+            pending: Mutex::new(None),
+            meta: DashMap::new(),
+            lists: Mutex::new(HashMap::new()),
+            user: Mutex::new(None),
+            pathfinder: pathfinder::Ids::new(dir.path(), reqwest::Client::new()),
+            release_radar: Mutex::new(Some("rr".into())),
+            server: OnceLock::new(),
+        };
+        let fetch = |n: u32| async move { Ok::<_, String>(vec![n]) };
+        assert_eq!(sp.cached("k".into(), fetch(1)).await, Ok(vec![1]));
+        assert_eq!(sp.cached("k".into(), fetch(2)).await, Ok(vec![1]));
+        // another type under the same key is fetched, not mistaken for it
+        assert_eq!(sp.cached("k".into(), async { Ok(3u8) }).await, Ok(3));
+        // an error isn't kept
+        assert!(sp
+            .cached::<u8>("e".into(), async { Err("no".into()) })
+            .await
+            .is_err());
+        assert_eq!(sp.cached("e".into(), async { Ok(4u8) }).await, Ok(4));
+        sp.logout().await;
+        assert_eq!(sp.cached("k".into(), async { Ok(5u8) }).await, Ok(5));
+        assert!(sp.release_radar.lock().is_none());
     }
 }

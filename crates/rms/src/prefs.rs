@@ -133,7 +133,6 @@ pub fn server_defaults() -> PrefMap {
         ("webproxy", json!("")),
         ("spotifyBitrate", json!(320)),
         ("spotifyNormalisation", json!(0)),
-        ("spotifyClientId", json!("")),
     ];
     for (k, v) in defaults {
         m.insert(k.to_string(), v);

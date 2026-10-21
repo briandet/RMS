@@ -14,6 +14,7 @@
 use super::scrobble::Account;
 use crate::player::playlist::Entry;
 use crate::player::Player;
+use crate::plugins::spotify::model::Track;
 use crate::server::Server;
 use rand::Rng;
 use rms_library::discover::Proposal;
@@ -291,9 +292,7 @@ async fn resolve(
         None => top_tracks(sp, &c.artist).await,
     };
     for t in tracks {
-        let Some(remote) = remote_track(&t) else {
-            continue;
-        };
+        let remote = remote_track(&t);
         if exclude.contains(&remote.url) {
             continue;
         }
@@ -380,16 +379,18 @@ async fn find_track(
     title: &str,
     artist: &str,
     isrc: Option<&str>,
-) -> Option<Value> {
-    // the same recording by its ISRC, when known
+) -> Option<Track> {
+    // the same recording by its ISRC, when known (and the result has it: a search that
+    // doesn't take `isrc:` finds something else)
     if let Some(i) = isrc {
-        if let Ok(v) = sp
-            .api(&format!("/search?type=track&limit=1&q=isrc%3A{i}"))
+        if let Some(t) = sp
+            .search_tracks(&format!("isrc:{i}"), 1)
             .await
+            .ok()
+            .and_then(|mut t| t.drain(..).next())
+            .filter(|t| t.isrc.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(i)))
         {
-            if let Some(t) = v["tracks"]["items"][0].as_object() {
-                return Some(Value::Object(t.clone()));
-            }
+            return Some(t);
         }
     }
     let q = format!(
@@ -397,13 +398,7 @@ async fn find_track(
         title.replace('"', ""),
         artist.replace('"', "")
     );
-    let v = sp
-        .api(&format!(
-            "/search?type=track&limit=10&q={}",
-            super::musicbrainz::percent(&q)
-        ))
-        .await
-        .ok()?;
+    let found = sp.search_tracks(&q, 10).await.ok()?;
     let norm = |s: &str| {
         s.to_lowercase()
             .chars()
@@ -411,84 +406,39 @@ async fn find_track(
             .collect::<String>()
     };
     let want_live = norm(title).contains("live");
-    v["tracks"]["items"]
-        .as_array()?
-        .iter()
-        .filter(|t| {
-            t["artists"].as_array().is_some_and(|a| {
-                a.iter()
-                    .any(|x| x["name"].as_str().map(norm) == Some(norm(artist)))
-            })
-        })
-        .filter(|t| {
-            want_live
-                || !t["name"]
-                    .as_str()
-                    .map(norm)
-                    .unwrap_or_default()
-                    .contains("live")
-        })
-        .find(|t| {
-            t["name"]
-                .as_str()
-                .map(norm)
-                .is_some_and(|n| n.starts_with(&norm(title)))
-        })
-        .cloned()
+    found
+        .into_iter()
+        .filter(|t| t.artists.iter().any(|a| norm(&a.name) == norm(artist)))
+        .filter(|t| want_live || !norm(&t.name).contains("live"))
+        .find(|t| norm(&t.name).starts_with(&norm(title)))
 }
 
 /// An artist's most played tracks on Spotify.
-async fn top_tracks(sp: &crate::plugins::spotify::Spotify, artist: &str) -> Vec<Value> {
+async fn top_tracks(sp: &crate::plugins::spotify::Spotify, artist: &str) -> Vec<Track> {
     let q = format!("artist:\"{}\"", artist.replace('"', ""));
-    let Ok(v) = sp
-        .api(&format!(
-            "/search?type=artist&limit=5&q={}",
-            super::musicbrainz::percent(&q)
-        ))
-        .await
-    else {
+    let Ok(found) = sp.search_artists(&q, 5).await else {
         return Vec::new();
     };
-    let Some(id) = v["artists"]["items"].as_array().and_then(|a| {
-        a.iter()
-            .find(|x| {
-                x["name"]
-                    .as_str()
-                    .is_some_and(|n| n.eq_ignore_ascii_case(artist))
-            })
-            .and_then(|x| x["id"].as_str())
-    }) else {
+    let Some(a) = found.iter().find(|a| a.name.eq_ignore_ascii_case(artist)) else {
         return Vec::new();
     };
-    sp.api(&format!("/artists/{id}/top-tracks?market=from_token"))
-        .await
-        .ok()
-        .and_then(|v| v["tracks"].as_array().cloned())
-        .unwrap_or_default()
+    sp.artist_top_tracks(&a.id).await.unwrap_or_default()
 }
 
-/// A Web API track as a streamed track.
-fn remote_track(t: &Value) -> Option<RemoteTrack> {
-    let id = t["id"].as_str()?;
-    Some(RemoteTrack {
+/// A Spotify track as a streamed track.
+fn remote_track(t: &Track) -> RemoteTrack {
+    RemoteTrack {
         source: "spotify".into(),
-        source_id: id.to_string(),
-        url: crate::plugins::spotify::url_for("track", id),
-        title: t["name"].as_str()?.to_string(),
-        artists: t["artists"]
-            .as_array()?
-            .iter()
-            .filter_map(|a| a["name"].as_str().map(str::to_string))
-            .collect(),
-        album: t["album"]["name"].as_str().map(str::to_string),
-        year: t["album"]["release_date"]
-            .as_str()
-            .and_then(|d| d.get(..4))
-            .and_then(|y| y.parse().ok()),
-        duration: t["duration_ms"].as_f64().map(|ms| ms / 1000.0),
-        isrc: t["external_ids"]["isrc"].as_str().map(str::to_string),
-        cover: crate::plugins::spotify::best_image(&t["album"]["images"]),
-    })
+        source_id: t.id.clone(),
+        url: t.url(),
+        title: t.name.clone(),
+        artists: t.artists.iter().map(|a| a.name.clone()).collect(),
+        album: Some(t.album.clone()).filter(|a| !a.is_empty()),
+        year: t.year.map(i64::from),
+        duration: Some(f64::from(t.duration_ms) / 1000.0),
+        isrc: t.isrc.clone(),
+        cover: t.cover.clone(),
+    }
 }
 
 /// Put `discovered` among `mix` at random places (the first song of a track's mix stays
@@ -837,7 +787,7 @@ async fn playable(server: &Arc<Server>, r: &Recording) -> Option<Item> {
     let url = match find_track(sp, &r.title, &r.artist, r.isrc.as_deref()).await {
         Some(t) => {
             sp.remember(&t);
-            remote_track(&t).map(|t| t.url)
+            Some(t.url())
         }
         None => None,
     };
@@ -854,14 +804,23 @@ fn is_mbid(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
-    fn web_api_tracks_become_streamed_tracks() {
-        let t = json!({"id": "abc", "name": "Song 2", "duration_ms": 121000,
-            "artists": [{"name": "Blur"}], "external_ids": {"isrc": "GBAYE9700097"},
-            "album": {"name": "Blur", "release_date": "1997-02-10", "images": []}});
-        let r = remote_track(&t).unwrap();
+    fn spotify_tracks_become_streamed_tracks() {
+        let t = Track {
+            id: "abc".into(),
+            name: "Song 2".into(),
+            artists: vec![crate::plugins::spotify::model::ArtistRef {
+                id: "b".into(),
+                name: "Blur".into(),
+            }],
+            album: "Blur".into(),
+            year: Some(1997),
+            duration_ms: 121000,
+            isrc: Some("GBAYE9700097".into()),
+            ..Default::default()
+        };
+        let r = remote_track(&t);
         assert_eq!(r.url, "spotify://track:abc");
         assert_eq!(r.year, Some(1997));
         assert_eq!(r.isrc.as_deref(), Some("GBAYE9700097"));

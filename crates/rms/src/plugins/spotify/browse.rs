@@ -1,155 +1,107 @@
-//! Browsing without the Web API: the Web API paths this plugin uses, answered through the
-//! librespot session (Spotify's own client endpoints, as the official apps use them).
+//! Browsing through the librespot session: Spotify's own client endpoints, as the official
+//! apps use them (metadata, the collection, the rootlist, recently played).
 //!
-//! The Web API needs a token for a registered client id; the shared desktop id is
-//! rate-limited by Spotify to the point of being unusable, and a per-user app is too much
-//! to ask.  The session needs nothing beyond signing in, so [`Spotify::api`] falls back to
-//! [`session_get`] when the Web API fails.  Results have the Web API's JSON shape (only the
-//! fields this plugin reads), so the menus work unchanged.  Saved albums and followed artists
-//! come from the collection service the apps sync with.  Not available this way: new
-//! releases (top tracks and artists, and search, come from [`super::pathfinder`]).
+//! The Web API is no use for this: Spotify rate-limits the shared client id to the point of
+//! being unusable, and since February 2026 apps of one's own (Development Mode) lost the
+//! endpoints RMS needs (an artist's top tracks, new releases, other users' playlists,
+//! searches of more than 10).  The session needs nothing beyond signing in.  Top tracks and
+//! artists, search, Release Radar and new releases come from [`super::pathfinder`].
 
+use super::model::{Album, Artist, ArtistRef, Context, Playlist, Track};
 use librespot_core::{Session, SpotifyUri};
-use librespot_metadata::{Album, Artist, Metadata, Playlist, Track};
+use librespot_metadata::{Metadata, Playlist as SessionPlaylist};
 use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
 use librespot_protocol::extension_kind::ExtensionKind;
 use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::{EnumOrUnknown, Message};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// Entities per extended-metadata request.
 const BATCH: usize = 200;
-
-/// Answer a Web API `path` (as passed to [`super::Spotify::api`]) through the session.
-pub async fn session_get(session: &Session, path: &str) -> Result<Value, String> {
-    let (route, query) = path.split_once('?').unwrap_or((path, ""));
-    let parts: Vec<&str> = route.trim_matches('/').split('/').collect();
-    let unsupported = || Err(format!("{route} needs the Spotify Web API"));
-    match parts.as_slice() {
-        ["me"] => {
-            let user = session.username();
-            Ok(json!({ "id": user, "display_name": user }))
-        }
-        ["tracks", id] => {
-            let mut t = tracks(session, &[format!("spotify:track:{id}")]).await?;
-            t.pop().ok_or_else(|| "no such track".to_string())
-        }
-        ["albums", id] => album(session, id).await,
-        ["playlists", id, "tracks"] => {
-            let uri = uri(&format!("spotify:playlist:{id}"))?;
-            let pl = Playlist::get(session, &uri)
-                .await
-                .map_err(|e| e.to_string())?;
-            let ids: Vec<String> = pl.tracks().filter_map(|u| u.to_uri().ok()).collect();
-            page(tracks(session, &ids).await?, |t| json!({ "track": t }))
-        }
-        ["me", "tracks"] => {
-            let user = session.username();
-            let ids = context_tracks(session, &format!("spotify:user:{user}:collection")).await?;
-            page(tracks(session, &ids).await?, |t| json!({ "track": t }))
-        }
-        ["me", "playlists"] => playlists(session).await,
-        ["me", "albums"] => {
-            let ids: Vec<String> = collection(session, "collection")
-                .await?
-                .into_iter()
-                .filter(|u| u.starts_with("spotify:album:"))
-                .collect();
-            page(albums(session, &ids).await?, |a| json!({ "album": a }))
-        }
-        ["me", "following"] => {
-            let ids = collection(session, "artist").await?;
-            let items = artists(session, &ids).await?;
-            Ok(json!({ "artists": { "items": items, "next": null } }))
-        }
-        ["artists", id, "top-tracks"] => {
-            let a = artist(session, id).await?;
-            let country = session.country();
-            let ids: Vec<String> = a
-                .top_tracks
-                .for_country(&country)
-                .0
-                .iter()
-                .filter_map(|u| u.to_uri().ok())
-                .collect();
-            Ok(json!({ "tracks": tracks(session, &ids).await? }))
-        }
-        ["artists", id, "albums"] => {
-            let a = artist(session, id).await?;
-            let ids: Vec<String> = a
-                .albums_current()
-                .chain(a.singles_current())
-                .chain(a.compilations_current())
-                .filter_map(|u| u.to_uri().ok())
-                .collect();
-            let _ = query;
-            page(albums(session, &ids).await?, |a| a)
-        }
-        _ => unsupported(),
-    }
-}
+/// Liked Songs and a playlist's tracks, at most.
+const TRACKS_MAX: usize = 2000;
+/// Saved albums, followed artists and playlists, at most.
+const LIST_MAX: usize = 1000;
+/// An artist's albums, at most.
+const ARTIST_ALBUMS_MAX: usize = 500;
 
 fn uri(s: &str) -> Result<SpotifyUri, String> {
     SpotifyUri::from_uri(s).map_err(|e| format!("{s}: {e}"))
-}
-
-/// A one-page Web API list.
-fn page(items: Vec<Value>, wrap: impl Fn(Value) -> Value) -> Result<Value, String> {
-    Ok(json!({
-        "items": items.into_iter().map(wrap).collect::<Vec<_>>(),
-        "next": null,
-    }))
 }
 
 fn id_of(u: &SpotifyUri) -> String {
     u.to_id().unwrap_or_default()
 }
 
-fn images(covers: &librespot_metadata::image::Images) -> Value {
-    Value::Array(
-        covers
-            .0
+fn uris(it: impl Iterator<Item = SpotifyUri>) -> Vec<String> {
+    it.filter_map(|u| u.to_uri().ok()).collect()
+}
+
+/// The URL of the largest of `covers`.
+fn largest(covers: &librespot_metadata::image::Images) -> Option<String> {
+    covers
+        .0
+        .iter()
+        .max_by_key(|i| i.width)
+        .and_then(|i| i.id.to_base16().ok())
+        .map(|hex| format!("https://i.scdn.co/image/{hex}"))
+}
+
+fn artist_refs(a: &librespot_metadata::artist::Artists) -> Vec<ArtistRef> {
+    a.0.iter()
+        .map(|x| ArtistRef {
+            id: id_of(&x.id),
+            name: x.name.clone(),
+        })
+        .collect()
+}
+
+fn track(t: &librespot_metadata::Track) -> Track {
+    let year = t.album.date.year();
+    Track {
+        id: id_of(&t.id),
+        name: t.name.clone(),
+        artists: artist_refs(&t.artists),
+        album: t.album.name.clone(),
+        album_id: id_of(&t.album.id),
+        cover: largest(&t.album.covers),
+        year: (year > 0).then_some(year),
+        duration_ms: t.duration.max(0) as u32,
+        isrc: t
+            .external_ids
             .iter()
-            .filter_map(|i| {
-                let hex = i.id.to_base16().ok()?;
-                Some(json!({ "url": format!("https://i.scdn.co/image/{hex}"), "width": i.width }))
-            })
-            .collect(),
-    )
+            .find(|x| x.external_type.eq_ignore_ascii_case("isrc"))
+            .map(|x| x.id.clone()),
+    }
 }
 
-fn artists_json(a: &librespot_metadata::artist::Artists) -> Value {
-    Value::Array(
-        a.0.iter()
-            .map(|x| json!({ "id": id_of(&x.id), "name": x.name }))
-            .collect(),
-    )
+fn album(a: &librespot_metadata::Album) -> Album {
+    Album {
+        id: id_of(&a.id),
+        name: a.name.clone(),
+        artists: artist_refs(&a.artists),
+        cover: largest(&a.covers),
+    }
 }
 
-/// Web API shape of a track.
-pub fn track_json(t: &Track) -> Value {
-    json!({
-        "id": id_of(&t.id),
-        "type": "track",
-        "name": t.name,
-        "duration_ms": t.duration,
-        "artists": artists_json(&t.artists),
-        "album": {
-            "id": id_of(&t.album.id),
-            "name": t.album.name,
-            "images": images(&t.album.covers),
-        },
-    })
-}
-
-fn album_json(a: &Album) -> Value {
-    json!({
-        "id": id_of(&a.id),
-        "name": a.name,
-        "artists": artists_json(&a.artists),
-        "images": images(&a.covers),
-    })
+/// An artist's picture: its portraits, or failing those the portrait group or its
+/// biography's (where Spotify keeps them for many artists).
+fn artist(a: &librespot_metadata::Artist) -> Artist {
+    let bios = a
+        .biographies
+        .iter()
+        .flat_map(|b| std::iter::once(&b.portraits).chain(b.portrait_group.iter()));
+    let picture = [&a.portraits, &a.portrait_group]
+        .into_iter()
+        .chain(bios)
+        .find(|i| !i.is_empty())
+        .and_then(largest);
+    Artist {
+        id: id_of(&a.id),
+        name: a.name.clone(),
+        picture,
+    }
 }
 
 /// Raw extended-metadata payloads for `uris`, in order (missing entries skipped).
@@ -179,7 +131,7 @@ async fn batch(
             .get_extended_metadata(req)
             .await
             .map_err(|e| format!("Spotify metadata: {e}"))?;
-        let mut by_uri = std::collections::HashMap::new();
+        let mut by_uri = HashMap::new();
         for e in res.extended_metadata {
             for d in e.extension_data {
                 if let Some(any) = d.extension_data.into_option() {
@@ -196,8 +148,8 @@ async fn batch(
     Ok(out)
 }
 
-/// Track objects for track URIs (episodes and unknown items are skipped).
-pub async fn tracks(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
+/// The tracks of track URIs, in order (episodes and unknown items are skipped).
+pub async fn tracks(session: &Session, uris: &[String]) -> Result<Vec<Track>, String> {
     let uris: Vec<String> = uris
         .iter()
         .filter(|u| u.starts_with("spotify:track:"))
@@ -208,69 +160,109 @@ pub async fn tracks(session: &Session, uris: &[String]) -> Result<Vec<Value>, St
         let Ok(msg) = librespot_protocol::metadata::Track::parse_from_bytes(&bytes) else {
             continue;
         };
-        if let Ok(t) = Track::parse(&msg, &uri(&u)?) {
-            out.push(track_json(&t));
+        if let Ok(t) = librespot_metadata::Track::parse(&msg, &uri(&u)?) {
+            out.push(track(&t));
         }
     }
     Ok(out)
 }
 
-pub async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
+pub async fn albums(session: &Session, uris: &[String]) -> Result<Vec<Album>, String> {
     let mut out = Vec::with_capacity(uris.len());
     for (u, bytes) in batch(session, uris, ExtensionKind::ALBUM_V4).await? {
         let Ok(msg) = librespot_protocol::metadata::Album::parse_from_bytes(&bytes) else {
             continue;
         };
-        if let Ok(a) = Album::parse(&msg, &uri(&u)?) {
-            out.push(album_json(&a));
+        if let Ok(a) = librespot_metadata::Album::parse(&msg, &uri(&u)?) {
+            out.push(album(&a));
         }
     }
     Ok(out)
 }
 
-/// An artist's pictures: its portraits, or failing those the portrait group or its
-/// biography's (where Spotify keeps them for many artists).
-fn artist_images(a: &Artist) -> Value {
-    let bios = a
-        .biographies
-        .iter()
-        .flat_map(|b| std::iter::once(&b.portraits).chain(b.portrait_group.iter()));
-    [&a.portraits, &a.portrait_group]
-        .into_iter()
-        .chain(bios)
-        .find(|i| !i.is_empty())
-        .map_or_else(|| json!([]), images)
-}
-
-pub async fn artists(session: &Session, uris: &[String]) -> Result<Vec<Value>, String> {
+pub async fn artists(session: &Session, uris: &[String]) -> Result<Vec<Artist>, String> {
     let mut out = Vec::with_capacity(uris.len());
     for (u, bytes) in batch(session, uris, ExtensionKind::ARTIST_V4).await? {
         let Ok(msg) = librespot_protocol::metadata::Artist::parse_from_bytes(&bytes) else {
             continue;
         };
-        if let Ok(a) = Artist::parse(&msg, &uri(&u)?) {
-            out.push(json!({
-                "id": id_of(&a.id),
-                "name": a.name,
-                "images": artist_images(&a),
-            }));
+        if let Ok(a) = librespot_metadata::Artist::parse(&msg, &uri(&u)?) {
+            out.push(artist(&a));
         }
     }
     Ok(out)
 }
 
-async fn album(session: &Session, id: &str) -> Result<Value, String> {
-    let a = Album::get(session, &uri(&format!("spotify:album:{id}"))?)
+/// An album's tracks.
+pub async fn album_tracks(session: &Session, id: &str) -> Result<Vec<Track>, String> {
+    let a = librespot_metadata::Album::get(session, &uri(&format!("spotify:album:{id}"))?)
         .await
         .map_err(|e| e.to_string())?;
-    let ids: Vec<String> = a.tracks().filter_map(|u| u.to_uri().ok()).collect();
-    let mut v = album_json(&a);
-    v["tracks"] = json!({ "items": tracks(session, &ids).await?, "next": null });
-    Ok(v)
+    tracks(session, &uris(a.tracks().cloned())).await
 }
 
-async fn artist(session: &Session, id: &str) -> Result<Artist, String> {
-    Artist::get(session, &uri(&format!("spotify:artist:{id}"))?)
+/// A playlist's tracks (any playlist, not only the user's).
+pub async fn playlist_tracks(session: &Session, id: &str) -> Result<Vec<Track>, String> {
+    let pl = SessionPlaylist::get(session, &uri(&format!("spotify:playlist:{id}"))?)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut ids = uris(pl.tracks().cloned());
+    ids.truncate(TRACKS_MAX);
+    tracks(session, &ids).await
+}
+
+/// Liked Songs, newest first.
+pub async fn liked(session: &Session) -> Result<Vec<Track>, String> {
+    let user = session.username();
+    let mut ids = context_tracks(session, &format!("spotify:user:{user}:collection")).await?;
+    ids.truncate(TRACKS_MAX);
+    tracks(session, &ids).await
+}
+
+/// Saved albums, newest first.
+pub async fn saved_albums(session: &Session) -> Result<Vec<Album>, String> {
+    let mut ids: Vec<String> = collection(session, "collection")
+        .await?
+        .into_iter()
+        .filter(|u| u.starts_with("spotify:album:"))
+        .collect();
+    ids.truncate(LIST_MAX);
+    albums(session, &ids).await
+}
+
+/// Followed artists, newest first.
+pub async fn followed_artists(session: &Session) -> Result<Vec<Artist>, String> {
+    let mut ids = collection(session, "artist").await?;
+    ids.truncate(LIST_MAX);
+    artists(session, &ids).await
+}
+
+/// An artist's most played tracks in the account's country.
+pub async fn artist_top_tracks(session: &Session, id: &str) -> Result<Vec<Track>, String> {
+    let a = artist_meta(session, id).await?;
+    let country = session.country();
+    tracks(
+        session,
+        &uris(a.top_tracks.for_country(&country).0.into_iter()),
+    )
+    .await
+}
+
+/// An artist's albums, singles and compilations.
+pub async fn artist_albums(session: &Session, id: &str) -> Result<Vec<Album>, String> {
+    let a = artist_meta(session, id).await?;
+    let mut ids = uris(
+        a.albums_current()
+            .chain(a.singles_current())
+            .chain(a.compilations_current())
+            .cloned(),
+    );
+    ids.truncate(ARTIST_ALBUMS_MAX);
+    albums(session, &ids).await
+}
+
+async fn artist_meta(session: &Session, id: &str) -> Result<librespot_metadata::Artist, String> {
+    librespot_metadata::Artist::get(session, &uri(&format!("spotify:artist:{id}"))?)
         .await
         .map_err(|e| e.to_string())
 }
@@ -315,9 +307,8 @@ async fn context_tracks(session: &Session, context: &str) -> Result<Vec<String>,
 }
 
 /// The albums, playlists and artists the user played from lately, newest first, as the
-/// apps' "Recently played" shows them (the Web API's recently played lists tracks instead).
-/// Each in its Web API shape with a `type`.
-pub async fn recently_played(session: &Session) -> Result<Vec<Value>, String> {
+/// apps' "Recently played" shows them.
+pub async fn recently_played(session: &Session) -> Result<Vec<Context>, String> {
     let user = session.username();
     let path = format!(
         "/recently-played/v3/user/{user}/recently-played?format=json&limit=50&filter=default"
@@ -336,38 +327,33 @@ pub async fn recently_played(session: &Session) -> Result<Vec<Value>, String> {
             .cloned()
             .collect()
     };
-    let mut found = std::collections::HashMap::new();
+    let mut found = HashMap::new();
     for a in albums(session, &of("album")).await? {
-        found.insert(
-            format!("spotify:album:{}", a["id"].as_str().unwrap_or("")),
-            a,
-        );
+        found.insert(format!("spotify:album:{}", a.id), Context::Album(a));
     }
     for a in artists(session, &of("artist")).await? {
-        found.insert(
-            format!("spotify:artist:{}", a["id"].as_str().unwrap_or("")),
-            a,
-        );
+        found.insert(format!("spotify:artist:{}", a.id), Context::Artist(a));
     }
     let (mut lists, mut contents) = (Vec::new(), HashMap::new());
     for u in of("playlist") {
         // one gone or private since is left out
-        if let Ok(pl) = Playlist::get(session, &uri(&u)?).await {
+        if let Ok(pl) = SessionPlaylist::get(session, &uri(&u)?).await {
             let id = u.trim_start_matches("spotify:playlist:").to_string();
-            lists.push(json!({
-                "id": id,
-                "name": pl.name(),
-                "images": playlist_picture(&pl.attributes.picture, &sizes(&pl.attributes.picture_sizes)),
-            }));
+            lists.push(Playlist {
+                id: id.clone(),
+                name: pl.name().to_string(),
+                owner: None,
+                picture: playlist_picture(
+                    &pl.attributes.picture,
+                    &sizes(&pl.attributes.picture_sizes),
+                ),
+            });
             contents.insert(id, first_tracks(&pl));
         }
     }
     add_mosaics(session, &mut lists, contents).await;
     for p in lists {
-        found.insert(
-            format!("spotify:playlist:{}", p["id"].as_str().unwrap_or("")),
-            p,
-        );
+        found.insert(format!("spotify:playlist:{}", p.id), Context::Playlist(p));
     }
     Ok(in_order(&uris, found))
 }
@@ -391,16 +377,9 @@ fn recent_contexts(v: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The `found` objects for `uris`, in that order, each with its `type`; any not found are
-/// left out.
-fn in_order(uris: &[String], mut found: std::collections::HashMap<String, Value>) -> Vec<Value> {
-    uris.iter()
-        .filter_map(|u| {
-            let mut v = found.remove(u)?;
-            v["type"] = json!(u.split(':').nth(1)?);
-            Some(v)
-        })
-        .collect()
+/// The `found` contexts for `uris`, in that order; any not found are left out.
+fn in_order(uris: &[String], mut found: HashMap<String, Context>) -> Vec<Context> {
+    uris.iter().filter_map(|u| found.remove(u)).collect()
 }
 
 /// Pages of a collection set, at most.
@@ -495,10 +474,10 @@ fn wire_type(tag: u32) -> protobuf::Result<protobuf::rt::WireType> {
 }
 
 /// The user's playlists (rootlist), folders flattened.
-async fn playlists(session: &Session) -> Result<Value, String> {
+pub async fn playlists(session: &Session) -> Result<Vec<Playlist>, String> {
     let bytes = session
         .spclient()
-        .get_rootlist(0, Some(1000))
+        .get_rootlist(0, Some(LIST_MAX))
         .await
         .map_err(|e| format!("Spotify playlists: {e}"))?;
     let list = SelectedListContent::parse_from_bytes(&bytes).map_err(|e| e.to_string())?;
@@ -511,18 +490,21 @@ async fn playlists(session: &Session) -> Result<Value, String> {
             let Some(id) = item.uri().strip_prefix("spotify:playlist:") else {
                 continue;
             };
-            if let Ok(pl) = Playlist::get(session, &uri(item.uri())?).await {
-                items.push(json!({
-                    "id": id,
-                    "name": pl.name(),
-                    "owner": { "display_name": owner },
-                    "images": playlist_picture(&pl.attributes.picture, &sizes(&pl.attributes.picture_sizes)),
-                }));
+            if let Ok(pl) = SessionPlaylist::get(session, &uri(item.uri())?).await {
+                items.push(Playlist {
+                    id: id.to_string(),
+                    name: pl.name().to_string(),
+                    owner: Some(owner.clone()),
+                    picture: playlist_picture(
+                        &pl.attributes.picture,
+                        &sizes(&pl.attributes.picture_sizes),
+                    ),
+                });
                 contents.insert(id.to_string(), first_tracks(&pl));
             }
         }
         add_mosaics(session, &mut items, contents).await;
-        return page(items, |p| p);
+        return Ok(items);
     }
     let mut items = list
         .contents
@@ -542,46 +524,52 @@ async fn playlists(session: &Session) -> Result<Value, String> {
                 .iter()
                 .map(|s| (s.target_name().to_string(), s.url().to_string()))
                 .collect();
-            Some(json!({
-                "id": id,
-                "name": a.name(),
-                "owner": { "display_name": who },
-                "images": playlist_picture(a.picture(), &sizes),
-            }))
+            Some(Playlist {
+                id: id.to_string(),
+                name: a.name().to_string(),
+                owner: Some(who.to_string()),
+                picture: playlist_picture(a.picture(), &sizes),
+            })
         })
         .collect::<Vec<_>>();
     add_mosaics(session, &mut items, contents).await;
     name_unnamed(session, &mut items).await;
-    page(items, |p| p)
+    Ok(items)
 }
 
 /// Name the playlists that have none after their owner, as the apps do: the owner's display
-/// name, else their username (what `owner.display_name` holds here).
-async fn name_unnamed(session: &Session, items: &mut [Value]) {
+/// name, else their username (what `owner` holds here).
+async fn name_unnamed(session: &Session, items: &mut [Playlist]) {
     let mut names = HashMap::new();
     for owner in unnamed_owners(items) {
-        let shown = session
-            .spclient()
-            .get_user_profile(&owner, Some(0), Some(0))
+        let shown = display_name(session, &owner)
             .await
-            .ok()
-            .and_then(|b| profile_name(&b))
             .unwrap_or_else(|| owner.clone());
         names.insert(owner, shown);
     }
     name_after_owners(items, &names);
 }
 
-fn is_unnamed(p: &Value) -> bool {
-    p["name"].as_str().is_some_and(|n| n.trim().is_empty())
+/// A user's display name, from their profile.
+pub async fn display_name(session: &Session, user: &str) -> Option<String> {
+    let bytes = session
+        .spclient()
+        .get_user_profile(user, Some(0), Some(0))
+        .await
+        .ok()?;
+    profile_name(&bytes)
+}
+
+fn is_unnamed(p: &Playlist) -> bool {
+    p.name.trim().is_empty()
 }
 
 /// The owners of the playlists without a name, once each.
-fn unnamed_owners(items: &[Value]) -> Vec<String> {
+fn unnamed_owners(items: &[Playlist]) -> Vec<String> {
     let mut owners: Vec<String> = items
         .iter()
         .filter(|p| is_unnamed(p))
-        .filter_map(|p| p["owner"]["display_name"].as_str().map(str::to_string))
+        .filter_map(|p| p.owner.clone())
         .collect();
     owners.sort();
     owners.dedup();
@@ -589,13 +577,10 @@ fn unnamed_owners(items: &[Value]) -> Vec<String> {
 }
 
 /// Give the playlists without a name their owner's (from `names`, by username).
-fn name_after_owners(items: &mut [Value], names: &HashMap<String, String>) {
+fn name_after_owners(items: &mut [Playlist], names: &HashMap<String, String>) {
     for p in items.iter_mut().filter(|p| is_unnamed(p)) {
-        if let Some(n) = p["owner"]["display_name"]
-            .as_str()
-            .and_then(|o| names.get(o))
-        {
-            p["name"] = json!(n);
+        if let Some(n) = p.owner.as_ref().and_then(|o| names.get(o)) {
+            p.name = n.clone();
         }
     }
 }
@@ -608,28 +593,24 @@ fn profile_name(bytes: &[u8]) -> Option<String> {
         .map(str::to_string)
 }
 
-/// A playlist's own picture: one uploaded for it, or the sizes Spotify's own playlists
-/// come with.  Empty when it has neither (the apps then show a mosaic, see [`mosaic`]).
-fn playlist_picture(picture: &[u8], sizes: &[(String, String)]) -> Value {
+/// A playlist's own picture: one uploaded for it, or the largest of the sizes Spotify's own
+/// playlists come with.  None when it has neither (the apps then show a mosaic, see
+/// [`mosaic`]).
+fn playlist_picture(picture: &[u8], sizes: &[(String, String)]) -> Option<String> {
     if !picture.is_empty() {
         let hex: String = picture.iter().map(|b| format!("{b:02x}")).collect();
-        return json!([{ "url": format!("https://i.scdn.co/image/{hex}") }]);
+        return Some(format!("https://i.scdn.co/image/{hex}"));
     }
-    Value::Array(
-        sizes
-            .iter()
-            .filter(|(_, url)| !url.is_empty())
-            .map(|(target, url)| {
-                let width = match target.as_str() {
-                    "small" => 60,
-                    "large" => 640,
-                    "xlarge" => 1280,
-                    _ => 300,
-                };
-                json!({ "url": url, "width": width })
-            })
-            .collect(),
-    )
+    sizes
+        .iter()
+        .filter(|(_, url)| !url.is_empty())
+        .max_by_key(|(target, _)| match target.as_str() {
+            "small" => 60,
+            "large" => 640,
+            "xlarge" => 1280,
+            _ => 300,
+        })
+        .map(|(_, url)| url.clone())
 }
 
 fn sizes(s: &librespot_metadata::image::PictureSizes) -> Vec<(String, String)> {
@@ -641,7 +622,7 @@ fn sizes(s: &librespot_metadata::image::PictureSizes) -> Vec<(String, String)> {
 /// Tracks of a playlist looked at for its mosaic, at most.
 const MOSAIC_TRACKS: usize = 50;
 
-fn first_tracks(pl: &Playlist) -> Vec<String> {
+fn first_tracks(pl: &SessionPlaylist) -> Vec<String> {
     pl.tracks()
         .filter_map(|u| u.to_uri().ok())
         .filter(|u| u.starts_with("spotify:track:"))
@@ -649,48 +630,43 @@ fn first_tracks(pl: &Playlist) -> Vec<String> {
         .collect()
 }
 
-/// The picture the apps show for a playlist without one, from its tracks (Web API shape,
-/// in order): the covers of its first four albums in a grid, or the first cover when there
-/// are fewer.
-fn mosaic(tracks: &[Value]) -> Value {
+/// The picture the apps show for a playlist without one, from its tracks (in order): the
+/// covers of its first four albums in a grid, or the first cover when there are fewer.
+fn mosaic(tracks: &[&Track]) -> Option<String> {
     let mut covers: Vec<&str> = Vec::new();
     for t in tracks {
-        let cover = t["album"]["images"]
-            .as_array()
-            .and_then(|i| i.iter().max_by_key(|i| i["width"].as_u64().unwrap_or(0)))
-            .and_then(|i| i["url"].as_str()?.strip_prefix("https://i.scdn.co/image/"));
+        let cover = t
+            .cover
+            .as_deref()
+            .and_then(|c| c.strip_prefix("https://i.scdn.co/image/"));
         if let Some(c) = cover.filter(|c| !covers.contains(c)) {
             covers.push(c);
             if covers.len() == 4 {
-                return json!([{
-                    "url": format!("https://mosaic.scdn.co/640/{}", covers.concat()),
-                    "width": 640,
-                }]);
+                return Some(format!("https://mosaic.scdn.co/640/{}", covers.concat()));
             }
         }
     }
-    match covers.first() {
-        Some(c) => json!([{ "url": format!("https://i.scdn.co/image/{c}") }]),
-        None => json!([]),
-    }
+    covers
+        .first()
+        .map(|c| format!("https://i.scdn.co/image/{c}"))
 }
 
 /// Playlists looked up at once for their mosaics.
 const MOSAIC_LOOKUPS: usize = 8;
 
-/// Give each of `lists` (Web API playlists) without a picture its [`mosaic`], from its first
-/// tracks: in `contents` (track URIs by playlist id), or else looked up.  Best effort: a
-/// playlist that can't be looked up keeps no picture.
+/// Give each of `lists` without a picture its [`mosaic`], from its first tracks: in
+/// `contents` (track URIs by playlist id), or else looked up.  Best effort: a playlist that
+/// can't be looked up keeps no picture.
 async fn add_mosaics(
     session: &Session,
-    lists: &mut [Value],
+    lists: &mut [Playlist],
     mut contents: HashMap<String, Vec<String>>,
 ) {
     use futures::StreamExt;
     let bare: Vec<String> = lists
         .iter()
-        .filter(|p| p["images"].as_array().is_none_or(|i| i.is_empty()))
-        .filter_map(|p| p["id"].as_str().map(str::to_string))
+        .filter(|p| p.picture.is_none())
+        .map(|p| p.id.clone())
         .collect();
     let missing: Vec<String> = bare
         .iter()
@@ -700,7 +676,7 @@ async fn add_mosaics(
     let looked_up: Vec<(String, Vec<String>)> = futures::stream::iter(missing)
         .map(|id| async move {
             let pl = match uri(&format!("spotify:playlist:{id}")) {
-                Ok(u) => Playlist::get(session, &u).await.ok(),
+                Ok(u) => SessionPlaylist::get(session, &u).await.ok(),
                 Err(_) => None,
             };
             (id, pl.as_ref().map(first_tracks).unwrap_or_default())
@@ -718,22 +694,15 @@ async fn add_mosaics(
     let Ok(found) = tracks(session, &wanted).await else {
         return;
     };
-    let by_id: HashMap<&str, &Value> = found
-        .iter()
-        .filter_map(|t| Some((t["id"].as_str()?, t)))
-        .collect();
-    for p in lists.iter_mut() {
-        let Some(id) = p["id"].as_str().filter(|id| bare.iter().any(|b| b == id)) else {
-            continue;
-        };
-        let ts: Vec<Value> = contents
-            .get(id)
+    let by_id: HashMap<&str, &Track> = found.iter().map(|t| (t.id.as_str(), t)).collect();
+    for p in lists.iter_mut().filter(|p| bare.contains(&p.id)) {
+        let ts: Vec<&Track> = contents
+            .get(&p.id)
             .into_iter()
             .flatten()
-            .filter_map(|u| by_id.get(u.trim_start_matches("spotify:track:")))
-            .map(|t| (*t).clone())
+            .filter_map(|u| by_id.get(u.trim_start_matches("spotify:track:")).copied())
             .collect();
-        p["images"] = mosaic(&ts);
+        p.picture = mosaic(&ts);
     }
 }
 
@@ -741,6 +710,7 @@ async fn add_mosaics(
 mod tests {
     use super::*;
     use protobuf::CodedOutputStream;
+    use serde_json::json;
 
     fn encode(f: impl FnOnce(&mut CodedOutputStream) -> protobuf::Result<()>) -> Vec<u8> {
         let mut out = Vec::new();
@@ -763,37 +733,40 @@ mod tests {
         })
     }
 
-    fn track_on(cover: &str) -> Value {
-        json!({ "album": { "images": [
-            { "url": format!("https://i.scdn.co/image/small{cover}"), "width": 64 },
-            { "url": format!("https://i.scdn.co/image/{cover}"), "width": 640 },
-        ]}})
+    fn track_on(cover: &str) -> Track {
+        Track {
+            cover: Some(format!("https://i.scdn.co/image/{cover}")),
+            ..Default::default()
+        }
     }
 
     #[test]
     fn a_playlist_without_a_picture_gets_a_mosaic_of_its_first_four_albums() {
-        let ts: Vec<Value> = ["a", "a", "b", "c", "b", "d", "e"]
+        let ts: Vec<Track> = ["a", "a", "b", "c", "b", "d", "e"]
             .into_iter()
             .map(track_on)
             .collect();
         assert_eq!(
-            mosaic(&ts),
-            json!([{ "url": "https://mosaic.scdn.co/640/abcd", "width": 640 }])
+            mosaic(&ts.iter().collect::<Vec<_>>()).as_deref(),
+            Some("https://mosaic.scdn.co/640/abcd")
         );
     }
 
     #[test]
     fn a_playlist_of_fewer_than_four_albums_shows_the_first_cover() {
-        let ts: Vec<Value> = ["b", "b", "c", "b", "b"]
+        let ts: Vec<Track> = ["b", "b", "c", "b", "b"]
             .into_iter()
             .map(track_on)
             .collect();
-        assert_eq!(mosaic(&ts), json!([{ "url": "https://i.scdn.co/image/b" }]));
-        assert_eq!(mosaic(&[json!({ "album": {} })]), json!([]));
+        assert_eq!(
+            mosaic(&ts.iter().collect::<Vec<_>>()).as_deref(),
+            Some("https://i.scdn.co/image/b")
+        );
+        assert_eq!(mosaic(&[&Track::default()]), None);
     }
 
     #[test]
-    fn a_playlist_shows_its_uploaded_picture_or_spotifys_sizes() {
+    fn a_playlist_shows_its_uploaded_picture_or_the_largest_of_spotifys_sizes() {
         let sizes = [
             ("small", "s.jpg"),
             ("default", "d.jpg"),
@@ -802,27 +775,26 @@ mod tests {
         ]
         .map(|(t, u)| (t.to_string(), u.to_string()));
         assert_eq!(
-            playlist_picture(&[0xab, 0x67, 0x0f], &sizes),
-            json!([{ "url": "https://i.scdn.co/image/ab670f" }])
+            playlist_picture(&[0xab, 0x67, 0x0f], &sizes).as_deref(),
+            Some("https://i.scdn.co/image/ab670f")
         );
-        assert_eq!(
-            playlist_picture(&[], &sizes),
-            json!([
-                { "url": "s.jpg", "width": 60 },
-                { "url": "d.jpg", "width": 300 },
-                { "url": "x.jpg", "width": 1280 },
-            ])
-        );
-        assert_eq!(playlist_picture(&[], &[]), json!([]));
+        assert_eq!(playlist_picture(&[], &sizes).as_deref(), Some("x.jpg"));
+        assert_eq!(playlist_picture(&[], &[]), None);
     }
 
     #[test]
     fn a_playlist_without_a_name_is_named_after_its_owner() {
+        let pl = |id: &str, name: &str, owner: &str| Playlist {
+            id: id.into(),
+            name: name.into(),
+            owner: Some(owner.into()),
+            picture: None,
+        };
         let mut items = vec![
-            json!({ "id": "p1", "name": "", "owner": { "display_name": "thatpeytonkid" } }),
-            json!({ "id": "p2", "name": "Bardcore Covers", "owner": { "display_name": "adaptable" } }),
-            json!({ "id": "p3", "name": " ", "owner": { "display_name": "thatpeytonkid" } }),
-            json!({ "id": "p4", "name": "", "owner": { "display_name": "nobody" } }),
+            pl("p1", "", "thatpeytonkid"),
+            pl("p2", "Bardcore Covers", "adaptable"),
+            pl("p3", " ", "thatpeytonkid"),
+            pl("p4", "", "nobody"),
         ];
         assert_eq!(unnamed_owners(&items), ["nobody", "thatpeytonkid"]);
         let names = [("thatpeytonkid", "Peyton Ryan White"), ("nobody", "nobody")]
@@ -830,7 +802,7 @@ mod tests {
             .into_iter()
             .collect();
         name_after_owners(&mut items, &names);
-        let shown: Vec<&str> = items.iter().map(|p| p["name"].as_str().unwrap()).collect();
+        let shown: Vec<&str> = items.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(
             shown,
             [
@@ -873,29 +845,33 @@ mod tests {
     }
 
     #[test]
-    fn recently_played_lists_what_was_found_in_the_played_order_with_its_type() {
+    fn recently_played_lists_what_was_found_in_the_played_order() {
         let uris = [
             "spotify:album:b1",
             "spotify:playlist:gone",
             "spotify:artist:a1",
         ]
         .map(String::from);
+        let auve = Artist {
+            id: "a1".into(),
+            name: "Auve".into(),
+            picture: None,
+        };
+        let dream = Album {
+            id: "b1".into(),
+            name: "Walking on a Dream".into(),
+            ..Default::default()
+        };
         let found = [
-            ("spotify:artist:a1", json!({ "id": "a1", "name": "Auve" })),
-            (
-                "spotify:album:b1",
-                json!({ "id": "b1", "name": "Walking on a Dream" }),
-            ),
+            ("spotify:artist:a1", Context::Artist(auve.clone())),
+            ("spotify:album:b1", Context::Album(dream.clone())),
         ]
         .into_iter()
-        .map(|(u, v)| (u.to_string(), v))
+        .map(|(u, c)| (u.to_string(), c))
         .collect();
         assert_eq!(
             in_order(&uris, found),
-            [
-                json!({ "id": "b1", "name": "Walking on a Dream", "type": "album" }),
-                json!({ "id": "a1", "name": "Auve", "type": "artist" }),
-            ]
+            [Context::Album(dream), Context::Artist(auve)]
         );
     }
 

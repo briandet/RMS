@@ -797,11 +797,9 @@ tens of thousands of stations: search, popular, top voted, by country, genre and
 ### Spotify
 
 `GET /api/v1/spotify` is 404 when this server has no Spotify support, otherwise
-`{"signed_in": true, "playback": true, "browsing_own_app": false, "user": "…", "product":
-"premium", "error": "…", "connect_error": "…", "learn": true, "learned": 120}`.  `playback`:
-signed in for playback and Spotify Connect, which only work with Spotify's own client id;
-`browsing_own_app`: browsing goes through the user's own app (`spotify_client_id`), else
-through the playback sign-in.  `connect_error`: why a player isn't available as a Spotify
+`{"signed_in": true, "user": "…", "product": "premium", "error": "…", "connect_error": "…",
+"learn": true, "learned": 120}`.  `user`: the account's display name; `error`: why the
+account can't be reached right now.  `connect_error`: why a player isn't available as a Spotify
 Connect device (RMS tries again later and later, up to every 30 minutes).  `learn`: what Spotify tracks sound like is learned as they play, for
 mixes; `learned`: how many are.  `PATCH /api/v1/spotify` with `{"learn": false}` turns it
 off; `DELETE /api/v1/spotify/learned` forgets them.  `GET /api/v1/spotify/learned` lists
@@ -812,9 +810,7 @@ its sound), "in_library" (the library has a copy), "learned_at" (Unix seconds)}`
 known is left out.
 
 Signing in: `POST /api/v1/spotify/login` with `{}` returns `{"url": …}`, the Spotify page to
-open: a sign-in with the own client id (`spotify_client_id`, for browsing) when one is set,
-else with Spotify's own (for playback and browsing).  `{"playback": true}` starts the playback
-sign-in whatever the setting.  Spotify then sends the browser to `http://127.0.0.1:5588/login?code=…`.  On the
+open.  Spotify then sends the browser to `http://127.0.0.1:5588/login?code=…`.  On the
 server's own computer RMS receives that by itself (watch `signed_in`); elsewhere, post the
 address the browser ended up on as `{"code": "<address>"}`, which returns `{"user": …}`.
 `POST /api/v1/spotify/logout` signs out.
@@ -823,10 +819,9 @@ While a player plays its Spotify Connect device (its queue then holds one endles
 `spotify://connect:…` stream, named "Spotify Connect"), the tracks the Spotify app plays next
 are at `GET /api/v1/players/{id}/spotify-queue`: `{"connect": true, "items": [Track…],
 "error": "…"}`, the items `spotify://track:…` URLs with title, artist, album, duration and
-artwork.  `connect` is false (no items) when the player plays something else; `error` says
-why the queue can't be shown (a sign-in from before RMS asked for the queue's scopes: sign in
-again).  The app's queue changes without an event: ask again on a track change or now and
-then.
+artwork, as Spotify last told the Connect device.  `connect` is false (no items) when the
+player plays something else; `error` says why the queue can't be shown.  The app's queue
+changes without an event: ask again on a track change or now and then.
 
 ## Settings
 
@@ -836,7 +831,7 @@ then.
 {"library_name": "Music", "media_dirs": ["/srv/music"], "watch_folders": true,
  "upnp_players": false, "chromecast_players": false, "airplay_players": false,
  "radio_direct": false, "art_folder": "",
- "online_artist_images": false, "spotify_client_id": "", "spotify_bitrate": 320,
+ "online_artist_images": false, "spotify_bitrate": 320,
  "spotify_normalisation": false, "musicbrainz": false, "acoustid_key": "",
  "musicbrainz_identified": 0, "musicbrainz_pending": 0, "albums_matched": 0,
  "albums_uncertain": 0, "albums_pending": 0, "edit_files": false,

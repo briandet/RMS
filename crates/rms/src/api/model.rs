@@ -1432,10 +1432,6 @@ pub struct NewFavorite {
 #[ts(optional_fields)]
 pub struct SpotifyStatus {
     pub signed_in: bool,
-    /// Signed in for playback and Spotify Connect (with Spotify's own client id).
-    pub playback: bool,
-    /// Browsing goes through the user's own app (a sign-in with its client id).
-    pub browsing_own_app: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
     /// `premium`, `free`, …
@@ -1525,10 +1521,6 @@ pub struct SpotifyPatch {
 pub struct SpotifyLogin {
     #[serde(default)]
     pub code: Option<String>,
-    /// Start the playback sign-in (Spotify's own client id) rather than one with the own
-    /// client id (`spotify_client_id`, for browsing).
-    #[serde(default)]
-    pub playback: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default, TS)]
@@ -1562,8 +1554,6 @@ pub struct ServerSettings {
     /// Folder with pictures named after artists; empty for none.
     pub art_folder: String,
     pub online_artist_images: bool,
-    /// The user's own Spotify app; empty for the shared one.
-    pub spotify_client_id: String,
     /// kbps: 96, 160 or 320.
     pub spotify_bitrate: i64,
     pub spotify_normalisation: bool,
@@ -1682,7 +1672,6 @@ pub struct ServerSettingsPatch {
     pub radio_direct: Option<bool>,
     pub art_folder: Option<String>,
     pub online_artist_images: Option<bool>,
-    pub spotify_client_id: Option<String>,
     pub spotify_bitrate: Option<i64>,
     pub spotify_normalisation: Option<bool>,
     pub musicbrainz: Option<bool>,
