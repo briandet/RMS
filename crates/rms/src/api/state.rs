@@ -203,6 +203,7 @@ pub(super) fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
     } else {
         station
     };
+    let spotify = spotify_meta(string(row.get("url")).as_deref().unwrap_or(url));
     let artwork = string(row.get("artwork_url"))
         .map(|u| artwork_path(&u))
         .or_else(|| {
@@ -223,11 +224,27 @@ pub(super) fn track_from_row(row: &Map<String, Value>, url: &str) -> Track {
         disc: int(row.get("disc")),
         year: int(row.get("year")).filter(|&y| y > 0),
         artwork,
+        spotify_album: spotify.as_ref().and_then(|m| m.album_menu()),
+        spotify_artist: spotify.as_ref().and_then(|m| m.artist_menu()),
         remote,
         station,
         format: string(row.get("type")),
         detail: None,
     }
+}
+
+/// What browsing remembered of a Spotify track, or of what a Connect stream plays now.
+fn spotify_meta(url: &str) -> Option<crate::plugins::spotify::TrackMeta> {
+    use crate::plugins::spotify::{connect, get};
+    if !url.starts_with("spotify:") {
+        return None;
+    }
+    let url = if url.starts_with("spotify://connect:") {
+        connect::audible(url)?.url?
+    } else {
+        url.to_string()
+    };
+    get()?.meta.get(&url).map(|m| m.clone())
 }
 
 /// Server-relative artwork path without size suffix, so clients can append one.

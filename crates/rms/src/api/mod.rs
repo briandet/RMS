@@ -224,23 +224,28 @@ async fn get_spotify_queue(State(server): State<Arc<Server>>, Path(id): Path<Str
     };
     let items = items
         .into_iter()
-        .map(|(url, m)| Track {
-            id: None,
-            url,
-            title: m.title,
-            artist: Some(m.artist).filter(|a| !a.is_empty()),
-            artist_id: None,
-            album: Some(m.album).filter(|a| !a.is_empty()),
-            album_id: None,
-            duration: Some(m.secs).filter(|&d| d > 0.0),
-            track_number: None,
-            disc: None,
-            year: None,
-            artwork: m.image,
-            remote: true,
-            station: None,
-            format: None,
-            detail: None,
+        .map(|(url, m)| {
+            let (spotify_album, spotify_artist) = (m.album_menu(), m.artist_menu());
+            Track {
+                id: None,
+                url,
+                title: m.title,
+                artist: Some(m.artist).filter(|a| !a.is_empty()),
+                artist_id: None,
+                album: Some(m.album).filter(|a| !a.is_empty()),
+                album_id: None,
+                duration: Some(m.secs).filter(|&d| d > 0.0),
+                track_number: None,
+                disc: None,
+                year: None,
+                artwork: m.image,
+                spotify_album,
+                spotify_artist,
+                remote: true,
+                station: None,
+                format: None,
+                detail: None,
+            }
         })
         .collect();
     Json(SpotifyQueue {

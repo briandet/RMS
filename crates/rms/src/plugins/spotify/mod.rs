@@ -79,6 +79,21 @@ pub struct TrackMeta {
     pub album: String,
     pub secs: f64,
     pub image: Option<String>,
+    /// The album's and the first artist's ids, for browsing to them.
+    pub album_id: Option<String>,
+    pub artist_id: Option<String>,
+}
+
+impl TrackMeta {
+    /// The album's menu id (`album:<id>`).
+    pub fn album_menu(&self) -> Option<String> {
+        self.album_id.as_ref().map(|id| format!("album:{id}"))
+    }
+
+    /// The first artist's menu id (`artist:<id>`).
+    pub fn artist_menu(&self) -> Option<String> {
+        self.artist_id.as_ref().map(|id| format!("artist:{id}"))
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -737,18 +752,25 @@ impl Spotify {
 
     /// Metadata of a track URL, from what was browsed or the session.
     pub async fn track_meta(&self, url: &str) -> Option<TrackMeta> {
-        if let Some(m) = self.meta.get(url) {
+        // (a learned track's remembered metadata has no ids: looked up again for them)
+        let known = self.meta.get(url).map(|m| m.clone());
+        if let Some(m) = known.as_ref().filter(|m| m.album_id.is_some()) {
             return Some(m.clone());
         }
         let (kind, id) = parse_url(url)?;
         if kind != "track" {
-            return None;
+            return known;
         }
-        let session = self.session().await.ok()?;
-        let t = browse::tracks(&session, &[format!("spotify:track:{id}")])
-            .await
-            .ok()?
-            .pop()?;
+        let looked_up = async {
+            let session = self.session().await.ok()?;
+            browse::tracks(&session, &[format!("spotify:track:{id}")])
+                .await
+                .ok()?
+                .pop()
+        };
+        let Some(t) = looked_up.await else {
+            return known;
+        };
         self.remember(&t);
         Some(t.meta())
     }

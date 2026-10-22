@@ -196,6 +196,9 @@ curl -N http://localhost:9000/api/v1/events
 * `id` is the library id.  Streams and service tracks have none.
 * `artwork` is relative to the server root.  When it ends in `/cover` or `/image`, append
   `_<w>x<h>_o` to get a resized copy (`music/ab12cd/cover_300x300_o`).
+* For a Spotify track (or what a Spotify Connect stream plays now), `spotify_album` and
+  `spotify_artist` are the Spotify menu ids of its album and first artist (`album:<id>`,
+  `artist:<id>`), when known.
 * For radio, `station` is the station's name.  `title` and `artist` are the current song,
   split from the stream's "Artist - Title" metadata when needed.
 * `detail` is there only when asked for (`detail=true`, and always from

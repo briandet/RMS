@@ -126,6 +126,11 @@ function buildMini(root) {
 
 // ---------------------------------------------------------------- render
 
+/** The Spotify menu level of an album or artist (`album:<id>`). */
+function spotifyLink(id, name) {
+  return `#/library/spotify/${enc(id)}?name=${enc(name || '')}`;
+}
+
 /** Title / artist / album lines; a radio station shows next to the album. */
 function describe(tr) {
   if (!tr) return { title: '', artist: '', album: '', remote: false };
@@ -168,8 +173,10 @@ function render() {
 
   if (hasTrack) {
     el.title.textContent = d.title || 'Unknown title';
-    setLine(el.artist, d.artist, tr?.artist_id != null && !d.remote ? `#/library/artist/${enc(tr.artist_id)}?name=${enc(d.artist)}` : null);
-    setLine(el.album, d.album, tr?.album_id != null && !d.remote ? `#/library/album/${enc(tr.album_id)}?name=${enc(d.album)}` : null);
+    setLine(el.artist, d.artist, tr?.artist_id != null && !d.remote ? `#/library/artist/${enc(tr.artist_id)}?name=${enc(d.artist)}`
+      : tr?.spotify_artist ? spotifyLink(tr.spotify_artist, tr.artist) : null);
+    setLine(el.album, d.album, tr?.album_id != null && !d.remote ? `#/library/album/${enc(tr.album_id)}?name=${enc(d.album)}`
+      : tr?.spotify_album ? spotifyLink(tr.spotify_album, tr.album) : null);
     const src = artUrl(st, tr);
     if (el.img.dataset.src !== src) {
       el.img.dataset.src = src;
