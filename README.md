@@ -516,15 +516,16 @@ to `http://127.0.0.1:5588/login`, which RMS answers when the browser runs on the
 machine.  Otherwise that page won't load; paste its address from the address bar into the
 form in the settings card.  The login is saved under `<data-dir>/spotify/`.
 
-Spotify limits the shared client ID RMS signs in with, so browsing may stall; your own app
-(a client ID from developer.spotify.com, in the settings card) has its own limit.  It is for
-browsing only: playback and Spotify Connect only work with Spotify's own app (librespot gets
-their tokens from Spotify's login5, which refuses other apps).  With your own client ID set
-there are two sign-ins in the settings card, **Sign in for playback** (Spotify's app) and
-**Sign in with your app** (browsing); without one, a single sign-in does both.
+RMS browses Spotify the way its own apps do, through the signed-in session and Spotify's
+GraphQL API, not the public Web API: Spotify rate-limits that for apps like RMS, and since
+February 2026 apps of one's own can't use the parts RMS would need.  The GraphQL API is
+undocumented: its queries' IDs are looked up in Spotify's web player and kept in
+`<data-dir>/spotify/pathfinder.json` (looked up again when Spotify changes them, and editable
+by hand).  If Spotify changes a query itself, the menus that use it (Search, Top Tracks and
+Artists, Release Radar, New Releases) say so until RMS is updated.
 
-Liked Songs, your playlists, saved albums and followed artists, recently played, top tracks
-and artists, new releases and search are then in the web UI's Library → Spotify tab, in the
+Liked Songs, your playlists, saved albums and followed artists, recently played, Release
+Radar, top tracks and artists, new releases and search are then in the web UI's Library → Spotify tab, in the
 Home menu on Squeezer, Touch/Radio and on the player's own screens.  Tracks, albums and
 playlists can be played, added and saved as favorites.  RMS plays the audio itself with
 [librespot](https://github.com/librespot-org/librespot): it decodes each track (Ogg Vorbis,
@@ -542,7 +543,7 @@ UPnP players (a WiiM, a Chromecast) show each track's title, artist and cover: f
 stream starts afresh for every track, so tracks change with a short gap instead of
 gaplessly.  The player's queue holds
 one "Spotify Connect" stream; the web UI's queue shows what the Spotify app plays next below
-it (changed in the app).  The devices are
+it (changed in the app), as Spotify last told the device.  The devices are
 registered with the account rather than announced on the network, so they are visible only
 to the account RMS is signed in with.
 

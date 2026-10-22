@@ -162,7 +162,7 @@ const radioItem = (id) => (radioMenu(id.slice(0, id.lastIndexOf('.'))) || []).fi
 // ------------------------------------------------------------------ server state
 const settings = {
   library_name: 'Mock Library', media_dirs: ['/srv/music', '/mnt/nas/flac'], watch_folders: true, upnp_players: false, chromecast_players: false, airplay_players: false, art_folder: '', online_artist_images: false,
-  spotify_client_id: '', spotify_bitrate: 320, spotify_normalisation: false,
+  spotify_bitrate: 320, spotify_normalisation: false,
   musicbrainz: false, acoustid_key: '', musicbrainz_identified: 0, musicbrainz_pending: 0,
   listenbrainz: false, discovered: 0, discovered_played: 0, discovered_rejected: 0,
   listenbrainz_accounts: [], scrobble_spotify: false, scrobble_pending: 0,
@@ -725,7 +725,7 @@ function route(method, parts, q, body) {
     }
     case 'spotify': {
       if (!SPOTIFY) throw new HttpError(404, 'Spotify is not available');
-      if (!id && GET) return spotify.signedIn ? { signed_in: true, playback: true, browsing_own_app: false, user: spotify.user, product: 'premium', learn: true, learned: spotifyLearned.length } : { signed_in: false, playback: false, browsing_own_app: false, learn: true, learned: spotifyLearned.length };
+      if (!id && GET) return spotify.signedIn ? { signed_in: true, user: spotify.user, product: 'premium', learn: true, learned: spotifyLearned.length } : { signed_in: false, learn: true, learned: spotifyLearned.length };
       if (id === 'learned' && GET) return { items: spotifyLearned };
       if (id === 'learned' && method === 'DELETE') { spotifyLearned.length = 0; return {}; }
       if (id === 'items' && GET) {

@@ -840,15 +840,7 @@ artwork?: string, };
 
 export type NewFavorite = { url: string, title: string, };
 
-export type SpotifyStatus = { signed_in: boolean, 
-/**
- * Signed in for playback and Spotify Connect (with Spotify's own client id).
- */
-playback: boolean, 
-/**
- * Browsing goes through the user's own app (a sign-in with its client id).
- */
-browsing_own_app: boolean, user?: string, 
+export type SpotifyStatus = { signed_in: boolean, user?: string, 
 /**
  * `premium`, `free`, …
  */
@@ -924,12 +916,7 @@ connect: boolean, items: Array<Track>,
  */
 error?: string, };
 
-export type SpotifyLogin = { code?: string, 
-/**
- * Start the playback sign-in (Spotify's own client id) rather than one with the own
- * client id (`spotify_client_id`, for browsing).
- */
-playback?: boolean, };
+export type SpotifyLogin = { code?: string, };
 
 export type SpotifyLoginResult = { 
 /**
@@ -969,10 +956,6 @@ radio_direct: boolean,
  * Folder with pictures named after artists; empty for none.
  */
 art_folder: string, online_artist_images: boolean, 
-/**
- * The user's own Spotify app; empty for the shared one.
- */
-spotify_client_id: string, 
 /**
  * kbps: 96, 160 or 320.
  */
@@ -1103,7 +1086,7 @@ adventurous: number,
  */
 scrobble_to: Array<string>, };
 
-export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_client_id?: string, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, visualizer_receiver_app?: string, transition_type?: number, transition_duration?: number, replay_gain_mode?: number, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, };
+export type ServerSettingsPatch = { library_name?: string, media_dirs?: Array<string>, watch_folders?: boolean, upnp_players?: boolean, chromecast_players?: boolean, airplay_players?: boolean, radio_direct?: boolean, art_folder?: string, online_artist_images?: boolean, spotify_bitrate?: number, spotify_normalisation?: boolean, musicbrainz?: boolean, acoustid_key?: string, edit_files?: boolean, file_name_template?: string, listenbrainz?: boolean, scrobble_spotify?: boolean, effnet?: boolean, visualizer_size?: string, visualizer_render_size?: string, visualizer_fps?: string, visualizer_quality?: number, visualizer_preset_seconds?: number, visualizer_receiver_app?: string, transition_type?: number, transition_duration?: number, replay_gain_mode?: number, dont_stop_the_music?: string, adventurous?: number, scrobble_to?: Array<string>, };
 
 export type ScanMode = "changes" | "playlists" | "full";
 

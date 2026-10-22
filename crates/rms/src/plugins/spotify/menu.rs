@@ -1,10 +1,11 @@
 //! Spotify menus (`spotify items|playlist`) and account commands (`spotify login|logout|status`).
 //!
-//! Levels are built on demand from the Web API and rendered by the XMLBrowser like any other
+//! Levels are built on demand ([`super::browse`], [`super::pathfinder`]) and rendered by the XMLBrowser like any other
 //! OPML feed, so they work in Squeezer/SqueezePlay, the web UI and on the player's screen.
 //! Item ids are index paths; each level is fetched again (from a short cache) to descend.
 
-use super::{best_image, session_api, url_for, Spotify};
+use super::model::{Album, Artist, Context, Found, Playlist, SearchKind, Track};
+use super::{url_for, Spotify};
 use crate::control::dispatch::{DispatchTable, Handler};
 use crate::control::jive::xmlbrowser::{
     self, component_index, component_search, split_item_id, Ctx, Feed, Item, Level,
@@ -13,7 +14,6 @@ use crate::control::request::Request;
 use crate::server::Server;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 pub fn register(t: &mut DispatchTable) {
     t.add(
@@ -90,71 +90,54 @@ fn container(name: &str, sub: Option<String>, kind: &str, id: &str, image: Optio
     it
 }
 
-fn track_item(sp: &Spotify, t: &Value) -> Option<Item> {
-    let id = t["id"].as_str()?;
-    if t["is_local"].as_bool().unwrap_or(false) {
-        return None;
-    }
+fn track_item(sp: &Spotify, t: &Track) -> Item {
     sp.remember(t);
-    let m = super::meta_from_track(t);
     let mut it = Item {
-        name: Some(m.title.clone()),
+        name: Some(t.name.clone()),
         name2: Some(
-            [m.artist.clone(), m.album.clone()]
+            [t.artist_names(), t.album.clone()]
                 .into_iter()
                 .filter(|s| !s.is_empty())
                 .collect::<Vec<_>>()
                 .join(" - "),
         ),
         kind: Some("audio".into()),
-        url: Some(url_for("track", id)),
-        image: m.image.clone(),
+        url: Some(t.url()),
+        image: t.cover.clone(),
         playall: true,
         ..Default::default()
     };
-    it.fields
-        .insert("favorites_url".into(), json!(url_for("track", id)));
-    Some(it)
+    it.fields.insert("favorites_url".into(), json!(t.url()));
+    it
 }
 
-fn album_item(a: &Value) -> Option<Item> {
-    let artists: Vec<&str> = a["artists"]
-        .as_array()
-        .map(|x| x.iter().filter_map(|y| y["name"].as_str()).collect())
-        .unwrap_or_default();
-    Some(container(
-        a["name"].as_str()?,
-        Some(artists.join(", ")),
+fn album_item(a: &Album) -> Item {
+    container(
+        &a.name,
+        Some(a.artist_names()),
         "album",
-        a["id"].as_str()?,
-        best_image(&a["images"]),
-    ))
+        &a.id,
+        a.cover.clone(),
+    )
 }
 
-fn playlist_item(p: &Value) -> Option<Item> {
-    let owner = p["owner"]["display_name"].as_str().map(str::to_string);
-    Some(container(
-        p["name"].as_str()?,
-        owner,
+fn playlist_item(p: &Playlist) -> Item {
+    container(
+        &p.name,
+        p.owner.clone(),
         "playlist",
-        p["id"].as_str()?,
-        best_image(&p["images"]),
-    ))
+        &p.id,
+        p.picture.clone(),
+    )
 }
 
-fn artist_item(a: &Value) -> Option<Item> {
-    let mut it = link(
-        a["name"].as_str()?,
-        &format!("artist:{}", a["id"].as_str()?),
-        best_image(&a["images"]),
-    );
-    it.fields.insert(
-        "favorites_url".into(),
-        json!(url_for("artist", a["id"].as_str()?)),
-    );
+fn artist_item(a: &Artist) -> Item {
+    let mut it = link(&a.name, &format!("artist:{}", a.id), a.picture.clone());
+    let url = url_for("artist", &a.id);
+    it.fields.insert("favorites_url".into(), json!(url));
     it.fields.insert("favorites_type".into(), json!("playlist"));
-    it.play = Some(url_for("artist", a["id"].as_str()?));
-    Some(it)
+    it.play = Some(url);
+    it
 }
 
 fn root_items() -> Vec<Item> {
@@ -176,58 +159,39 @@ fn root_items() -> Vec<Item> {
     ]
 }
 
+/// Search results, at most.
+const SEARCH_LIMIT: usize = 50;
+
 impl Spotify {
     /// Children of a menu reference.
     async fn children(&self, sp: &str) -> Result<Vec<Item>, String> {
         let tracks =
-            |v: Vec<Value>| -> Vec<Item> { v.iter().filter_map(|t| track_item(self, t)).collect() };
+            |v: Vec<Track>| -> Vec<Item> { v.iter().map(|t| track_item(self, t)).collect() };
+        let albums = |v: Vec<Album>| -> Vec<Item> { v.iter().map(album_item).collect() };
+        let artists = |v: Vec<Artist>| -> Vec<Item> { v.iter().map(artist_item).collect() };
         let (kind, arg) = sp.split_once(':').unwrap_or((sp, ""));
         Ok(match kind {
             "root" => root_items(),
-            "liked" => tracks(
-                self.api_all("/me/tracks?limit=50", 2000)
-                    .await?
-                    .into_iter()
-                    .map(|i| i["track"].clone())
-                    .collect(),
-            ),
-            "playlists" => self
-                .api_all("/me/playlists?limit=50", 1000)
+            "liked" => tracks(self.liked().await?),
+            "playlists" => self.playlists().await?.iter().map(playlist_item).collect(),
+            "albums" => albums(self.saved_albums().await?),
+            "artists" => artists(self.followed_artists().await?),
+            "recent" => self
+                .recently_played()
                 .await?
                 .iter()
-                .filter_map(playlist_item)
+                .map(|c| match c {
+                    Context::Album(a) => album_item(a),
+                    Context::Playlist(p) => playlist_item(p),
+                    Context::Artist(a) => artist_item(a),
+                })
                 .collect(),
-            "albums" => self
-                .api_all("/me/albums?limit=50", 1000)
-                .await?
-                .iter()
-                .filter_map(|i| album_item(&i["album"]))
-                .collect(),
-            "artists" => self
-                .api_all("/me/following?type=artist&limit=50", 1000)
-                .await?
-                .iter()
-                .filter_map(artist_item)
-                .collect(),
-            "recent" => self.recently_played().await?,
-            "releaseradar" => {
-                let id = self.release_radar().await?;
-                tracks(self.tracks(&url_for("playlist", &id)).await?)
-            }
-            "toptracks" => tracks(self.api_all("/me/top/tracks?limit=50", 100).await?),
-            "topartists" => self
-                .api_all("/me/top/artists?limit=50", 100)
-                .await?
-                .iter()
-                .filter_map(artist_item)
-                .collect(),
-            "new" => self
-                .api_all("/browse/new-releases?limit=50", 100)
-                .await?
-                .iter()
-                .filter_map(album_item)
-                .collect(),
-            "album" | "playlist" => tracks(self.tracks(&url_for(kind, arg)).await?),
+            "releaseradar" => tracks(self.playlist_tracks(&self.release_radar().await?).await?),
+            "toptracks" => tracks(self.top_tracks().await?),
+            "topartists" => artists(self.top_artists().await?),
+            "new" => albums(self.new_releases().await?),
+            "album" => tracks(self.album_tracks(arg).await?),
+            "playlist" => tracks(self.playlist_tracks(arg).await?),
             "artist" => vec![
                 {
                     let mut top = container("Top Tracks", None, "artist", arg, None);
@@ -237,83 +201,33 @@ impl Spotify {
                 },
                 link("Albums", &format!("artistalbums:{arg}"), None),
             ],
-            "artisttop" => tracks(
-                self.api(&format!("/artists/{arg}/top-tracks?market=from_token"))
-                    .await?["tracks"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default(),
-            ),
-            "artistalbums" => self
-                .api_all(
-                    &format!(
-                        "/artists/{arg}/albums?include_groups=album,single,compilation&limit=50"
-                    ),
-                    500,
-                )
-                .await?
+            "artisttop" => tracks(self.artist_top_tracks(arg).await?),
+            "artistalbums" => albums(self.artist_albums(arg).await?),
+            "search" if !arg.is_empty() => SearchKind::ALL
                 .iter()
-                .filter_map(album_item)
+                .map(|k| {
+                    let name = match k {
+                        SearchKind::Track => "Tracks",
+                        SearchKind::Album => "Albums",
+                        SearchKind::Artist => "Artists",
+                        SearchKind::Playlist => "Playlists",
+                    };
+                    link(name, &format!("search{}:{arg}", k.name()), None)
+                })
                 .collect(),
-            "search" if !arg.is_empty() => vec![
-                link("Tracks", &format!("searchtrack:{arg}"), None),
-                link("Albums", &format!("searchalbum:{arg}"), None),
-                link("Artists", &format!("searchartist:{arg}"), None),
-                link("Playlists", &format!("searchplaylist:{arg}"), None),
-            ],
-            k if k.starts_with("search") && !arg.is_empty() => {
-                let t = &k["search".len()..];
-                let r = self
-                    .api(&format!(
-                        "/search?type={t}&limit=50&q={}",
-                        xmlbrowser::escape_search(arg)
-                    ))
-                    .await?;
-                let list = r[format!("{t}s")]["items"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default();
-                match t {
-                    "track" => tracks(list),
-                    "album" => list.iter().filter_map(album_item).collect(),
-                    "artist" => list.iter().filter_map(artist_item).collect(),
-                    _ => list
-                        .iter()
-                        .filter(|p| !p.is_null())
-                        .filter_map(playlist_item)
-                        .collect(),
+            k if !arg.is_empty() => {
+                let Some(kind) = k.strip_prefix("search").and_then(SearchKind::from_name) else {
+                    return Ok(Vec::new());
+                };
+                match self.search(kind, arg, SEARCH_LIMIT).await? {
+                    Found::Tracks(t) => tracks(t),
+                    Found::Albums(a) => albums(a),
+                    Found::Artists(a) => artists(a),
+                    Found::Playlists(p) => p.iter().map(playlist_item).collect(),
                 }
             }
             _ => Vec::new(),
         })
-    }
-
-    /// Recently Played: the albums, playlists and artists played from lately, through the
-    /// session (kept for a few minutes, like [`Self::api_all`]'s lists).
-    async fn recently_played(&self) -> Result<Vec<Item>, String> {
-        let key = "session:recently-played".to_string();
-        let cached = self
-            .lists
-            .lock()
-            .get(&key)
-            .filter(|(at, _)| at.elapsed() < Duration::from_secs(300))
-            .map(|(_, v)| v.clone());
-        let list = match cached {
-            Some(v) => v,
-            None => {
-                let v = session_api::recently_played(&self.session().await?).await?;
-                self.lists.lock().insert(key, (Instant::now(), v.clone()));
-                v
-            }
-        };
-        Ok(list
-            .iter()
-            .filter_map(|c| match c["type"].as_str()? {
-                "album" => album_item(c),
-                "playlist" => playlist_item(c),
-                _ => artist_item(c),
-            })
-            .collect())
     }
 
     /// The level an item id leads to (`descend` for this dynamic tree).
@@ -387,23 +301,15 @@ async fn items_query(server: Arc<Server>, mut r: Request) -> Request {
     r
 }
 
-/// `spotify login [playback:1]` → `url` to open; `spotify login code:<redirected address>` →
-/// `user`.  The sign-in is with the own client id (`spotifyClientId`) for browsing, or with
-/// Spotify's own (`playback:1`, or without an own client id) for playback and browsing.
-async fn login(server: Arc<Server>, mut r: Request) -> Request {
+/// `spotify login` → `url` to open; `spotify login code:<redirected address>` → `user`.
+async fn login(_server: Arc<Server>, mut r: Request) -> Request {
     let Some(sp) = super::get() else {
         r.bad_dispatch();
         return r;
     };
     match r.param("code").map(str::to_string) {
         None => {
-            let id = if r.param("playback") == Some("1") {
-                super::DEFAULT_CLIENT_ID.to_string()
-            } else {
-                super::client_id_or_default(&server.prefs.server.get_str("spotifyClientId"))
-            };
-            let url = sp.start_login(&id);
-            r.add_result("url", url);
+            r.add_result("url", sp.start_login());
             r.add_result("redirect_uri", super::redirect_uri());
         }
         Some(code) => match sp.finish_login(&code).await {
@@ -423,7 +329,7 @@ async fn logout(_server: Arc<Server>, mut r: Request) -> Request {
     r
 }
 
-/// `spotify status`: `signed_in`, `user`, `product` (from the Web API profile).
+/// `spotify status`: `signed_in`, `user`, `product` (`premium`, …).
 async fn status(_server: Arc<Server>, mut r: Request) -> Request {
     let Some(sp) = super::get() else {
         r.bad_dispatch();
@@ -431,22 +337,16 @@ async fn status(_server: Arc<Server>, mut r: Request) -> Request {
     };
     let signed_in = sp.signed_in();
     r.add_result("signed_in", signed_in as i32);
-    r.add_result("playback", sp.playback_signed_in() as i32);
-    r.add_result("browsing_own_app", sp.browsing_own_app() as i32);
     if let Some(e) = super::connect::error() {
         r.add_result("connect_error", e);
     }
     if signed_in {
-        match sp.api("/me").await {
-            Ok(me) => {
-                r.add_result(
-                    "user",
-                    me["display_name"]
-                        .as_str()
-                        .or(me["id"].as_str())
-                        .unwrap_or(""),
-                );
-                r.add_result("product", me["product"].as_str().unwrap_or(""));
+        match sp.account().await {
+            Ok((user, product)) => {
+                r.add_result("user", user);
+                if let Some(p) = product {
+                    r.add_result("product", p);
+                }
             }
             Err(e) => {
                 if let Some(u) = sp.username() {
@@ -465,20 +365,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn items_from_web_api_objects() {
+    fn items_from_tracks_and_albums() {
         let sp = crate::plugins::spotify::init(
             &std::env::temp_dir().join("rms-sp-test"),
             reqwest::Client::new(),
         );
-        let t = json!({ "id": "t1", "name": "Song", "duration_ms": 1000, "artists": [{ "name": "A" }], "album": { "name": "Al", "images": [] } });
-        let it = track_item(&sp, &t).unwrap();
+        let t = Track {
+            id: "t1".into(),
+            name: "Song".into(),
+            artists: vec![super::super::model::ArtistRef {
+                id: "a".into(),
+                name: "A".into(),
+            }],
+            album: "Al".into(),
+            duration_ms: 1000,
+            ..Default::default()
+        };
+        let it = track_item(&sp, &t);
         assert_eq!(it.url.as_deref(), Some("spotify://track:t1"));
         assert_eq!(it.name2.as_deref(), Some("A - Al"));
         assert!(sp.meta.contains_key("spotify://track:t1"));
-        let a = album_item(
-            &json!({ "id": "a1", "name": "Album", "artists": [{ "name": "X" }], "images": [] }),
-        )
-        .unwrap();
+        let a = album_item(&Album {
+            id: "a1".into(),
+            name: "Album".into(),
+            ..Default::default()
+        });
         assert_eq!(a.play.as_deref(), Some("spotify://album:a1"));
         assert_eq!(a.field("sp"), Some(json!("album:a1")));
         assert_eq!(root_items()[0].kind.as_deref(), Some("search"));

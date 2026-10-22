@@ -1109,7 +1109,6 @@
       "radio_direct": false,
       "art_folder": "",
       "online_artist_images": false,
-      "spotify_client_id": "",
       "spotify_bitrate": 320,
       "spotify_normalisation": false,
       "musicbrainz": false,
@@ -1268,7 +1267,6 @@
       "radio_direct": false,
       "art_folder": "",
       "online_artist_images": false,
-      "spotify_client_id": "",
       "spotify_bitrate": 320,
       "spotify_normalisation": false,
       "musicbrainz": false,
@@ -1422,7 +1420,7 @@
   "PATCH /api/v1/settings (unknown setting)": {
     "status": 400,
     "body": {
-      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `radio_direct`, `art_folder`, `online_artist_images`, `spotify_client_id`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet`, `visualizer_size`, `visualizer_render_size`, `visualizer_fps`, `visualizer_quality`, `visualizer_preset_seconds`, `visualizer_receiver_app`, `transition_type`, `transition_duration`, `replay_gain_mode`, `dont_stop_the_music`, `adventurous`, `scrobble_to` at line 1 column 9"
+      "error": "Failed to deserialize the JSON body into the target type: colour: unknown field `colour`, expected one of `library_name`, `media_dirs`, `watch_folders`, `upnp_players`, `chromecast_players`, `airplay_players`, `radio_direct`, `art_folder`, `online_artist_images`, `spotify_bitrate`, `spotify_normalisation`, `musicbrainz`, `acoustid_key`, `edit_files`, `file_name_template`, `listenbrainz`, `scrobble_spotify`, `effnet`, `visualizer_size`, `visualizer_render_size`, `visualizer_fps`, `visualizer_quality`, `visualizer_preset_seconds`, `visualizer_receiver_app`, `transition_type`, `transition_duration`, `replay_gain_mode`, `dont_stop_the_music`, `adventurous`, `scrobble_to` at line 1 column 9"
     }
   },
   "GET /api/v1/players/00%3A04%3A20%3Afe%3Aed%3A01/settings (player settings)": {
@@ -1627,7 +1625,6 @@
       "radio_direct": false,
       "art_folder": "",
       "online_artist_images": false,
-      "spotify_client_id": "",
       "spotify_bitrate": 320,
       "spotify_normalisation": false,
       "musicbrainz": false,
@@ -1964,8 +1961,6 @@
     "status": 200,
     "body": {
       "signed_in": false,
-      "playback": false,
-      "browsing_own_app": false,
       "learn": true,
       "learned": 0
     }

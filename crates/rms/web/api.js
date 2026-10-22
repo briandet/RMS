@@ -165,9 +165,8 @@ export const addListenBrainzAccount = (token) => api('listenbrainz/accounts', { 
 export const patchListenBrainzAccount = (user, patch) => api(`listenbrainz/accounts/${encodeURIComponent(user)}`, { method: 'PATCH', body: patch });
 export const removeListenBrainzAccount = (user) => api(`listenbrainz/accounts/${encodeURIComponent(user)}`, { method: 'DELETE' });
 /** Without `code`: the sign-in page to open (`{url}`); with it: finish (`{user}`). @returns {Promise<SpotifyLoginResult>} */
-/** Start a sign-in (`playback`: with Spotify's own client id), or finish one with `code`. */
-export const spotifyLogin = (code, playback = false) =>
-  api('spotify/login', { method: 'POST', body: code ? { code } : playback ? { playback: true } : {}, timeout: 60000 });
+export const spotifyLogin = (code) =>
+  api('spotify/login', { method: 'POST', body: code ? { code } : {}, timeout: 60000 });
 export const spotifyLogout = () => api('spotify/logout', { method: 'POST', body: {} });
 /** @param {import('./api-types').SpotifyPatch} patch @returns {Promise<SpotifyStatus>} */
 export const patchSpotify = (patch) => api('spotify', { method: 'PATCH', body: patch });

@@ -215,12 +215,11 @@ async fn get_spotify_queue(State(server): State<Arc<Server>>, Path(id): Path<Str
         })
         .into_response();
     };
-    let (items, error) = match sp.queue().await {
+    let (items, error) = match sp
+        .queue(&crate::plugins::spotify::connect::key(&p.id))
+        .await
+    {
         Ok(q) => (q, None),
-        Err(e) if e.contains(" 401") || e.contains(" 403") => (
-            Vec::new(),
-            Some("Sign in to Spotify again (Settings → Spotify) to see its queue here".into()),
-        ),
         Err(e) => (Vec::new(), Some(e)),
     };
     let items = items
