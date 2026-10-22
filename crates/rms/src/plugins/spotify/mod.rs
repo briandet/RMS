@@ -735,6 +735,30 @@ impl Spotify {
         self.meta.insert(track.url(), track.meta());
     }
 
+    /// Look up the tracks among `urls` not yet remembered, all at once: a queue restored at
+    /// start-up, which browsing hasn't seen since, so it shows titles and not URLs.
+    pub async fn look_up(&self, urls: &[String]) {
+        let uris: Vec<String> = urls
+            .iter()
+            .filter(|u| !self.meta.contains_key(*u))
+            .filter_map(|u| match parse_url(u)? {
+                (kind, id) if kind == "track" => Some(format!("spotify:track:{id}")),
+                _ => None,
+            })
+            .collect();
+        if uris.is_empty() {
+            return;
+        }
+        let tracks = match self.session().await {
+            Ok(session) => browse::tracks(&session, &uris).await,
+            Err(e) => Err(e),
+        };
+        match tracks {
+            Ok(tracks) => tracks.iter().for_each(|t| self.remember(t)),
+            Err(e) => warn!("Spotify: the queue's tracks weren't looked up: {e}"),
+        }
+    }
+
     /// Metadata of a track URL, from what was browsed or the session.
     pub async fn track_meta(&self, url: &str) -> Option<TrackMeta> {
         if let Some(m) = self.meta.get(url) {
