@@ -2095,9 +2095,9 @@
             "genres": [
               "Jazz"
             ],
-            "added": "<volatile>",
             "play_count": 0,
-            "skip_count": 0
+            "skip_count": 0,
+            "added": "<volatile>"
           }
         },
         {
@@ -2117,9 +2117,9 @@
             "genres": [
               "Rock"
             ],
-            "added": "<volatile>",
             "play_count": 0,
-            "skip_count": 0
+            "skip_count": 0,
+            "added": "<volatile>"
           }
         }
       ]
@@ -2144,9 +2144,9 @@
         "genres": [
           "Rock"
         ],
-        "added": "<volatile>",
         "play_count": 0,
-        "skip_count": 0
+        "skip_count": 0,
+        "added": "<volatile>"
       }
     }
   },

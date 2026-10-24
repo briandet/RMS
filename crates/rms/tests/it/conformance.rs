@@ -1118,7 +1118,7 @@ fn native_api() {
         let mut blank = |t: &mut Value| {
             if let Some(d) = t.get_mut("detail").and_then(Value::as_object_mut) {
                 for k in ["bpm", "key", "loudness", "analyzed"] {
-                    d.remove(k);
+                    d.shift_remove(k);
                 }
             }
         };
