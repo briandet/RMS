@@ -3,6 +3,8 @@
 
 use crate::common::*;
 use serde_json::{json, Value};
+use std::io::Write;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 fn get(server: &Server, path: &str) -> Value {
@@ -41,11 +43,29 @@ fn titles(t: &[Value]) -> Vec<String> {
     v
 }
 
+/// Whether a folder can be watched here: not when other programs have used up the user's
+/// inotify instances or watches (`fs.inotify.max_user_instances`, `max_user_watches`).
+fn can_watch(dir: &Path) -> Result<(), String> {
+    use notify::Watcher;
+    let mut w = notify::recommended_watcher(|_: notify::Result<notify::Event>| {})
+        .map_err(|e| e.to_string())?;
+    w.watch(dir, notify::RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())
+}
+
 #[test]
 fn the_library_follows_the_music_folder() {
     need_ffmpeg!();
     let dir = tempfile::tempdir().unwrap();
     let m = dir.path();
+    if let Err(e) = can_watch(m) {
+        // straight to stderr, past the test harness's capture: a skip, not a quiet pass
+        let _ = writeln!(
+            std::io::stderr(),
+            "SKIPPED the_library_follows_the_music_folder: can't watch a folder here ({e})"
+        );
+        return;
+    }
     let tags = |title: &'static str, album: &'static str| {
         vec![("title", title), ("artist", "Artist"), ("album", album)]
     };
