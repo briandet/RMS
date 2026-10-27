@@ -375,6 +375,8 @@ pub struct Audible {
     pub album: String,
     /// Image URL.
     pub cover: Option<String>,
+    /// The track's `spotify://track:<id>` URL (not for an episode).
+    pub url: Option<String>,
 }
 
 /// What the Connect stream `url` (`spotify://connect:<key>`) plays now, when known.
@@ -871,11 +873,27 @@ async fn on_event(server: &Arc<Server>, dev: &Arc<Device>, ev: PlayerEvent) {
                 .iter()
                 .max_by_key(|c| c.width)
                 .map(|c| c.url.clone());
+            let url = match &audio_item.unique_fields {
+                librespot_metadata::audio::UniqueFields::Track { .. } => audio_item
+                    .track_id
+                    .to_id()
+                    .ok()
+                    .map(|id| super::url_for("track", &id)),
+                _ => None,
+            };
+            // its album and artist, to browse to from what plays (Spotify's metadata, unlike
+            // the title, doesn't name the album's id)
+            if let (Some(url), Some(sp)) = (url.clone(), super::get()) {
+                crate::util::spawn(async move {
+                    sp.track_meta(&url).await;
+                });
+            }
             let track = Audible {
                 title: audio_item.name.clone(),
                 artist,
                 album,
                 cover,
+                url,
             };
             if dev.reload && dev.driving.load(Ordering::Relaxed) {
                 return reload_for(server, dev, track).await;

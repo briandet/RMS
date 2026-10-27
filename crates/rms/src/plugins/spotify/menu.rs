@@ -230,12 +230,29 @@ impl Spotify {
         })
     }
 
-    /// The level an item id leads to (`descend` for this dynamic tree).
+    /// The level an item id leads to (`descend` for this dynamic tree).  An id may start at
+    /// an album or artist instead of the root (`album:<id>.3`): what now playing links to.
     async fn level(&self, path: &[String], search: Option<&str>) -> Result<Level, String> {
-        let mut feed = Feed {
-            title: Some("Spotify".into()),
-            items: self.children("root").await?,
-            ..Default::default()
+        let start = path
+            .split_first()
+            .and_then(|(first, rest)| Some((first, direct(first)?, rest)));
+        let (mut feed, path) = match start {
+            Some((first, (kind, id), rest)) => {
+                let feed = Feed {
+                    items: self.children(first).await?,
+                    parent: Some(Box::new(container("", None, kind, id, None))),
+                    ..Default::default()
+                };
+                (feed, rest)
+            }
+            None => {
+                let feed = Feed {
+                    title: Some("Spotify".into()),
+                    items: self.children("root").await?,
+                    ..Default::default()
+                };
+                (feed, path)
+            }
         };
         for (depth, comp) in path.iter().enumerate() {
             let i = component_index(comp).ok_or("bad item id")?;
@@ -264,6 +281,12 @@ impl Spotify {
         }
         Ok(Level::List(feed))
     }
+}
+
+/// An item id component naming an album or artist (`album:<id>`): its kind and id.
+fn direct(comp: &str) -> Option<(&str, &str)> {
+    let (kind, id) = comp.split_once(':')?;
+    (matches!(kind, "album" | "artist") && !id.is_empty()).then_some((kind, id))
 }
 
 fn message_level(text: &str) -> Level {
@@ -363,6 +386,19 @@ async fn status(_server: Arc<Server>, mut r: Request) -> Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ids_may_start_at_an_album_or_artist() {
+        assert_eq!(direct("album:a1"), Some(("album", "a1")));
+        assert_eq!(direct("artist:b2"), Some(("artist", "b2")));
+        assert_eq!(direct("playlist:c3"), None);
+        assert_eq!(direct("album:"), None);
+        assert_eq!(direct("3_term"), None);
+        assert_eq!(
+            split_item_id("album:a1.2"),
+            vec!["album:a1".to_string(), "2".to_string()]
+        );
+    }
 
     #[test]
     fn items_from_tracks_and_albums() {

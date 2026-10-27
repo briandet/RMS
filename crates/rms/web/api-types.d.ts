@@ -204,6 +204,11 @@ id?: number, url: string, title: string, artist?: string, artist_id?: number, al
  */
 artwork?: string, 
 /**
+ * Spotify menu ids of a Spotify track's album and first artist (`album:<id>`,
+ * `artist:<id>`), to browse to them.
+ */
+spotify_album?: string, spotify_artist?: string, 
+/**
  * Internet radio, a service track or another remote URL.
  */
 remote: boolean, 

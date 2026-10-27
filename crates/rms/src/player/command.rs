@@ -806,6 +806,7 @@ async fn mixed_entries(server: &Arc<Server>, ids: &[i64]) -> Vec<Entry> {
                             album: t.album.clone().unwrap_or_default(),
                             secs: t.duration.unwrap_or(0.0),
                             image: t.cover.clone(),
+                            ..Default::default()
                         }
                     });
                 }

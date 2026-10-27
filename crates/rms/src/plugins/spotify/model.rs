@@ -43,6 +43,8 @@ impl Track {
             album: self.album.clone(),
             secs: f64::from(self.duration_ms) / 1000.0,
             image: self.cover.clone(),
+            album_id: Some(self.album_id.clone()).filter(|a| !a.is_empty()),
+            artist_id: self.artists.first().map(|a| a.id.clone()),
         }
     }
 }
@@ -155,6 +157,7 @@ mod tests {
                 },
             ],
             album: "Album".into(),
+            album_id: "al".into(),
             cover: Some("l".into()),
             duration_ms: 215000,
             ..Default::default()
@@ -166,6 +169,10 @@ mod tests {
         );
         assert_eq!(m.secs, 215.0);
         assert_eq!(m.image.as_deref(), Some("l"));
+        assert_eq!(
+            (m.album_id.as_deref(), m.artist_id.as_deref()),
+            (Some("al"), Some("a"))
+        );
         assert_eq!(t.url(), "spotify://track:abc");
     }
 

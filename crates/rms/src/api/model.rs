@@ -168,6 +168,12 @@ pub struct Track {
     /// `imageproxy/<url>/image`).  Append `_<w>x<h>_o` for a resized copy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub artwork: Option<String>,
+    /// Spotify menu ids of a Spotify track's album and first artist (`album:<id>`,
+    /// `artist:<id>`), to browse to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spotify_album: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spotify_artist: Option<String>,
     /// Internet radio, a service track or another remote URL.
     pub remote: bool,
     /// Station name, for a radio stream that reports the current song as its title.
