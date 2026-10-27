@@ -380,7 +380,27 @@ impl Player {
         // a controller of its own, until synced
         let ctrl = Controller::new_shared(server, &player);
         ctrl.lock().restore_playlist(&player, server);
+        let spotify: Vec<String> = ctrl
+            .lock()
+            .playlist
+            .entries
+            .iter()
+            .map(|e| e.url.clone())
+            .filter(|u| crate::plugins::spotify::is_spotify(u))
+            .collect();
         *player.controller.write() = ctrl;
+        // what the restored queue's Spotify tracks are: known only from browsing, until now
+        if let (false, Some(sp)) = (spotify.is_empty(), crate::plugins::spotify::get()) {
+            let server = Arc::downgrade(server);
+            crate::util::spawn(async move {
+                sp.look_up(&spotify).await;
+                if let Some(server) = server.upgrade() {
+                    server
+                        .notifier
+                        .notify(Some(id), &["playlist", "newmetadata"]);
+                }
+            });
+        }
         player
     }
 
