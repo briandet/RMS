@@ -361,19 +361,22 @@ pub fn release_radar(data: &Value) -> Option<String> {
 }
 
 /// The albums of the New Releases page (a `browsePage` answer): its first section that has
-/// only albums ("Hand-picked new releases"), newest picks first.
+/// only albums ("Hand-picked new releases"), newest picks first.  An album Spotify no longer
+/// has stays in its place as `NotFound`, and is left out.
 pub fn new_release_uris(data: &Value) -> Option<Vec<String>> {
+    let kind = |i: &Value| i["content"]["data"]["__typename"].clone();
     data["browse"]["sections"]["items"]
         .as_array()?
         .iter()
         .filter_map(|s| s["sectionItems"]["items"].as_array())
         .find(|items| {
-            !items.is_empty()
+            items.iter().any(|i| kind(i) == "Album")
                 && items
                     .iter()
-                    .all(|i| i["content"]["data"]["__typename"] == "Album")
+                    .all(|i| kind(i) == "Album" || kind(i) == "NotFound")
         })?
         .iter()
+        .filter(|i| kind(i) == "Album")
         .map(|i| i["content"]["data"]["uri"].as_str().map(str::to_string))
         .collect()
 }
@@ -641,7 +644,10 @@ mod tests {
             { "sectionItems": { "items": [item("Playlist", "nmf"), item("Playlist", "rr")] } },
             { "sectionItems": { "items": [] } },
             { "sectionItems": { "items": [item("Album", "a1"), item("Playlist", "x")] } },
-            { "sectionItems": { "items": [item("Album", "b1"), item("Album", "b2")] } },
+            { "sectionItems": { "items": [item("NotFound", "gone")] } },
+            { "sectionItems": { "items": [
+                item("Album", "b1"), item("NotFound", "gone"), item("Album", "b2"),
+            ]}},
             { "sectionItems": { "items": [item("Album", "c1")] } },
         ]}}});
         assert_eq!(
