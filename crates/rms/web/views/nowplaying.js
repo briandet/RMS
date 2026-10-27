@@ -217,7 +217,8 @@ function render() {
 
   // Seek bar
   const dur = st.duration || 0;
-  const canSeek = dur > 0 && st.can_seek && !d.remote;
+  // the server knows: a Spotify track can seek, a radio or Connect stream can't
+  const canSeek = dur > 0 && st.can_seek;
   el.seek.max = dur || 0;
   el.seek.disabled = !canSeek;
   el.seek.style.visibility = d.remote && !dur ? 'hidden' : '';
