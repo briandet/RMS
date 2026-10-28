@@ -294,6 +294,14 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .queue-info { font-size: .85rem; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .queue-head .btn-small { flex: none; }
 .queue-list { list-style: none; margin: 0; padding: 0 8px 16px; }
+/* desktop: now playing stays put, only the queue below it scrolls */
+@media (min-width: 900px) {
+  #side { overflow-y: hidden; }
+  .np { flex: none; }
+  /* (and fits a short window, controls included) */
+  .np-art { max-width: min(360px, 40vh); }
+  .queue { overflow-y: auto; overscroll-behavior: contain; }
+}
 .q-item {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center;
   border-radius: var(--radius-sm); position: relative; background: var(--surface);
